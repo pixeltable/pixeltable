@@ -345,7 +345,8 @@
           {
             "group": "Infrastructure",
             "pages": [
-              "integrations/cloud-storage"
+              "integrations/cloud-storage",
+              "integrations/modal"
             ]
           },
           {

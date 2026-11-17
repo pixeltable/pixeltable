@@ -76,7 +76,7 @@ database, and for a project with a `pixeltable.udf` setting, `pxt` refuses a sec
 refuses one under `[tool.pixeltable]` in `pyproject.toml`, which Pixeltable Cloud receives with the project. Keep such
 keys in `config.toml` or in the environment, and set them for Pixeltable Cloud with `pxt secret set`: for example
 `pxt secret set pxt://org:db OPENAI_API_KEY=...` for a hosted database, or `pxt secret set pxt://org OPENAI_API_KEY=...`
-for the UDF servers.
+for the UDF servers (see [Modal](/integrations/modal)).
 
 ```toml
 # pixeltable.toml

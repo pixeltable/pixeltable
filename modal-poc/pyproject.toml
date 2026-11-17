@@ -9,6 +9,11 @@ dependencies = [
     "timm>=1.0.11",
 ]
 
+[project.optional-dependencies]
+modal-cli = [
+    "modal>=1.6.4",
+]
+
 [tool.uv.sources]
 # the commit of this checkout, which Pixeltable Cloud installs in the image of the UDF servers; see README.md
 # TODO: depend on a released pixeltable instead
@@ -17,6 +22,9 @@ pixeltable = { git = "https://github.com/mkornacker/pixeltable.git", rev = "472a
 [tool.pixeltable]
 # ModalServerClient logs one line per call to a UDF server, at DEBUG
 log_level = "DEBUG"
+
+[tool.pixeltable.udf.'pixeltable.functions.video.get_duration']
+cpu = 1
 
 [tool.pixeltable.udf.'pixeltable.functions.video.clip']
 cpu = 2
@@ -27,12 +35,19 @@ cpu = 2
 [tool.pixeltable.udf.'pixeltable.functions.video.concat_videos']
 cpu = 2
 
+[tool.pixeltable.udf.'pixeltable.functions.image.resize']
+cpu = 2
+
 [tool.pixeltable.udf.'pixeltable.functions.image.rotate']
 cpu = 1
+
+[tool.pixeltable.udf.'pixeltable.functions.vision.bboxes_draw']
+cpu = 2
 
 [tool.pixeltable.udf.'pixeltable.functions.huggingface.clip']
 cpu = 2
 memory_mb = 4096
+gpu = "T4"
 
 [tool.pixeltable.udf.'pixeltable.functions.huggingface.image_captioning']
 cpu = 2
@@ -41,7 +56,8 @@ gpu = "T4"
 
 [tool.pixeltable.udf.'pixeltable.functions.huggingface.detr_for_object_detection']
 cpu = 2
-memory_mb = 4096
+memory_mb = 8192
+gpu = "T4"
 
 # the local database's entry: the image of its UDF servers needs ffmpeg for the video UDFs
 [[tool.pixeltable.database]]
