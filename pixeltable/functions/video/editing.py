@@ -13,7 +13,6 @@ import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable.env import Env
 from pixeltable.functions import media_metadata as util
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 from .iterators import VideoSegment
@@ -959,4 +958,16 @@ def mix_audio(
     )
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'clip',
+    'concat_videos',
+    'concat_videos_agg',
+    'extract_audio',
+    'extract_frame',
+    'get_duration',
+    'get_metadata',
+    'make_video',
+    'mix_audio',
+    'segment_video',
+    'with_audio',
+]

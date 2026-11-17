@@ -1,8 +1,12 @@
+import typing
+
 import pytest
 
 import pixeltable as pxt
 
 from ..utils import (
+    assert_sdk_mirrors,
+    assert_type_eq,
     rerun,
     rerun_on_network_error,
     skip_test_if_no_client,
@@ -14,8 +18,7 @@ from .tool_utils import run_tool_invocations_test
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestAnthropic:
     def test_messages(self, uses_db: None) -> None:
@@ -40,14 +43,25 @@ class TestAnthropic:
                 },
             )
         )
+        t.add_computed_column(text=t.output.content[0].text)
+        assert_type_eq(t.text.col_type, pxt.String | None)
         validate_update_status(t.insert(input="How's everything going today?"), 1)
         results = t.collect()
         assert len(results['output'][0]['content'][0]['text']) > 0
         assert len(results['output2'][0]['content'][0]['text']) > 0
+        assert results['text'][0] == results['output'][0]['content'][0]['text']
 
-        # a message without content reaches the API, which rejects it
+        reply = pxt.eval_udf(
+            anthropic.messages,
+            messages=[{'role': 'user', 'content': 'Reply with one word.'}],
+            model='claude-haiku-4-5',
+            max_tokens=20,
+        )
+        assert len(reply['content'][0]['text']) > 0
+
+        # a message without content reaches the API, which rejects it; text inherits the error from output
         status = t.insert(input=None, on_error='ignore')
-        assert status.num_excs == 2
+        assert status.num_excs == 3
         res = t.where(t.input == None).select(t.output.errormsg, t.output2.errormsg).collect()[0]
         assert all('messages.0.content: Input should be a valid array' in msg for msg in res.values())
 
@@ -69,3 +83,19 @@ class TestAnthropic:
             return t
 
         run_tool_invocations_test(make_table, test_tool_choice=True)
+
+
+class TestAnthropicTypedDictAdherence:
+    """Detect drift between the TypedDict mirrors and the SDK Pydantic models. Doesn't need credentials."""
+
+    def test_mirrors(self, init_env: None) -> None:
+        skip_test_if_not_installed('anthropic')
+        from anthropic.types import ContentBlock, Message, Usage
+
+        from pixeltable.functions import anthropic
+
+        # ContentBlock is an Annotated union of the block types
+        block_types = list(typing.get_args(typing.get_args(ContentBlock)[0]))
+        assert_sdk_mirrors(
+            [(anthropic.Message, [Message]), (anthropic.Usage, [Usage]), (anthropic.ContentBlock, block_types)]
+        )

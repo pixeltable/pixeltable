@@ -23,6 +23,22 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestJson:
+    def test_loads(self, uses_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'n': pxt.Int, 's': pxt.String | None})
+        rows = [
+            {'n': 0, 's': '{"a": [1, 2], "b": null}'},
+            {'n': 1, 's': 'null'},
+            {'n': 2, 's': '{'},
+            {'n': 3, 's': None},
+        ]
+        t.insert(rows)
+        status = t.add_computed_column(parsed=pxtf.json.loads(t.s), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.parsed, err=t.parsed.errormsg).order_by(t.n).collect()
+        assert res['parsed'] == [{'a': [1, 2], 'b': None}, None, None, None]
+        assert 'Expecting property name' in res['err'][2]
+        assert t.select(a=t.parsed.a[1]).order_by(t.n).collect()['a'] == [2, None, None, None]
+
     def test_list_iterator(self, uses_db: None) -> None:
         schema = {
             'id': pxt.Int | None,
@@ -548,7 +564,8 @@ class TestJson:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'merge\(\) is only defined for two JSON objects'):
             tn.where(tn.a != None).select(o=tn.a.merge(tn.b)).collect()
 
-    @pytest.mark.very_expensive  # Downloads a Hugging Face model
+    @pytest.mark.skip_merge_queue  # Downloads a Hugging Face model
+    @pytest.mark.xdist_group('large_model')
     @rerun_on_network_error()
     def test_list_iterator_appl(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         """

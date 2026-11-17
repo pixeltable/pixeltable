@@ -47,7 +47,9 @@ def export_iceberg(
         if_exists: Determines the behavior if the table already exists. Must be one of the following:
 
             - `'error'`: raise an error
-            - `'replace'`: drop the existing table and create a new one
+            - `'replace'`: drop the existing table and create a new one. If the catalog swap fails, the new data
+              may be kept for recovery in a table named `<table_name>__pxt_tmp_<suffix>`. When the target is absent
+              or its status cannot be checked, the error message gives the exact temporary identifier to inspect.
             - `'append'`: append to the existing table (source schema must be compatible)
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
             name `name` will be given type `type`, instead of being inferred from the Pixeltable schema. The keys in
@@ -175,9 +177,12 @@ def export_iceberg(
     # original untouched. Drop-then-rename is two catalog calls and not truly atomic; a crash
     # between them leaves the original gone but the data preserved under the temp name.
     temp_name = f'{table_name}__pxt_tmp_{uuid.uuid4().hex[:8]}'
+    temp_created = False
+    preserve_temp = False
 
     try:
         temp_tbl = catalog.create_table(temp_name, schema=arrow_schema)
+        temp_created = True
         fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_WRITE_TEMP)
 
         with temp_tbl.transaction() as tx:
@@ -186,20 +191,34 @@ def export_iceberg(
 
         fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_BEFORE_SWAP)
 
+        # Catalog drop/rename are not transactional. Preserve the completed export on failure
+        # unless we can confirm that the target is available.
+        preserve_temp = True
         if existing_tbl is not None:
             catalog.drop_table(table_name)
         catalog.rename_table(temp_name, table_name)
+        preserve_temp = False
 
     except excs.Error:
         raise
     except Exception as e:
-        raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR, f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
-        ) from e
+        if preserve_temp:
+            try:
+                preserve_temp = not catalog.table_exists(table_name)
+            except Exception:
+                # If the catalog is unavailable, keep the possible recovery copy.
+                pass
+        message = f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
+        if preserve_temp:
+            message += (
+                f'; the catalog swap may be incomplete. Inspect {table_name!r} and temporary identifier '
+                f'{temp_name!r} before retrying.'
+            )
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, message) from e
     finally:
-        # Drop temp if it still exists; covers mid-stream errors and BaseException paths
-        # like KeyboardInterrupt. On success, rename consumed temp_name, so swallow NoSuchTableError.
-        try:
-            catalog.drop_table(temp_name)
-        except NoSuchTableError:
-            pass
+        # Clean up only a temp table we know this call created and do not need for recovery.
+        if temp_created and not preserve_temp:
+            try:
+                catalog.drop_table(temp_name)
+            except NoSuchTableError:
+                pass

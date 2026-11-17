@@ -31,7 +31,7 @@ class ColumnRefByName(Expr):
         super().__init__(col_type if col_type is not None else ts.InvalidType())
         self.name = fold_identifier(name)
         self.model_cls = None
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         return f'ColumnRefByName({self.name!r})'

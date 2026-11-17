@@ -39,7 +39,7 @@ class Parameter:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Default value for parameter {self.name!r} has type `{self.default.col_type}`, '
-                    f'which is not of type `{self.col_type!r}`: {self.default}',
+                    f'which is not of type `{self.col_type!r}`: {self.default!s}',
                 )
 
     def has_default(self) -> bool:
@@ -145,6 +145,24 @@ class Signature:
         parameters = [Parameter.from_dict(param_dict) for param_dict in d['parameters']]
         return cls(ts.ColumnType.from_dict(d['return_type']), parameters, d['is_batched'])
 
+    @classmethod
+    def is_signature_dict(cls, d: dict[str, Any]) -> bool:
+        """Return True if d has the keys of as_dict()."""
+        return d.keys() == {'return_type', 'parameters', 'is_batched'}
+
+    def arg_type(self, arg: int | str) -> ts.ColumnType | None:
+        """Return the type of the parameter for the positional argument at index arg or the keyword argument arg; None
+        if the argument has no named parameter, such as an argument of *args or **kwargs."""
+        if isinstance(arg, str):
+            param = self.parameters.get(arg)
+            return None if param is None else param.col_type
+        positional = [
+            p
+            for p in self.parameters_by_pos
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        return positional[arg].col_type if arg < len(positional) else None
+
     def is_consistent_with(self, other: Signature) -> bool:
         """
         Returns True if this signature is consistent with the other signature.
@@ -232,12 +250,13 @@ class Signature:
     def __hash__(self) -> int:
         return hash((self.return_type, self.parameters))
 
-    def params_str(self) -> str:
+    def params_str(self, with_defaults: bool = False, as_method: bool = False) -> str:
         """Generates a user friendly string describing this signature's input parameters"""
         param_strs: list[str] = []
         pending_pos_only_marker = False
         needs_kw_only_marker = True
-        for p in self.parameters.values():
+        params = list(self.parameters.values())
+        for p in params[1:] if as_method else params:
             if p.kind == inspect.Parameter.POSITIONAL_ONLY:
                 pending_pos_only_marker = True
             elif pending_pos_only_marker:
@@ -253,6 +272,8 @@ class Signature:
                 param_strs.append(f'*{p.name}')
             elif p.kind == inspect.Parameter.VAR_KEYWORD:
                 param_strs.append(f'**{p.name}')
+            elif with_defaults and p.has_default():
+                param_strs.append(f'{p.name}: pxt.{p.col_type} = {p.default!s}')
             else:
                 param_strs.append(f'{p.name}: pxt.{p.col_type}')
         if pending_pos_only_marker:
@@ -261,12 +282,11 @@ class Signature:
 
     def return_str(self, pretty_print_json: bool = False) -> str:
         return_type = self.get_return_type()
-        if pretty_print_json and isinstance(return_type, ts.JsonType) and return_type.pretty_print_name is not None:
-            return return_type.pretty_print_name
-        return f'pxt.{return_type}'
+        return return_type.pretty_str() if pretty_print_json else f'pxt.{return_type}'
 
-    def _to_str(self, pretty_print_json: bool = False) -> str:
-        return f'({self.params_str()}) -> {self.return_str(pretty_print_json)}'
+    # pixeltable-doctools calls _to_str()
+    def _to_str(self, pretty_print_json: bool = False, with_defaults: bool = False) -> str:
+        return f'({self.params_str(with_defaults=with_defaults)}) -> {self.return_str(pretty_print_json)}'
 
     def __str__(self) -> str:
         return self._to_str()

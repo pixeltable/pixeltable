@@ -5,7 +5,7 @@
 
 # The backend agents build with
 
-### Multimodal database, orchestration, and serving in one file, by the co-creators of Apache Parquet and Impala.
+### Multimodal database, orchestration, and serving in one file
 
 Pixeltable is an open-source multimodal database you use from Python. Build AI apps on video, images, audio and documents without writing scripts to keep files, model outputs and search indexes in sync.
 

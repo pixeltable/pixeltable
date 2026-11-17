@@ -9,6 +9,7 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
+from ..globals import PY_RERUN_HINT
 from .definition import BtreeIndex, EmbeddingIndex, IndexDefinition, TableModelMeta, bind_query_templates
 from .diff import (
     _PY_MISMATCH_HINT,
@@ -277,10 +278,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             # e.message excludes e.detail, which is diagnostic text that must not become part of the message
             if len(update_diffs) > 0:
                 migrated = ', '.join(repr(d.path) for _, d in update_diffs)
-                e.args = (
-                    f'{e.message}\n\nThe following table(s) were already migrated: {migrated}. '
-                    'Re-run update_all() to finish reconciling.',
-                )
+                e.args = (f'{e.message}\n\nThe following table(s) were already migrated: {migrated}. {PY_RERUN_HINT}',)
             raise
         return diffs
 

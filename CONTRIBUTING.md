@@ -169,6 +169,14 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         or a dash, or on the next line, or start it with "focus": `claude review focus on function signatures` or
         `claude review: error paths`. Claude reacts to the comment with a thumbs-up when the review starts, and posts
         its summary and inline comments as one review. A request while a Claude review of the PR runs starts no other.
+        The comment-triggered review cannot push code.
+    * When a scheduled `tests`, `stress-tests`, or `nightly` run on `main` fails, the same workflow starts a separate
+        CI-fix job with Opus. That job may open one fix PR per workflow from a `claude/ci-fix-<workflow>-<run>`
+        branch. The workflow then comments `agent review` on the PR, which is meant for Grok and Muse, and runs the
+        Claude review above on it as a sibling job; the review job still cannot push. A person addresses the findings
+        and merges. The job does not auto-fix core catalog, transaction, or concurrency failures, and it does not
+        reopen a PR a person closed. Nightly tests the `release` tag, so a fix on `main` does not clear nightly until
+        the next release.
     * To have your coding agent review a PR or branch, ask it to `review <PR or branch> with structure-review`, or
         run `/structure-review <PR or branch>` in Claude Code. The agent drafts the review and posts nothing unless
         you ask. Reviewing a PR requires the GitHub CLI, authenticated with `gh auth login`.

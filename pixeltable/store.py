@@ -8,6 +8,7 @@ from uuid import UUID
 
 import psycopg
 import sqlalchemy as sql
+from sqlalchemy.dialects import postgresql
 
 from pixeltable import catalog, exceptions as excs, telemetry, telemetry_schemas
 from pixeltable.catalog.update_status import RowCountStats
@@ -501,10 +502,14 @@ class StoreBase:
         rowids: Iterator[int] | None = None,
         abort_on_exc: bool = False,
         return_rows: bool = False,
+        skip_existing_keys: bool = False,
     ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
         """Insert rows into the store table and update the catalog table's md.
 
         On a data-versioned table the new rows get the table's current version as their v_min.
+
+        With skip_existing_keys, a row of an operational table whose primary key is already in the table is not
+        inserted and counts as skipped.
 
         Returns:
             set of column ids that have exceptions, row count stats, newly inserted rows (if return_rows)
@@ -518,7 +523,10 @@ class StoreBase:
         # TODO: total?
         num_excs = 0
         num_rows = 0
+        num_conflicts = 0
         cols_with_excs: set[int] = set()
+        # a concurrent writer of an operational table can insert a key after the plan looked it up
+        on_conflict_skip = skip_existing_keys and not is_data_versioned
         row_builder = exec_plan.row_builder
 
         store_col_names = row_builder.store_column_names()
@@ -563,34 +571,76 @@ class StoreBase:
 
                 # if a batch is ready for insertion into the database, insert it
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
-                    self.sql_insert(self.sa_tbl, store_col_names, table_rows)
+                    stored_rows = self.sql_insert(
+                        self.sa_tbl, store_col_names, table_rows, skip_existing_keys=on_conflict_skip
+                    )
+                    num_conflicts += len(table_rows) - len(stored_rows)
                     if progress_reporter is not None:
-                        progress_reporter.update(len(table_rows))
+                        progress_reporter.update(len(stored_rows))
                     if return_rows:
-                        inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
+                        inserted_rows.extend(row_builder.create_output_rows(table_rows=stored_rows, has_pk=True))
                     table_rows.clear()
 
             # insert any remaining rows
             if len(table_rows) > 0:
-                self.sql_insert(self.sa_tbl, store_col_names, table_rows)
+                stored_rows = self.sql_insert(
+                    self.sa_tbl, store_col_names, table_rows, skip_existing_keys=on_conflict_skip
+                )
+                num_conflicts += len(table_rows) - len(stored_rows)
                 if progress_reporter is not None:
-                    progress_reporter.update(len(table_rows))
+                    progress_reporter.update(len(stored_rows))
                 if return_rows:
-                    inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
+                    inserted_rows.extend(row_builder.create_output_rows(table_rows=stored_rows, has_pk=True))
 
+            num_rows -= num_conflicts
             telemetry_schemas.rows_written.add(
                 num_rows, table=self.tbl_version.get().name, table_id=str(self.tbl_version.id)
             )
-            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs)
+            row_counts = RowCountStats(
+                inserted_rows=num_rows, num_excs=num_excs, skipped_rows=exec_plan.ctx.num_skipped_rows + num_conflicts
+            )
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
 
-    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[list[Any]]) -> None:
+    def sql_insert(
+        self,
+        sa_tbl: sql.Table,
+        store_col_names: list[str],
+        table_rows: list[list[Any]],
+        *,
+        skip_existing_keys: bool = False,
+    ) -> list[list[Any]]:
+        """Insert table_rows into sa_tbl.
+
+        With skip_existing_keys, a row whose primary key is already in the operational table sa_tbl is not inserted.
+
+        Returns:
+            The elements of table_rows that were inserted: all of them, or with skip_existing_keys, those with a new
+            primary key.
+        """
         assert len(table_rows) > 0
         conn = get_runtime().conn
+        params = [dict(zip(store_col_names, table_row)) for table_row in table_rows]
         try:
             with telemetry.span('pixeltable.sa.insert_rows', **telemetry_schemas.StoreAttrs(rows=len(table_rows))):
-                conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+                if not skip_existing_keys:
+                    conn.execute(sql.insert(sa_tbl), params)
+                    return table_rows
+
+                assert not self.tbl_version.get().is_data_versioned
+                # an operational table's primary key is a unique constraint, and its rowid is a single column
+                rowid_cols = self.rowid_columns()
+                assert len(rowid_cols) == 1, rowid_cols
+                rowid_col = rowid_cols[0]
+                stmt = (
+                    postgresql.insert(sa_tbl)
+                    .on_conflict_do_nothing(constraint=self.pk_constraint_name(self.tbl_version.get()))
+                    .returning(sa_tbl.c[rowid_col.name])
+                )
+                inserted_rowids = {row[0] for row in conn.execute(stmt, params)}
+                rowid_idx = store_col_names.index(rowid_col.name)
+                return [table_row for table_row in table_rows if table_row[rowid_idx] in inserted_rowids]
+
         except sql.exc.IntegrityError as e:
             if (
                 isinstance(e.orig, psycopg.errors.UniqueViolation)
@@ -604,6 +654,7 @@ class StoreBase:
                     excs.ErrorCode.CONSTRAINT_VIOLATION, f'Duplicate primary key value: {detail}'
                 ) from e
             raise
+
         except sql.exc.OperationalError as e:
             if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
                 pk_name = self.pk_constraint_name(self.tbl_version.get())
@@ -734,7 +785,7 @@ class StoreBase:
             if len(bind_params) > 0:
                 flush()
 
-        row_counts = RowCountStats(upd_rows=num_rows, num_excs=num_excs)
+        row_counts = RowCountStats(updated_rows=num_rows, num_excs=num_excs)
         return cols_with_excs, row_counts, (updated_rows if return_rows else None)
 
     def _sql_update(self, stmt: sql.Update, params: list[dict[str, Any]]) -> None:
@@ -900,9 +951,9 @@ class StoreView(StoreBase):
 
 
 class StoreComponentView(StoreView):
-    """A view that stores components of its base, as produced by a ComponentIterator
+    """A view that stores components of its base, as produced by an iterator
 
-    PK: now also includes pos, the position returned by the ComponentIterator for the base row identified by base_rowid
+    PK: now also includes pos, the position returned by the iterator for the base row identified by base_rowid
     """
 
     def __init__(self, catalog_view: catalog.TableVersion):

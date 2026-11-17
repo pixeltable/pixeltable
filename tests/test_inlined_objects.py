@@ -24,7 +24,7 @@ from .utils import (
 )
 
 
-@pytest.mark.expensive  # Large data volumes involved; must run on larger instances
+@pytest.mark.expensive  # Large data volumes
 class TestInlinedObjects:
     def test_null_arrays(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -43,6 +43,7 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
+    @pytest.mark.resource_intensive
     def test_insert_arrays(self, db_root: DatabaseRoot) -> None:
         """Test storing arrays of various sizes and dtypes."""
         p = db_root.make_catalog_path
@@ -198,6 +199,7 @@ class TestInlinedObjects:
         if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
+    @pytest.mark.resource_intensive
     def test_nonstandard_json_construction(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('imagehash')

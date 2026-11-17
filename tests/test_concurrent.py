@@ -243,6 +243,28 @@ class TestConcurrentOps:
         errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
+    def test_concurrent_insert_if_exists(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """Concurrent insert(if_exists='ignore') calls with the same keys insert each key once."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test'), {'id': pxt.Int, 'name': pxt.String}, primary_key='id', _is_data_versioned=is_data_versioned
+        )
+        rows = [{'id': i, 'name': str(i)} for i in range(500)]
+        statuses: list[pxt.UpdateStatus] = []
+        lock = threading.Lock()
+
+        def worker(_tid: int) -> None:
+            for start in range(0, len(rows), 50):
+                status = t.insert(rows[start : start + 50], if_exists='ignore')
+                with lock:
+                    statuses.append(status)
+
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
+        self._assert_no_errors(errors)
+        assert t.count() == len(rows)
+        assert sum(status.num_rows for status in statuses) == len(rows)
+        assert sum(status.row_count_stats.skipped_rows for status in statuses) == (self.NUM_THREADS - 1) * len(rows)
+
     def test_concurrent_select_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """
         Concurrent threads doing select and insert operations on the same table.

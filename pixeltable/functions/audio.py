@@ -14,7 +14,6 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils import av as av_utils
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 from . import media_metadata as util
@@ -785,7 +784,7 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`max_size` must be a positive number of bytes')
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['audio_splitter', 'encode_audio', 'fade_in', 'fade_out', 'get_metadata', 'multiply_volume', 'normalize']
 
 
 def __dir__() -> list[str]:

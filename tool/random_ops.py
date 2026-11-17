@@ -44,7 +44,7 @@ _EXPECTED_ERROR_PATTERNS = (
     re.compile(r'Table was dropped'),
     re.compile(r'Column was dropped'),
     re.compile(r"Cannot use if_exists=.+ with the same name as one of the view's own ancestors"),
-    re.compile(r'Cannot alter column .+ because the following columns depend on it.+'),
+    re.compile(r'Column .+ cannot become nullable: non-nullable columns depend on it.+'),
     re.compile(r'Cannot drop base table column .+'),
 )
 
@@ -305,7 +305,7 @@ class RandomTableOps:
         jsons = sum(1 for row in rows if row['bc_json'] is not None)
         imgs = sum(1 for row in rows if row['bc_image'] is not None)
         return success(
-            f'Inserted {us.row_count_stats.ins_rows} rows into {self.tbl_descr(t)} '
+            f'Inserted {us.row_count_stats.inserted_rows} rows into {self.tbl_descr(t)} '
             f'(with {arrays} arrays, {jsons} jsons, {imgs} images).'
         )
 
@@ -353,13 +353,15 @@ class RandomTableOps:
         us = t.where(t.bc_int % p == 0).update(
             {'bc_string': t.bc_string + '_u', 'bc_float': t.bc_float + 1.9, 'bc_bool': ~t.bc_bool}
         )
-        return success(f'Updated {us.row_count_stats.upd_rows} rows in {self.tbl_descr(t)} where bc_int % {p} == 0.')
+        return success(
+            f'Updated {us.row_count_stats.updated_rows} rows in {self.tbl_descr(t)} where bc_int % {p} == 0.'
+        )
 
     def delete_rows(self) -> OpResult:
         t = self.get_random_tbl(allow_view=False)
         p = random.choice(PRIMES)
         us = t.where(t.bc_int % p == 0).delete()
-        n_del = us.row_count_stats.del_rows
+        n_del = us.row_count_stats.deleted_rows
         tbl = self.tbl_descr(t)
         return success(f'Deleted {n_del} rows from {tbl} where bc_int % {p} == 0.')
 
