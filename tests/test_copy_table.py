@@ -264,9 +264,11 @@ class TestCopyTable:
 
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.create_table(p('existing'), source=t)
-        # 'ignore' refuses a view at the path
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists and is not a table'):
-            pxt.create_table(p('existing_view'), schema_source=t, if_exists='ignore')
+        # 'ignore' refuses a view at the path, as source and as schema_source
+        for like_arg in ('source', 'schema_source'):
+            kwargs = {like_arg: t}
+            with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists and is not a table'):
+                pxt.create_table(p('existing_view'), if_exists='ignore', **kwargs)
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match='does not exist'):
             pxt.create_table(p('no_dir/dst'), source=t)
 

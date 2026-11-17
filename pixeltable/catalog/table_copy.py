@@ -382,6 +382,10 @@ def copy_table(
     # import_table() does the 'replace'.
     existing = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
     if existing is not None and if_exists == IfExistsParam.IGNORE:
+        if existing._tbl_path.is_view():
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists and is not a table'
+            )
         return existing, False
     if existing is not None and if_exists == IfExistsParam.ERROR:
         raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists.')
