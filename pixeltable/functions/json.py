@@ -212,7 +212,8 @@ def _number_array_agg(self: sql.ColumnElement, agg_fn: Any, empty_value: int | N
     an empty array yields empty_value rather than null.
     """
     elem = sql.func.jsonb_array_elements(self).column_valued('e')
-    agg: sql.ColumnElement = sql.select(agg_fn(elem.cast(sql.Numeric))).scalar_subquery()
+    # without type_, SQLAlchemy leaves the type of avg() as NullType
+    agg: sql.ColumnElement = sql.select(agg_fn(elem.cast(sql.Numeric), type_=sql.Numeric)).scalar_subquery()
     if empty_value is not None:
         agg = sql.func.coalesce(agg, empty_value)
     return sql.case((sql.func.jsonb_typeof(self) == 'array', agg), else_=sql.func.jsonb_array_length(self))

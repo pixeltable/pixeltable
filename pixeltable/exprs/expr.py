@@ -241,11 +241,15 @@ class Expr(abc.ABC):
         Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
         but shares everything else (catalog objects, etc.)
         """
+        return self._with_components([c.copy() for c in self.components])
+
+    def _with_components(self, components: list[Expr]) -> Self:
+        """Return a copy of this expr with the given components."""
         cls = self.__class__
         result = cls.__new__(cls)
         result.__dict__.update(self.__dict__)
         result.slot_idx = None
-        result.components = [c.copy() for c in self.components]
+        result.components = components
         return result
 
     @classmethod
@@ -263,20 +267,15 @@ class Expr(abc.ABC):
         return result
 
     def substitute(self, spec: ExprDict[Expr]) -> Expr:
-        """
-        Replace 'old' with 'new' recursively, and return a new version of the expression
-        This method must be used in the form: expr = expr.substitute(spec)
-        """
+        """Return a copy of this expr, with each subexpression matching a key of spec replaced by the key's value."""
         from .literal import Literal
 
         if isinstance(self, Literal):
-            return self
+            return self.copy()
         for old, new in spec.items():
             if self.equals(old):
                 return new.copy()
-        for i in range(len(self.components)):
-            self.components[i] = self.components[i].substitute(spec)
-        result = self.maybe_literal()
+        result = self._with_components([c.substitute(spec) for c in self.components]).maybe_literal()
         result._expr_id = result._create_id()
         return result
 
@@ -757,6 +756,8 @@ class Expr(abc.ABC):
           or [`date.strptime()`][pixeltable.functions.date.strptime].
         - String to Image: the string is a file path or URL.
 
+        A Float does not cast to Int; use [`to_int()`][pixeltable.functions.math.to_int] instead.
+
         Args:
             new_type: The type to cast to.
 
@@ -774,6 +775,12 @@ class Expr(abc.ABC):
 
         # Interpret the type argument the same way we would if given in a schema
         col_type = ts.ColumnType.normalize_type(new_type, allow_builtin_types=False)
+        if self.col_type.is_float_type() and col_type.is_int_type():
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'Cannot convert {self!s} from Float to Int with astype(). Use to_int() to truncate toward zero, '
+                'or apply floor(), ceil() or round() first, as in t.x.floor().to_int().',
+            )
         if not self.col_type.nullable:
             # This expression is non-nullable; we can prove that the output is non-nullable, regardless of
             # whether new_type is given as nullable.

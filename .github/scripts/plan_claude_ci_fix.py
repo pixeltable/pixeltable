@@ -1,7 +1,7 @@
 """Decide whether a completed scheduled CI run should start a Claude CI-fix job.
 
-Handles the "workflow_run" event of `tests`, `stress-tests`, and `nightly`. A fix job runs only for a scheduled
-run on the default branch whose conclusion is failure or timed_out, and only when that run is still the latest
+Handles the "workflow_run" event of `tests`, `stress-tests`, and `pip-install-tests`. A fix job runs only for a
+scheduled run on the default branch whose conclusion is failure or timed_out, and only when that run is still the latest
 scheduled run of that workflow. It does not run when a same-repo PR already links this run (a person took over, or
 closed it) or when this workflow already has an open CI-fix PR. The fix branch is computed here from the run id and is
 never read from a PR. Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, and REPO from the environment; `gh` authenticates
@@ -17,8 +17,8 @@ import subprocess
 import sys
 from typing import Any
 
-# Nightly checks out the `release` tag. A fix merged to main does not clear nightly until the next release.
-TESTED_REF = {'nightly': 'release', 'tests': 'main', 'stress-tests': 'main'}
+# pip-install-tests checks out the `release` tag. A fix merged to main does not clear it until the next release.
+TESTED_REF = {'pip-install-tests': 'release', 'tests': 'main', 'stress-tests': 'main'}
 BRANCH_PREFIX = 'claude/ci-fix-'
 FAIL_CONCLUSIONS = frozenset({'failure', 'timed_out'})
 PR_JSON = 'number,title,state,headRefName,body,mergedAt,url,isCrossRepository'

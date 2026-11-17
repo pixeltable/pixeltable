@@ -343,6 +343,10 @@ jobs:
       - name: Notebook checks
         if: ${{ matrix.test-category == 'lint' }}
         run: ./scripts/check-notebooks.sh
+      - name: Copy the Postgres server log
+        if: ${{ always() && matrix.test-category == 'py' }}
+        # Into the archived directory, for the server's side of a dropped or hung connection (FATAL and EOF messages)
+        run: cp "$HOME/.pixeltable/pgdata/log" "$RUNNER_TEMP/pxt-pytest/postgres-server.log" || true
       - name: Archive log files
         if: ${{ always() && matrix.test-category == 'py' }}
         # Diagnostic only: a failed upload must not fail the job.
@@ -355,6 +359,7 @@ jobs:
             ${{ runner.temp }}/pxt-pytest/**/.pixeltable/logs
             ${{ runner.temp }}/pxt-pytest/**/.pixeltable/proxy_*/logs
             ${{ runner.temp }}/pxt-pytest/**/pxt-daemon*/daemon.log
+            ${{ runner.temp }}/pxt-pytest/postgres-server.log
           include-hidden-files: true
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
