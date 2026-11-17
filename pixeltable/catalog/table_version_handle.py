@@ -67,6 +67,8 @@ class TableVersionHandle:
             # not yet valid.
             return cat._get_tbl_version(self.key, validate_initialized=False)
 
+        # TODO: a pinned handle must also raise after another process reverts its version,
+        # or after a later insert reuses the version number
         if self.effective_version is not None:
             cached_tv = cat._tbl_versions.get(self.key)
             if cached_tv is not None:
