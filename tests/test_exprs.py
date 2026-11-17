@@ -540,12 +540,13 @@ class TestExprs:
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
 
     @pytest.mark.parametrize('backfill', [True, False], ids=['backfill', 'insert'])
-    def test_int_mod_negative_operands(self, db_root: DatabaseRoot, backfill: bool) -> None:
-        """Int % evaluated in SQL must match Python's %, including for negative operands."""
+    def test_int_mod(self, db_root: DatabaseRoot, backfill: bool) -> None:
+        """Int % matches Python for signed 64-bit boundaries, signs, and nulls in SQL and on insert."""
         t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int | None, 'b': pxt.Int | None})
-        # PostgreSQL's BIGING (signed 64 bit) limits
+        # PostgreSQL's BIGINT limits (signed 64-bit integers).
         int_min, int_max = -(2**63), 2**63 - 1
         # (dividend, divisor)
+        # Zero divisors are excluded because SQL and Python error handling differs (PXT-1833).
         operands = [
             (int_min, int_min),
             (int_min, -3),
@@ -626,6 +627,7 @@ class TestExprs:
             (None, None),
         ]
         rows = [{'a': a, 'b': b} for a, b in operands]
+        # Defining the column before insert exercises Python; adding it afterward exercises SQL backfill.
         if not backfill:
             validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=0)
         validate_update_status(t.insert(rows), expected_rows=len(rows))
@@ -642,6 +644,16 @@ class TestExprs:
         non_null_results = sum(row['a'] is not None and row['b'] is not None for row in rows)
         assert t.where(t.a % t.b == t.stored_mod).count() == non_null_results
         assert t.where(t.a % t.b == None).count() == len(rows) - non_null_results
+
+        res = (
+            t.where(t.a.isin([-7, -6, 0, 6, 7]) & t.b.isin([-3, 3]))
+            .select(t.a, t.b, sql_floordiv=t.a // t.b, sql_mod=t.a % t.b)
+            .collect()
+        )
+        assert len(res) == 10
+        for row in res:
+            assert row['sql_floordiv'] == row['a'] // row['b'], row
+            assert row['a'] == row['sql_floordiv'] * row['b'] + row['sql_mod'], row
 
     def test_pow(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
