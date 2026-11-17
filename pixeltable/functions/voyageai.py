@@ -233,7 +233,7 @@ async def multimodal_embed(
 
     __Requirements:__
 
-    - `pip install voyageai`
+    - `pip install voyageai`, or `pip install 'voyageai[video]'` to embed video
 
     Args:
         text: The text to embed.
