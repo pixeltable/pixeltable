@@ -1237,7 +1237,7 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
 
             @pxt.query
-            def q_cast(n: float) -> pxt.Query:
+            def q_cast(n: bool) -> pxt.Query:
                 return t.select(t.c4).limit(n.astype(pxt.Int | None))  # type: ignore[attr-defined]
 
         # column reference is not allowed for limit
@@ -1255,7 +1255,7 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
 
             @pxt.query
-            def q_off_cast(n: float) -> pxt.Query:
+            def q_off_cast(n: bool) -> pxt.Query:
                 return t.select(t.c4).limit(10, offset=n.astype(pxt.Int | None))  # type: ignore[attr-defined]
 
         # column reference is not allowed for offset
