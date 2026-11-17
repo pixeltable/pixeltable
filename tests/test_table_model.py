@@ -1240,7 +1240,7 @@ class TestTableModel:
         class Trips(TableModel, name='trips'):
             id: pxt.Int
             num_stops: pxt.Int
-            meta: pxt.Json[{'codes': [str]}]
+            meta: pxt.Json[{'codes': [str], 'fares': [int]}]
 
         class Legs(TableModel, name='legs', base=Trips, iterator=legs(Trips.num_stops + 1)):
             pass
@@ -1251,15 +1251,17 @@ class TestTableModel:
         class TripCodes(
             TableModel, name='trip_codes', base=Trips, iterator=pxtf.json.list_iterator(code=Trips.meta.codes)
         ):
-            pass
+            raised_fares = Trips.meta.fares.map(lambda fare: fare + 1)
 
         class LowerTripCodes(TableModel, name='lower_trip_codes', base=TripCodes):
             lower_code = TripCodes.code.lower()
 
         TableModel.update_all(p(''))
-        Trips.insert([{'id': 1, 'num_stops': 2, 'meta': {'codes': ['A', 'B']}}])
+        Trips.insert([{'id': 1, 'num_stops': 2, 'meta': {'codes': ['A', 'B'], 'fares': [10, 20]}}])
         assert LaterLegs.table.order_by(LaterLegs.pos).collect()['next_leg'] == [2, 3]
-        assert LowerTripCodes.table.order_by(LowerTripCodes.pos).collect()['lower_code'] == ['a', 'b']
+        res = LowerTripCodes.table.order_by(LowerTripCodes.pos).collect()
+        assert res['lower_code'] == ['a', 'b']
+        assert res['raised_fares'] == [[11, 21], [11, 21]]
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
