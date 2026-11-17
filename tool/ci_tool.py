@@ -118,11 +118,9 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
         else:
             configs.append(MatrixConfig('standard+', 'py', MAIN_PLATFORM, '3.11', pytest_markers=EXPENSIVE_MARKERS))
-
-        if trigger == 'merge_group':
-            # The notebooks with the markers of standard+
             configs.append(MatrixConfig('notebooks+', 'ipynb', MAIN_PLATFORM, '3.11', pytest_markers=EXPENSIVE_MARKERS))
-        else:
+
+        if trigger != 'merge_group':
             configs.append(
                 MatrixConfig(
                     'resource-intensive',

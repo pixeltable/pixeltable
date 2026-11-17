@@ -16,6 +16,8 @@ from tool.ci_tool import (
 
 # The triggers under which a fully populated matrix is generated; 'pull_request' deliberately runs a reduced one.
 FULL_TRIGGERS = tuple(t for t in TRIGGERS if t != 'pull_request')
+# Each trigger with the force_all values that CI passes for it (a dispatch builds the same matrix as the schedule)
+SCHEDULES = [('pull_request', False), ('merge_group', False), ('schedule', False), ('schedule', True)]
 
 
 class TestBuildConfigs:
@@ -69,18 +71,18 @@ class TestBuildConfigs:
         assert sorted(m for m in markers if m != DEFAULT_MARKERS + suffix) == sorted(m + suffix for m in tiered)
         assert DEFAULT_MARKERS + suffix in markers
 
-    @pytest.mark.parametrize(
-        ('trigger', 'force_all', 'notebook_markers'),
-        [
-            ('pull_request', False, []),
-            ('merge_group', False, [f'{EXPENSIVE_MARKERS} and not skip_merge_queue']),
-            ('schedule', False, [RESOURCE_INTENSIVE_MARKERS]),
-            ('schedule', True, [VERY_EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS]),
-        ],
-    )
-    def test_notebook_markers_by_trigger(self, trigger: str, force_all: bool, notebook_markers: list[str]) -> None:
+    @pytest.mark.parametrize(('trigger', 'force_all'), SCHEDULES)
+    def test_notebooks_follow_unit_tests(self, trigger: str, force_all: bool) -> None:
         configs = build_configs(trigger, force_all=force_all, has_aws_credentials=True)
-        assert [cfg.pytest_markers for cfg in configs if cfg.test_category == 'ipynb'] == notebook_markers
+        markers = {cfg.display_name_prefix: cfg.pytest_markers for cfg in configs}
+        counterparts = {
+            'notebooks+': 'standard+',
+            'notebooks++': 'standard++',
+            'resource-intensive-notebooks': 'resource-intensive',
+        }
+        assert {cfg.display_name_prefix for cfg in configs if cfg.test_category == 'ipynb'} <= counterparts.keys()
+        for notebooks, unit_tests in counterparts.items():
+            assert markers.get(notebooks) == markers.get(unit_tests), notebooks
 
     @pytest.mark.parametrize('trigger', ['pull_request', 'merge_group'])
     def test_merge_queue_excludes_scheduled_only_tiers(self, trigger: str) -> None:
@@ -88,10 +90,7 @@ class TestBuildConfigs:
         for cfg in build_configs(trigger, force_all=False, has_aws_credentials=True):
             assert excluded <= set(cfg.pytest_markers.split(' and ')), cfg.display_name
 
-    @pytest.mark.parametrize(
-        ('trigger', 'force_all'),
-        [('pull_request', False), ('merge_group', False), ('schedule', False), ('schedule', True)],
-    )
+    @pytest.mark.parametrize(('trigger', 'force_all'), SCHEDULES)
     def test_large_runner_runs_only_resource_intensive(self, trigger: str, force_all: bool) -> None:
         for cfg in build_configs(trigger, force_all=force_all, has_aws_credentials=True):
             assert (cfg.os == LARGE_PLATFORM) == (cfg.pytest_markers == RESOURCE_INTENSIVE_MARKERS), cfg.display_name

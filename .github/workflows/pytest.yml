@@ -4,7 +4,8 @@ name: tests
 #
 # PR updates and the merge queue leave out the tests with the skip_merge_queue, very_expensive and resource_intensive
 # markers. Tests with the expensive marker run only on the standard+ and standard++ configurations. The notebook tests
-# take the same markers (NOTEBOOK_MARKERS in tests/notebook_markers.py).
+# take the same markers (NOTEBOOK_MARKERS in tests/notebook_markers.py), and notebooks+, notebooks++ and
+# resource-intensive-notebooks run on the same triggers as standard+, standard++ and resource-intensive.
 #
 # On every trigger (including PR updates):
 #   - Linting, type-checking, docstring validation, etc.
@@ -23,16 +24,15 @@ name: tests
 #   - Python 3.12, 3.13, and 3.14 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.11 on ubuntu-24.04-arm and macos-15-intel.
 #   - Minimal Pixeltable with an S3 media destination (only when AWS credentials are available).
-#   - Notebook tests on ubuntu-24.04, with the markers of standard+.
+#   - Notebook tests on ubuntu-24.04, with the markers of standard+ (notebooks+).
 #
-# On a daily schedule (against branch 'main'), the merge queue configurations except the notebook tests, with these
-# changes:
-#   - Every unit test configuration also runs the skip_merge_queue tests.
+# On a daily schedule (against branch 'main'), the merge queue configurations, with these changes:
+#   - Every unit test and notebook configuration also runs the skip_merge_queue tests.
 #   - The resource_intensive tests and notebooks run on ubuntu-large, and nowhere else.
 #
 # On Tuesdays, the scheduled run is the weekly run, with these additions:
 #   - The very_expensive tests on Python 3.11 on ubuntu-24.04 (standard++).
-#   - Notebook tests on ubuntu-24.04, with the markers of standard++.
+#   - The very_expensive notebooks (notebooks++, in place of notebooks+).
 #   - Python 3.11 on ubuntu-small-t4 (equipped with an NVIDIA T4 GPU).
 #
 # A workflow_dispatch trigger runs the daily configurations by default, or the weekly ones with "Run on all
@@ -192,8 +192,8 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==7.1.1=gpl*'
       - name: Install ollama
-        # test_ollama.py runs only on standard+ and standard++ outside the merge queue, and the ollama notebook only on
-        # the weekly notebooks++
+        # test_ollama.py and the ollama notebook run only on standard+/standard++ and notebooks+/notebooks++, outside the
+        # merge queue
         if: ${{ github.event_name != 'merge_group' && (startsWith(matrix.display-name, 'standard+') || startsWith(matrix.display-name, 'notebooks+')) }}
         run: |
           ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh

@@ -138,16 +138,15 @@ in `tests/notebook_markers.py` with the same markers:
 
 | Marker | For example | Where the notebook runs |
 |---|---|---|
-| none | Pixeltable alone, OpenAI chat and embeddings, Whisper | Merge queue and the weekly run |
-| `expensive` | OpenAI speech, vision and image generation | Merge queue and the weekly run |
-| `skip_merge_queue` | Hugging Face models and datasets, Anthropic, external object stores | Weekly run |
-| `skip_merge_queue`, `expensive` | Paid providers other than OpenAI and Anthropic | Weekly run |
+| none | Pixeltable alone, OpenAI chat and embeddings, Whisper | Merge queue and every scheduled run |
+| `expensive` | OpenAI speech, vision and image generation | Merge queue and every scheduled run |
+| `skip_merge_queue` | Hugging Face models and datasets, Anthropic, external object stores | Every scheduled run |
+| `skip_merge_queue`, `expensive` | Paid providers other than OpenAI and Anthropic | Every scheduled run |
 | `very_expensive` | Video generation, VLM Run, Jina, Voyage AI | Weekly run |
 | `resource_intensive` | Panoptic DETR, Stable Diffusion, SAM3 video segmentation | Every scheduled run, alone on a large runner |
 
-PRs run no notebooks, and the daily scheduled runs only the `resource_intensive` ones.
-`scripts/prepare-nb-tests.sh` lists the notebooks CI never runs, and skips a notebook whose API key is
-unset. `make nbtest` runs the notebooks with no marker.
+PRs run no notebooks. `scripts/prepare-nb-tests.sh` lists the notebooks CI never runs, and skips a
+notebook whose API key is unset. `make nbtest` runs the notebooks with no marker.
 
 ## Example Notebook Structure
 
