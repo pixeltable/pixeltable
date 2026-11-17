@@ -108,9 +108,11 @@ The notebooks under `docs/release` take the same markers, or `skip` if CI never 
 `tests/notebook_markers.py`. `notebooks+`, `notebooks++` and `resource-intensive-notebooks` run on the same triggers
 as `standard+`, `standard++` and `resource-intensive`.
 
-`pip-install-tests` tests the latest release as pip installs it, on Mondays, Wednesdays and Fridays. One job runs the
-`expensive` tests and one the `expensive` notebooks, and every third Monday they also run the `very_expensive` ones. No
-job runs the `resource_intensive` ones.
+`pip-install-tests` tests the latest release as pip installs it, on Mondays, Wednesdays and Fridays. Its jobs install
+different optional packages, and each runs the `expensive` tests for its packages. `TestBedrock` needs only core
+dependencies, so it runs in one job, which every third Monday also runs the `very_expensive` tests. One isolated
+notebook job runs the `expensive` notebooks, and every third Monday the `very_expensive` ones. No job runs the
+`resource_intensive` ones.
 
 Locally, `make test` runs only the tests with none of these markers, and `make fullpytest` runs all of them. To choose
 tiers, pass `-m`: for example, `pytest -m 'not resource_intensive' tests/functions/test_openai.py`.

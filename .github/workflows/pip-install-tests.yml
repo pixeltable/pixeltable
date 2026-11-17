@@ -64,11 +64,11 @@ jobs:
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
-          # The only job with the expensive tests, and every third Monday the very_expensive ones, like standard+ and
-          # standard++ in pytest.yml. It has the paid providers' packages.
+          # The only job with TestBedrock, which needs only core dependencies and AWS credentials and so would run in
+          # every job, and every third Monday with the very_expensive tests, like standard++ in pytest.yml
           - python-version: "3.11"
             package-configs: "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
-            expensive: true
+            very-expensive: true
           # transformers-based tests need to run on a larger runner.
           - python-version: "3.11"
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
@@ -157,9 +157,10 @@ jobs:
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
         run: |
-          MARKERS='not expensive and not very_expensive and not resource_intensive'
-          if [[ '${{ matrix.expensive }}' == 'true' ]]; then
-            MARKERS='not very_expensive and not resource_intensive'
+          MARKERS='not very_expensive and not resource_intensive'
+          DESELECT='--deselect=tests/functions/test_bedrock.py::TestBedrock'
+          if [[ '${{ matrix.very-expensive }}' == 'true' ]]; then
+            DESELECT=''
             # Every third Monday, by weeks since the Unix epoch
             if [[ '${{ github.event_name }}' == 'schedule' ]] \
                 && (( $(date -u +%u) == 1 && $(date -u +%s) / 604800 % 3 == 0 )); then
@@ -167,7 +168,7 @@ jobs:
             fi
           fi
           echo "Running tests with markers: $MARKERS"
-          pytest -v -m "$MARKERS" --junitxml=junit-report.xml tests
+          pytest -v -m "$MARKERS" $DESELECT --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
         # Diagnostic only: a failed upload must not fail the job.
