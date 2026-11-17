@@ -1,8 +1,9 @@
 #!/bin/bash
 # Prints the state of the Pixeltable Postgres server, to show why a statement is not returning: every backend's state,
-# wait event and blocking pids; the locks held or awaited in each database with a backend outside the idle state; and
-# each server process's run state and CPU time. CI runs this shortly before the unit-test step's timeout.
-# Run it inside your conda environment. It reads only Postgres's statistics and lock views.
+# wait event and blocking pids; the locks held or awaited in each database with a backend outside the idle state; each
+# server process's run state and CPU time; and, on macOS, which process holds the client end of each backend's socket.
+# CI runs this shortly before the unit-test step's timeout.
+# Run it inside your conda environment. It reads only Postgres's statistics and lock views and lsof's socket table.
 
 pgdata="${PIXELTABLE_PGDATA:-${PIXELTABLE_HOME:-$HOME/.pixeltable}/pgdata}"
 if [[ ! -f "$pgdata/postmaster.pid" ]]; then
@@ -25,7 +26,8 @@ psql_db() {
 
 echo "=== Postgres backends (postmaster pid $postmaster_pid)"
 psql_db postgres "
-    SELECT pid, datname, backend_type, state, wait_event_type, wait_event, pg_blocking_pids(pid) AS blocked_by,
+    SELECT pid, datname, application_name AS app, backend_type, state, wait_event_type, wait_event,
+        pg_blocking_pids(pid) AS blocked_by, date_trunc('second', now() - backend_start) AS backend_age,
         date_trunc('second', now() - xact_start) AS xact_age, date_trunc('second', now() - state_change) AS state_age,
         backend_xid AS xid, left(regexp_replace(query, '\s+', ' ', 'g'), 150) AS query
     FROM pg_stat_activity
@@ -50,3 +52,33 @@ done
 echo "=== Postgres processes"
 children=$(pgrep -d, -P "$postmaster_pid")
 ps -o pid,ppid,stat,etime,time,command -p "$postmaster_pid${children:+,$children}"
+
+if [[ "$(uname)" == 'Darwin' ]]; then
+    # A backend idle in ClientRead while its client waits for a reply means the statement never reached the backend.
+    # QR/QS show whether it sits in a socket queue, and the holder whether the client end is still the process that
+    # opened it.
+    echo "=== Client end of each backend's socket (QR/QS: bytes queued to read/send)"
+    python - "$children" <<'EOF'
+import re
+import subprocess
+import sys
+
+backend_pids = set(sys.argv[1].split(','))
+line_re = re.compile(r'^(\S+)\s+(\d+)\s+\S+\s+(\d+)\w*\s+unix\s+(0x[0-9a-f]+)\s+\S+\s+(.*)$')
+out = subprocess.run(['lsof', '-n', '-P', '-U', '-T', 'qs'], capture_output=True, text=True).stdout
+sockets = []  # (command, pid, fd, address, peer address or None, queues)
+for line in out.splitlines():
+    m = line_re.match(line)
+    if m is None:
+        continue
+    cmd, pid, fd, addr, rest = m.groups()
+    peer = re.search(r'->(0x[0-9a-f]+)', rest)
+    queues = re.search(r'QR=\d+ QS=\d+', rest)
+    sockets.append((cmd, pid, fd, addr, peer and peer.group(1), queues.group(0) if queues else '?'))
+for cmd, pid, fd, addr, peer, queues in sockets:
+    if pid not in backend_pids or peer is not None:
+        continue
+    holders = [f'{c} pid {p} fd {f} {q}' for c, p, f, _, pr, q in sockets if pr == addr]
+    print(f'backend {pid} fd {fd} {queues} <- {"; ".join(holders) or "no process holds the client end"}')
+EOF
+fi
