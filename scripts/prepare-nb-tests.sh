@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 # Copies the notebooks to the target path for nbmake. The notebooks' test tiers are pytest markers: NOTEBOOK_MARKERS
-# in tests/conftest.py.
+# in tests/notebook_markers.py.
 
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(

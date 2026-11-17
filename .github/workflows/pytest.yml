@@ -4,7 +4,7 @@ name: tests
 #
 # PR updates and the merge queue leave out the tests with the skip_merge_queue, very_expensive and resource_intensive
 # markers. Tests with the expensive marker run only on the standard+ and standard++ configurations. The notebook tests
-# take the same markers (NOTEBOOK_MARKERS in tests/conftest.py).
+# take the same markers (NOTEBOOK_MARKERS in tests/notebook_markers.py).
 #
 # On every trigger (including PR updates):
 #   - Linting, type-checking, docstring validation, etc.
@@ -194,7 +194,7 @@ jobs:
       - name: Install ollama
         # test_ollama.py runs only on standard+ and standard++ outside the merge queue, and the ollama notebook only on
         # the weekly notebooks++
-        if: ${{ github.event_name != 'merge_group' && (startsWith(matrix.display-name, 'standard+') || startsWith(matrix.display-name, 'notebooks')) }}
+        if: ${{ github.event_name != 'merge_group' && (startsWith(matrix.display-name, 'standard+') || startsWith(matrix.display-name, 'notebooks+')) }}
         run: |
           ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
           sleep 10  # Wait for the ollama server to start

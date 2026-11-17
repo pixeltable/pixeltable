@@ -134,7 +134,7 @@ Before committing, verify your notebook:
 
 CI runs the notebooks with nbmake and selects them with the same pytest markers as the unit tests. If a
 notebook calls a provider or UDF whose unit tests carry a marker, add the notebook to `NOTEBOOK_MARKERS`
-in `tests/conftest.py` with the same markers:
+in `tests/notebook_markers.py` with the same markers:
 
 | Marker | For example | Where the notebook runs |
 |---|---|---|

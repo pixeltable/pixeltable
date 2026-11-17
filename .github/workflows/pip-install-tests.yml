@@ -195,6 +195,11 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         python-version: ["3.11", "3.13"]
+        include:
+          # As in the tests job: the only job with the expensive notebooks, and every third Monday the very_expensive
+          # ones
+          - python-version: "3.11"
+            expensive: true
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -229,4 +234,13 @@ jobs:
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
           ./scripts/retry.sh 3 30 ollama pull 'qwen3-embedding:0.6b'
       - name: Run isolated notebook tests
-        run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}
+        # The resource_intensive notebooks run only on a large runner, in pytest.yml
+        run: |
+          EXCLUDED='expensive very_expensive resource_intensive'
+          if [[ '${{ matrix.expensive }}' == 'true' ]]; then
+            EXCLUDED='very_expensive resource_intensive'
+            if [[ '${{ github.event.schedule }}' == '19 2 * * 1' ]] && (( $(date -u +%s) / 604800 % 3 == 0 )); then
+              EXCLUDED='resource_intensive'
+            fi
+          fi
+          ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }} $EXCLUDED

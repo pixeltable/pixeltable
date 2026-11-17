@@ -40,6 +40,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
 
+from .notebook_markers import NOTEBOOK_MARKERS
 from .utils import (
     CLOUD_DB_ROOT_URIS,
     IN_CI,
@@ -84,66 +85,6 @@ def pytest_configure(config: PytestConfig) -> None:
 # Hugging Face test and is marked 'skip_merge_queue', in the 'large_model' xdist group.
 _HF_FIXTURES = frozenset({'clip_embed', 'e5_embed', 'all_mpnet_embed'})
 
-# The markers of the notebooks under docs/release, which CI runs with nbmake from tests/target/nb-tests (see
-# scripts/prepare-nb-tests.sh) and selects with the same marker expressions as the unit tests. A notebook takes the
-# markers of the unit tests for the providers and UDFs it calls.
-NOTEBOOK_MARKERS: dict[str, tuple[str, ...]] = {
-    # Hugging Face models and datasets
-    'computed-columns': ('skip_merge_queue',),
-    'data-import-huggingface': ('skip_merge_queue',),
-    'doc-chunk-for-rag': ('skip_merge_queue',),
-    'embedding-indexes': ('skip_merge_queue',),
-    'observability': ('skip_merge_queue',),
-    'queries-and-expressions': ('skip_merge_queue',),
-    'rag-demo': ('skip_merge_queue',),
-    'rag-operations': ('skip_merge_queue',),
-    'search-semantic-text': ('skip_merge_queue',),
-    'search-similar-images': ('skip_merge_queue',),
-    'working-with-hugging-face': ('skip_merge_queue',),
-    # Hugging Face models, plus OpenAI transcriptions or vision
-    'audio-transcriptions': ('skip_merge_queue', 'expensive'),
-    'ten-minute-tour': ('skip_merge_queue', 'expensive'),
-    # Other model downloads
-    'img-detect-objects': ('skip_merge_queue',),
-    'img-visualize-detections': ('skip_merge_queue',),
-    'working-with-llama-cpp': ('skip_merge_queue',),
-    'working-with-ollama': ('skip_merge_queue', 'expensive'),  # PXT-1246
-    # Other services not reliable enough for the merge queue
-    'data-export-s3': ('skip_merge_queue',),  # writes to a B2 bucket
-    'working-with-anthropic': ('skip_merge_queue',),
-    # Paid providers other than OpenAI and Anthropic
-    'multimodal_backend': ('skip_merge_queue', 'expensive'),  # Gemini, and a Hugging Face model
-    'working-with-bedrock': ('skip_merge_queue', 'expensive'),
-    'working-with-deepseek': ('skip_merge_queue', 'expensive'),
-    'working-with-fal': ('skip_merge_queue', 'expensive'),  # PXT-1233
-    'working-with-fireworks': ('skip_merge_queue', 'expensive'),
-    'working-with-gemini': ('skip_merge_queue', 'expensive'),
-    'working-with-groq': ('skip_merge_queue', 'expensive'),
-    'working-with-mistralai': ('skip_merge_queue', 'expensive'),
-    'working-with-nebius': ('skip_merge_queue', 'expensive'),
-    'working-with-openrouter': ('skip_merge_queue', 'expensive'),
-    'working-with-parallel': ('skip_merge_queue', 'expensive'),
-    'working-with-replicate': ('skip_merge_queue', 'expensive'),
-    'working-with-together': ('skip_merge_queue', 'expensive'),
-    # OpenAI speech, transcriptions, vision and image generation
-    'audio-text-to-speech': ('expensive',),
-    'img-generate-captions': ('expensive',),
-    'vision-batch-analysis': ('expensive',),
-    'vision-structured-output': ('expensive',),
-    'working-with-openai': ('expensive',),
-    # Video generation, and the providers whose unit tests are very_expensive
-    'video-generate-ai': ('very_expensive',),
-    'working-with-jina': ('very_expensive',),
-    'working-with-vlmrun': ('very_expensive',),
-    'working-with-vlmrun-gateway': ('very_expensive',),
-    'working-with-voyageai': ('very_expensive',),
-    # Memory, as in the unit tests of the same models, or run time on ubuntu-large
-    'img-detection-vs-segmentation': ('resource_intensive',),  # panoptic DETR
-    'img-image-to-image': ('resource_intensive',),  # Stable Diffusion, 10 minutes
-    'img-promptable-segmentation': ('resource_intensive',),  # SAM3 video segmentation, 19 minutes
-    'object-detection-in-videos': ('resource_intensive',),  # YOLOX on video frames, 6 minutes
-}
-
 
 # tryfirst: xdist's worker reads the xdist_group marks in its own pytest_collection_modifyitems, which is registered
 # after this conftest and so otherwise runs first
@@ -159,7 +100,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         # A renamed notebook would otherwise lose its markers silently
         unknown = NOTEBOOK_MARKERS.keys() - {p.stem for p in (TESTS_DIR.parent / 'docs' / 'release').rglob('*.ipynb')}
         if unknown:
-            raise pytest.UsageError(f'NOTEBOOK_MARKERS names notebooks not under docs/release: {sorted(unknown)}')
+            raise pytest.UsageError(
+                f'NOTEBOOK_MARKERS has notebooks that are not under docs/release: {sorted(unknown)}'
+            )
         for item in notebooks:
             for marker_name in NOTEBOOK_MARKERS.get(item.path.stem, ()):
                 item.add_marker(marker_name)
