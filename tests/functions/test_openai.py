@@ -512,7 +512,6 @@ class TestOpenai:
         t.add_computed_column(flagged=t.moderation.results[0].flagged)
         assert t.get_metadata()['columns']['flagged']['type_'] == 'Bool | None'
 
-    @pytest.mark.very_expensive
     def test_decisions(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')

@@ -540,21 +540,121 @@ class TestExprs:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
 
-    def test_int_mod_negative_operands(self, db_root: DatabaseRoot) -> None:
-        """Int % evaluated in SQL must match Python's %, including for negative operands."""
-        t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int, 'b': pxt.Int})
-        # computed columns are evaluated in Python on insert
-        t.add_computed_column(py_mod=t.a % t.b)
-        t.add_computed_column(py_floordiv=t.a // t.b)
-        t.insert({'a': a, 'b': b} for a in (-7, -6, 0, 6, 7) for b in (-3, 3))
-        res = t.select(t.a, t.b, t.py_mod, t.py_floordiv, sql_mod=t.a % t.b, sql_floordiv=t.a // t.b).collect()
+    @pytest.mark.parametrize('backfill', [True, False], ids=['backfill', 'insert'])
+    def test_int_mod(self, db_root: DatabaseRoot, backfill: bool) -> None:
+        """Int % matches Python for signed 64-bit boundaries, signs, and nulls in SQL and on insert."""
+        t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int | None, 'b': pxt.Int | None})
+        # PostgreSQL's BIGINT limits (signed 64-bit integers).
+        int_min, int_max = -(2**63), 2**63 - 1
+        # (dividend, divisor)
+        # Zero divisors are excluded because SQL and Python error handling differs (PXT-1833).
+        operands = [
+            (int_min, int_min),
+            (int_min, -3),
+            (int_min, -1),
+            (int_min, 1),
+            (int_min, 3),
+            (int_min, int_max),
+            (int_min, None),
+            (int_min + 1, int_min),
+            (int_min + 1, -3),
+            (int_min + 1, -1),
+            (int_min + 1, 1),
+            (int_min + 1, 3),
+            (int_min + 1, int_max),
+            (int_min + 1, None),
+            (-7, int_min),
+            (-7, -3),
+            (-7, -1),
+            (-7, 1),
+            (-7, 3),
+            (-7, int_max),
+            (-7, None),
+            (-6, int_min),
+            (-6, -3),
+            (-6, -1),
+            (-6, 1),
+            (-6, 3),
+            (-6, int_max),
+            (-6, None),
+            (-1, int_min),
+            (-1, -3),
+            (-1, -1),
+            (-1, 1),
+            (-1, 3),
+            (-1, int_max),
+            (-1, None),
+            (0, int_min),
+            (0, -3),
+            (0, -1),
+            (0, 1),
+            (0, 3),
+            (0, int_max),
+            (0, None),
+            (1, int_min),
+            (1, -3),
+            (1, -1),
+            (1, 1),
+            (1, 3),
+            (1, int_max),
+            (1, None),
+            (6, int_min),
+            (6, -3),
+            (6, -1),
+            (6, 1),
+            (6, 3),
+            (6, int_max),
+            (6, None),
+            (7, int_min),
+            (7, -3),
+            (7, -1),
+            (7, 1),
+            (7, 3),
+            (7, int_max),
+            (7, None),
+            (int_max, int_min),
+            (int_max, -3),
+            (int_max, -1),
+            (int_max, 1),
+            (int_max, 3),
+            (int_max, int_max),
+            (int_max, None),
+            (None, int_min),
+            (None, -3),
+            (None, -1),
+            (None, 1),
+            (None, 3),
+            (None, int_max),
+            (None, None),
+        ]
+        rows = [{'a': a, 'b': b} for a, b in operands]
+        # Defining the column before insert exercises Python; adding it afterward exercises SQL backfill.
+        if not backfill:
+            validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=0)
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        if backfill:
+            validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=len(rows))
+
+        res = t.select(t.a, t.b, t.stored_mod, sql_mod=t.a % t.b).collect()
+        assert len(res) == len(rows)
         for row in res:
-            assert row['py_mod'] == row['a'] % row['b']
-            assert row['sql_mod'] == row['py_mod'], f'{row["a"]} % {row["b"]}'
-            assert row['sql_floordiv'] == row['py_floordiv'], f'{row["a"]} // {row["b"]}'
-            assert row['a'] == (row['sql_floordiv'] * row['b']) + row['sql_mod']
-        assert t.where(t.a % t.b == t.py_mod).count() == t.count()
-        assert t.where(t.a % 3 == 2).select(t.a).order_by(t.a).collect()['a'] == [-7, -7]
+            a, b = row['a'], row['b']
+            expected = None if a is None or b is None else a % b
+            assert row['stored_mod'] == expected, row
+            assert row['sql_mod'] == expected, row
+        non_null_results = sum(row['a'] is not None and row['b'] is not None for row in rows)
+        assert t.where(t.a % t.b == t.stored_mod).count() == non_null_results
+        assert t.where(t.a % t.b == None).count() == len(rows) - non_null_results
+
+        res = (
+            t.where(t.a.isin([-7, -6, 0, 6, 7]) & t.b.isin([-3, 3]))
+            .select(t.a, t.b, sql_floordiv=t.a // t.b, sql_mod=t.a % t.b)
+            .collect()
+        )
+        assert len(res) == 10
+        for row in res:
+            assert row['sql_floordiv'] == row['a'] // row['b'], row
+            assert row['a'] == row['sql_floordiv'] * row['b'] + row['sql_mod'], row
 
     def test_pow(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
