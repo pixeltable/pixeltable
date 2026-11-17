@@ -223,8 +223,17 @@ def _list(args: argparse.Namespace) -> None:
 
 def _status(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(_db_uri(args, 'pxt db status'))
-    resp = get_request('/api/db', {'org': org, 'db': db})
+    params: dict[str, Any] = {'org': org, 'db': db}
+    if args.db_uri is None:
+        # the control plane registers the local database at its first pxt db update
+        params['missing_ok'] = True
+    resp = get_request('/api/db', params)
     report = resp.get('report', resp) if isinstance(resp, dict) else {}
+    if args.db_uri is None and len(report) == 0:
+        print(
+            'pxt db status: the local database has no UDF servers; run `pxt db update` to deploy them', file=sys.stderr
+        )
+        sys.exit(EXIT_ERROR)
     if args.json_output:
         print(json.dumps(report))
     else:

@@ -376,23 +376,27 @@ DbTarget = Literal['image', 'archive', 'capacity', 'config', 'generation']
 
 
 class DbChangeOp(ChangeOp):
-    """One operation reconciling a hosted database with a DatabaseConfig."""
+    """One operation reconciling a database with a DatabaseConfig."""
 
     target: DbTarget
 
     details: dict[str, str] = pydantic.Field(default_factory=dict)
 
     @classmethod
-    def capacity(cls, field: str, current: float | int | None, declared: float | int) -> DbChangeOp:
+    def capacity(
+        cls, field: str, current: float | int | None, declared: float | int, *, requires_restart: bool = True
+    ) -> DbChangeOp:
+        """requires_restart: False for a local database, which has no pods"""
         was = 'unreported' if current is None else str(current)
+        description = f'{field} will be {declared} rather than {was}'
         return cls(
             target='capacity',
             name=field,
             op='alter',
             severity='destructive' if current is not None and declared < current else 'additive',
-            description=f'{field} will be {declared} rather than {was}, which restarts the database',
+            description=f'{description}, which restarts the database' if requires_restart else description,
             details={'from': was, 'to': str(declared)},
-            requires_restart=True,
+            requires_restart=requires_restart,
         )
 
     @classmethod
@@ -408,12 +412,12 @@ class DbChangeOp(ChangeOp):
         )
 
     @classmethod
-    def config(cls, changes: list[str], *, has_pods: bool = True) -> DbChangeOp:
+    def config(cls, changes: list[str], *, requires_restart: bool = True) -> DbChangeOp:
         """The project config changed.
 
-        has_pods: False for a local database, whose update deploys its UDF servers again and restarts nothing.
+        requires_restart: False for a local database, whose update deploys its UDF servers again and restarts nothing.
         """
-        effect = 'restarts the database' if has_pods else 'redeploys the UDF servers'
+        effect = 'restarts the database' if requires_restart else 'redeploys the UDF servers'
         return cls(
             target='config',
             name='config',
@@ -421,11 +425,12 @@ class DbChangeOp(ChangeOp):
             severity='additive',
             description=f'{_summary(changes)}, which {effect}',
             details={'changes': '; '.join(changes)},
-            requires_restart=has_pods,
+            requires_restart=requires_restart,
         )
 
     @classmethod
-    def build_image(cls, changes: list[str] | None = None) -> DbChangeOp:
+    def build_image(cls, changes: list[str] | None = None, *, requires_restart: bool = True) -> DbChangeOp:
+        """requires_restart: False for a local database, which has no pods"""
         description: str
         details: dict[str, str]
         if changes is not None:
@@ -441,7 +446,7 @@ class DbChangeOp(ChangeOp):
             severity='additive',
             description=description,
             details=details,
-            requires_restart=True,
+            requires_restart=requires_restart,
         )
 
     @classmethod
@@ -463,7 +468,8 @@ class DbChangeOp(ChangeOp):
         )
 
     @classmethod
-    def upload_archive(cls, changes: list[str] | None = None) -> DbChangeOp:
+    def upload_archive(cls, changes: list[str] | None = None, *, requires_restart: bool = True) -> DbChangeOp:
+        """requires_restart: False for a local database, which has no pods"""
         description: str
         details: dict[str, str]
         if changes is not None:
@@ -479,7 +485,7 @@ class DbChangeOp(ChangeOp):
             severity='additive',
             description=description,
             details=details,
-            requires_restart=True,
+            requires_restart=requires_restart,
         )
 
 

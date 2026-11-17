@@ -297,12 +297,14 @@ class TestDbWithoutUri:
             kind='database', resource_id='db-uuid', generation=2, db=report['db'], outcome=ReceiptOutcome.OBSERVED
         )
         posts: list[tuple[str, dict[str, Any]]] = []
+        deployed = True
 
         def get_request(path: str, params: dict[str, Any] | None = None, *, raise_on_error: bool = False) -> Any:
             if path == '/api/db/local':
                 return {'db_uri': uri}
             assert path == '/api/db' and params is not None and (params['org'], params['db']) == ('acme', report['db'])
-            return {'report': report, 'worker_status': []}
+            assert params['missing_ok']
+            return {'report': report if deployed else {}, 'worker_status': []}
 
         def post_request(path: str, body: dict[str, Any], *, raise_on_error: bool = False) -> Any:
             if path == '/api/receipts':
@@ -331,6 +333,11 @@ class TestDbWithoutUri:
 
         code, out, _ = run('status', '--json')
         assert code == 0 and json.loads(out) == report and posts == []
+        # before the first pxt db update, the control plane has no record of the local database
+        deployed = False
+        code, _, err = run('status')
+        assert code == utils.EXIT_ERROR and 'run `pxt db update` to deploy them' in err
+        deployed = True
 
         # only an update without --dry-run sends the POST that creates the local database
         for argv, posts_before_diff in (

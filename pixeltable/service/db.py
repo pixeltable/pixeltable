@@ -16,7 +16,6 @@ from pixeltable.env import Env
 from pixeltable.service import management_client, receipts
 from pixeltable.service.db_md import DatabaseResources
 from pixeltable.service.management_protocol import (
-    LOCAL_DB_CLOUD_NAME_PREFIX,
     BlobRef,
     BlobUpload,
     DatabaseReport,
@@ -47,7 +46,7 @@ from pixeltable.utils.project import (
     project_fingerprint,
 )
 from pixeltable_cli.types import DbChangeOp, DbPlan, GenerationReceipt, OpStatus
-from pixeltable_cli.utils import hosted_db_uri_error
+from pixeltable_cli.utils import LOCAL_DB_CLOUD_NAME_PREFIX, hosted_db_uri_error
 
 _logger = logging.getLogger('pixeltable')
 
@@ -205,11 +204,11 @@ def db_fingerprint(db_path: catalog.Path, *, desired: bool = False) -> ProjectFi
 
 
 def create_db_update_ops(
-    target: DatabaseResources, current: DatabaseResources | None, *, has_pods: bool = True
+    target: DatabaseResources, current: DatabaseResources | None, *, requires_restart: bool = True
 ) -> list[DbChangeOp]:
     """The operations needed to reconcile current with target.
 
-    has_pods: False for a local database
+    requires_restart: False for a local database, which has no pods
     """
     ops: list[DbChangeOp] = []
 
@@ -217,22 +216,27 @@ def create_db_update_ops(
         if current is None or current.fingerprint is None:
             # nothing to diff against: the database is new, or still on the base image
             # TODO: record the base image's fingerprint at provisioning and remove this branch
-            ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
+            ops += [
+                DbChangeOp.build_image(requires_restart=requires_restart),
+                DbChangeOp.upload_archive(requires_restart=requires_restart),
+            ]
         else:
             changed = target.fingerprint.compare(current.fingerprint)
             if ProjectPart.IMAGE in changed:
-                ops.append(DbChangeOp.build_image(target.fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})))
+                changes = target.fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})
+                ops.append(DbChangeOp.build_image(changes, requires_restart=requires_restart))
             if ProjectPart.ARCHIVE in changed:
-                ops.append(
-                    DbChangeOp.upload_archive(target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE}))
-                )
+                changes = target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE})
+                ops.append(DbChangeOp.upload_archive(changes, requires_restart=requires_restart))
             if ProjectPart.CONFIG in changed:
                 changes = target.fingerprint.changes(current.fingerprint, {ProjectPart.CONFIG})
-                ops.append(DbChangeOp.config(changes, has_pods=has_pods))
+                ops.append(DbChangeOp.config(changes, requires_restart=requires_restart))
 
     current_capacity = DatabaseCapacity() if current is None else current.capacity()
     for field, value in current_capacity.changes(target.capacity()).model_dump(exclude_none=True).items():
-        ops.append(DbChangeOp.capacity(field, getattr(current_capacity, field), value))
+        ops.append(
+            DbChangeOp.capacity(field, getattr(current_capacity, field), value, requires_restart=requires_restart)
+        )
 
     return ops
 
@@ -290,6 +294,8 @@ def db_build_image(db_uri: str, *, wait: bool = True) -> tuple[list[DbChangeOp],
     if the control plane does not hold it already.
     """
     db_path = _validated_db_uri(db_uri)
+    # a local database has no pods to restart
+    requires_restart = _as_local_database(db_path) is None
     config = _get_db_config(db_path)
     target = _db_target(config)
     prepared = _prepare(db_path, target, blob=None)
@@ -301,9 +307,9 @@ def db_build_image(db_uri: str, *, wait: bool = True) -> tuple[list[DbChangeOp],
     target = target.model_copy(update={**desired.capacity().model_dump(), 'force_build_nonce': uuid.uuid4().hex})
     accepted, uploaded = _submit(db_path, config, target, expected_generation=prepared.generations.database or 0)
     settled = _settle(db_path, accepted, wait=wait)
-    image_op = DbChangeOp.build_image()
+    image_op = DbChangeOp.build_image(requires_restart=requires_restart)
     image_op.status = 'applied' if wait else 'accepted'
-    archive_op = DbChangeOp.upload_archive()
+    archive_op = DbChangeOp.upload_archive(requires_restart=requires_restart)
     archive_op.status = 'applied' if uploaded else 'skipped'
     return [image_op, archive_op], settled
 
@@ -364,7 +370,9 @@ def _plan(db_path: catalog.Path, target: DatabaseTarget) -> tuple[DbPlan, Prepar
             db_path.uri_str,
             None if current is None else current.state,
             create_db_update_ops(
-                target, None if current is None else current.resources, has_pods=_as_local_database(db_path) is None
+                target,
+                None if current is None else current.resources,
+                requires_restart=_as_local_database(db_path) is None,
             ),
         )
     plan.generation = prepared.generations.database or 0

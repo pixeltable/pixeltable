@@ -288,10 +288,15 @@ class TestDbSubmission:
         assert deployed is not None and deployed.fingerprint is not None
         other_config = deployed.fingerprint.model_copy(update={'config': {'pixeltable': {'udf': {}}}})
         changed = deployed.model_copy(update={'fingerprint': other_config})
-        (op,) = create_db_update_ops(changed, deployed, has_pods=False)
+        (op,) = create_db_update_ops(changed, deployed, requires_restart=False)
         assert op.description.endswith('which redeploys the UDF servers') and not op.requires_restart
         (op,) = create_db_update_ops(changed, deployed)
         assert op.description.endswith('which restarts the database') and op.requires_restart
+        # a first deploy builds the image and uploads the project, which restarts only a hosted database
+        first_deploy = create_db_update_ops(deployed, None, requires_restart=False)
+        assert {op.target for op in first_deploy} == {'image', 'archive'}
+        assert not any(op.requires_restart for op in first_deploy)
+        assert all(op.requires_restart for op in create_db_update_ops(deployed, None))
 
         # a secret in the project config file
         udf_config = config_file.read_text(encoding='utf-8')

@@ -180,10 +180,6 @@ class BlobUpload(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
 
 
-# the first part of a local database's name in the control plane, which gives such a database UDF servers and no pods
-LOCAL_DB_CLOUD_NAME_PREFIX = 'local-'
-
-
 class DatabaseTarget(DatabaseResources):
     """The project-controlled part of a hosted database's desired spec; the control plane owns the rest."""
 
