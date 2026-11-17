@@ -332,7 +332,7 @@ def ffmpeg_clip_args(
     return cmd
 
 
-def ffmpeg_clip_cmd(
+def ffmpeg_clip_output_args(
     input_path: str,
     output_path: str,
     start_time: float,
@@ -349,7 +349,7 @@ def ffmpeg_clip_cmd(
     ]
 
 
-def ffmpeg_segment_cmd(
+def ffmpeg_segment_args(
     input_path: str,
     output_pattern: str,
     segment_duration: float | None = None,
@@ -357,7 +357,7 @@ def ffmpeg_segment_cmd(
     video_encoder: str | None = None,
     video_encoder_args: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Commandline for frame-accurate segmentation"""
+    """ffmpeg arguments for frame-accurate segmentation"""
     assert (segment_duration is None) != (segment_times is None)
     if video_encoder is None:
         video_encoder = Env.get().default_video_encoder

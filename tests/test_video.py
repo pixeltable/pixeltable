@@ -2648,12 +2648,16 @@ class TestVideo:
         saved_stdin = os.dup(0)
         os.dup2(read_fd, 0)
         try:
-            av_utils.run_ffmpeg(['-i', get_video_files()[0], '-c', 'copy', str(output_path)], timeout=60)
+            # a refused overwrite exits with status 1 before ffmpeg 6.1 and 0 from 6.1 on
+            stderr = av_utils.run_ffmpeg(
+                ['-i', get_video_files()[0], '-c', 'copy', str(output_path)], timeout=60
+            ).stderr
         except subprocess.CalledProcessError as e:
-            assert 'already exists' in e.stderr
+            stderr = e.stderr
         finally:
             os.dup2(saved_stdin, 0)
             os.close(saved_stdin)
+        assert 'already exists' in stderr
         assert output_path.stat().st_size == 0
         assert os.read(read_fd, 2) == b'y\n'
         os.close(read_fd)

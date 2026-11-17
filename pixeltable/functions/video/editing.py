@@ -428,7 +428,7 @@ def segment_video(
     if mode == 'accurate':
         # Use ffmpeg -f segment for accurate segmentation with re-encoding
         output_pattern = f'{base_path}_segment_%04d.mp4'
-        cmd = av_utils.ffmpeg_segment_cmd(
+        cmd = av_utils.ffmpeg_segment_args(
             str(video),
             output_pattern,
             segment_duration=duration,
@@ -466,7 +466,7 @@ def segment_video(
                 else:
                     target_duration = None  # the rest
                 segment_path = f'{base_path}_segment_{len(output_paths)}.mp4'
-                cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, target_duration)
+                cmd = av_utils.ffmpeg_clip_output_args(str(video), segment_path, start_time, target_duration)
 
                 _ = av_utils.run_ffmpeg(cmd)
                 segment_duration = av_utils.get_video_duration(segment_path)
