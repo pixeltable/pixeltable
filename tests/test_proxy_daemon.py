@@ -1718,7 +1718,8 @@ class TestTunnelRetries:
         assert opened == [live]
 
     def test_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it_is_not_handed_out(self) -> None:
-        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is dropped."""
+        """A daemon from an earlier release closes a connection idle 5 s, which loses a request sent while that close is
+        on its way."""
         stale, fresh = _ScriptedConn(), _ScriptedConn()
         opened: list[_ScriptedConn] = []
 
