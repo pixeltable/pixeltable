@@ -1535,6 +1535,22 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
+        # Float to Int requires to_int()
+        match = r'Use to_int\(\) to truncate toward zero'
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.astype(pxt.Int)
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.astype(pxt.Int | None)
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.floor().astype(pxt.Int)
+        res = t.select(out=t.c3.floor().to_int()).order_by(t.c2).collect()['out']
+        assert res == list(range(t.count()))
+        assert all(type(val) is int for val in res)
+
+        # Convert a Json field to Int
+        res = t.select(out=t.c6.f2.astype(pxt.Int)).order_by(t.c2).collect()['out']
+        assert res == list(range(t.count()))
+
     def test_astype_bool(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         assert t.c4.astype(pxt.Int).col_type == ts.IntType(nullable=False)
