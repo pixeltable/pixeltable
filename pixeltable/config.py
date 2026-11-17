@@ -737,7 +737,7 @@ class Config:
             for key, (value, _) in options.items():
                 if section == 'pixeltable' and key == 'database':
                     continue  # replaced by the entry for db_config
-                if key in _SECRET_KEYS:
+                if key in SECRET_KEYS:
                     if is_hosted or has_udf_setting:
                         raise self.__project_secret_error(section, key, db_config if is_hosted else None)
                     # an edit to a local secret still changes the config, and so restarts a local service
@@ -1130,9 +1130,7 @@ _INSTALLATION_KEYS = frozenset(
 )
 
 # settings that contain credentials
-_SECRET_KEYS = frozenset(
-    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'}
-)
+SECRET_KEYS = frozenset({'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'})
 
 # whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db
 # section's own fields such as name and cpu

@@ -273,8 +273,13 @@ class TestService:
         assert listing['type'] == 'array'
         assert 'ServiceInstance' in listing['$defs']
 
-    def test_differing_config(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """A service inherits the daemon's config values, so a caller with other values restarts the daemon first."""
+    def test_differing_config(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, session_project: pathlib.Path
+    ) -> None:
+        """A service inherits the daemon's config values, so a caller with other values restarts the daemon first.
+
+        A secret in the config file of a project with a pixeltable.udf setting is refused.
+        """
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('basic.py'), db_root.make_catalog_path('app')
@@ -298,6 +303,20 @@ class TestService:
         # the same commands run for a caller without the variable
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
+
+        # a secret in the config file of a project with a pixeltable.udf setting
+        config_file = session_project / 'pixeltable.toml'
+        config = config_file.read_text(encoding='utf-8')
+        config_file.write_text(
+            f"{config}\n[openai]\napi_key = 'sk-project'\n\n[pixeltable.udf.'pixeltable.functions.video.clip']\n",
+            encoding='utf-8',
+        )
+        try:
+            r = cli('service', 'diff', app, target, check=False)
+            assert r.returncode == 1
+            assert "'openai.api_key' in" in r.stderr and 'is a secret' in r.stderr, r.stderr
+        finally:
+            config_file.write_text(config, encoding='utf-8')
 
     def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The first service: declare, see what is pending, apply it, use it, take it down."""
@@ -1336,12 +1355,7 @@ class TestService:
         assert (report['valid'], report['errors'], report['warnings']) == (True, [], []), report
 
     def test_errors(
-        self,
-        cli: PxtRunner,
-        apps: Callable[[str], str],
-        db_root: DatabaseRoot,
-        project_dir: pathlib.Path,
-        session_project: pathlib.Path,
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """What the verbs do with a file that is missing, unimportable, or doesn't contain services."""
         target = db_root.make_catalog_path('app')
@@ -1378,20 +1392,6 @@ class TestService:
         r = cli('service', 'run', apps('basic.py'), 'pxt://acme:main/app', check=False)
         assert r.returncode != 0
         assert 'serves from this process' in r.stderr, r.stderr
-
-        # a secret in the config file of a project with a pixeltable.udf setting
-        config_file = session_project / 'pixeltable.toml'
-        config = config_file.read_text(encoding='utf-8')
-        config_file.write_text(
-            f"{config}\n[openai]\napi_key = 'sk-project'\n\n[pixeltable.udf.'pixeltable.functions.video.clip']\n",
-            encoding='utf-8',
-        )
-        try:
-            r = cli('service', 'diff', apps('basic.py'), target, check=False)
-            assert r.returncode == 1
-            assert "'openai.api_key' in" in r.stderr and 'is a secret' in r.stderr, r.stderr
-        finally:
-            config_file.write_text(config, encoding='utf-8')
 
     def test_named_service(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """Name one service of a file that defines two, and pin its port."""
