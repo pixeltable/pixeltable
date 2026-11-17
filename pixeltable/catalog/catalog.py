@@ -1733,19 +1733,7 @@ class Catalog(CatalogBase):
         if additional_idxs is None:
             additional_idxs = []
 
-        @retry_md_write_loop(
-            paths=[path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else [],
-            lock_path_subtree=True,
-        )
-        def create_fn() -> tuple[UUID, bool]:
-            existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
-            if existing is not None:
-                assert isinstance(existing, LocalTable)
-                return existing._id, False
-
-            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-            assert dir is not None
-
+        def write_tbl_fn(dir_id: UUID) -> UUID:
             # This is an actual table creation event; if no explicit_tbl_id was provided, assign a random one now.
             tbl_id = explicit_tbl_id or uuid4()
 
@@ -1762,9 +1750,37 @@ class Catalog(CatalogBase):
             )
             assert tbl_id == UUID(md.tbl_md.tbl_id)
             md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
-            self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            self.write_tbl_md(tbl_id, dir_id, md.tbl_md, md.version_md, md.schema_version_md, ops)
             self._create_store_tbl(md.tbl_md)
-            return tbl_id, True
+            return tbl_id
+
+        return self._create_table_at(path, if_exists, write_tbl_fn)
+
+    def _create_table_at(
+        self, path: Path, if_exists: IfExistsParam, write_tbl_fn: Callable[[UUID], UUID]
+    ) -> tuple[LocalTable, bool]:
+        """
+        Creates a base table at path. write_tbl_fn(dir_id) writes the metadata and the store table of the new table in
+        the directory dir_id and returns the id of the table. write_tbl_fn() runs in the transaction that handles
+        if_exists.
+
+        If `if_exists == IfExistsParam.IGNORE` and a table `t` already exists at path, returns `t, False`. Otherwise,
+        returns the new table and True.
+        """
+
+        @retry_md_write_loop(
+            paths=[path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else [],
+            lock_path_subtree=True,
+        )
+        def create_fn() -> tuple[UUID, bool]:
+            existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
+            if existing is not None:
+                assert isinstance(existing, LocalTable)
+                return existing._id, False
+
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
+            return write_tbl_fn(dir._id), True
 
         tbl_id, is_created = create_fn()
         self._roll_forward()
@@ -1802,22 +1818,12 @@ class Catalog(CatalogBase):
 
         # one transaction creates the metadata, the store table and the rows, so that a failure leaves nothing behind
         # and the new table needs no pending ops
-        @retry_md_write_loop(
-            paths=[path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else [],
-            lock_path_subtree=True,
-        )
-        def create_fn() -> tuple[UUID, bool]:
-            existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
-            if existing is not None:
-                assert isinstance(existing, LocalTable)
-                return existing._id, False
-            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-            assert dir is not None
+        def write_tbl_fn(dir_id: UUID) -> UUID:
             current_version_md = next(m for m in version_mds if m.version == tbl_md.current_version)
             current_schema_version_md = next(
                 m for m in schema_version_mds if m.schema_version == tbl_md.current_schema_version
             )
-            self.write_tbl_md(tbl_id, dir._id, tbl_md, current_version_md, current_schema_version_md)
+            self.write_tbl_md(tbl_id, dir_id, tbl_md, current_version_md, current_schema_version_md)
             for version_md in version_mds:
                 if version_md is not current_version_md:
                     self.write_tbl_md(tbl_id, None, None, version_md, None)
@@ -1829,14 +1835,14 @@ class Catalog(CatalogBase):
             for rows_file in rows_files:
                 table_copy.insert_rows(tv, copy_md, rows_file, stored_urls)
             fault_injection.process_fault(FaultLocation.CATALOG_IMPORT_TABLE_BEFORE_MD_COMMITTED)
-            return tbl_id, True
+            return tbl_id
 
         try:
             # the media files are stored before the transaction, so that object store I/O does not hold a db connection
             for chunk in chunks:
                 stored_urls.update(table_copy.place_media(copy_md, chunk.rows_file, chunk.media))
                 rows_files.append(chunk.rows_file)
-            created_tbl_id, is_created = create_fn()
+            tbl, is_created = self._create_table_at(path, if_exists, write_tbl_fn)
         except BaseException:
             try:
                 # a repeated request that created the table stores its files under the same table id
@@ -1848,19 +1854,7 @@ class Catalog(CatalogBase):
         if not is_created:
             # if_exists='ignore', and a table was created at path during the copy
             table_copy.delete_media(copy_md)
-        # finalizes the drop of a table that if_exists replaced
-        self._roll_forward()
-        return self._get_tbl(created_tbl_id), is_created
-
-    def _get_tbl(self, tbl_id: UUID) -> LocalTable:
-        @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl_id, None)])
-        def get_tbl_fn() -> LocalTable | None:
-            return self.get_table_by_id(tbl_id)
-
-        tbl = get_tbl_fn()
-        if tbl is None:
-            raise excs.table_was_dropped(tbl_id)
-        return tbl
+        return tbl, is_created
 
     def create_view(
         self,

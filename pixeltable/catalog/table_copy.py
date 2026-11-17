@@ -20,20 +20,16 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path as FsPath, PurePosixPath
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Mapping
 
-import numpy as np
-import pgvector.sqlalchemy as sql_vector
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
-from sqlalchemy.dialects.postgresql import JSONB
 
 from pixeltable import exceptions as excs, exprs, func, index, type_system as ts
-from pixeltable.config import ConfigVar
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
-from pixeltable.utils import parse_local_file_path
+from pixeltable.utils import arrow, parse_local_file_path
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 
@@ -41,6 +37,7 @@ from .column import Column
 from .globals import IfExistsParam, IfNotExistsParam
 from .insertable_table import InsertableTable
 from .model.definition import BtreeIndex, EmbeddingIndex, IndexDefinition
+from .table_version import TableVersion
 from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
@@ -49,7 +46,6 @@ if TYPE_CHECKING:
     from .catalog_proxy import CatalogProxy
     from .path import Path
     from .table import Table
-    from .table_version import TableVersion
 
 _logger = logging.getLogger(__name__)
 
@@ -66,67 +62,31 @@ _MAX_UPLOAD_THREADS = 16
 _MAX_LISTED_FILES = 5
 
 
-@dataclasses.dataclass(frozen=True)
-class _StoreColumn:
-    """A stored column of a table. A dropped column is included: its store column still has older row versions."""
-
-    col_id: int
-    is_media: bool
-    stores_cellmd: bool
-    # the table version that added the column; adding a computed column fills the existing rows with files of it
-    version_add: int
-    # where the column stores its files; None is the default media store
-    destination: str | None
-
-    @property
-    def store_name(self) -> str:
-        return Column.store_name_from_id(self.col_id)
-
-    @property
-    def cellmd_store_name(self) -> str:
-        return Column.cellmd_store_name_from_id(self.col_id)
-
-
-def _store_columns(md: list[TableVersionMd]) -> list[_StoreColumn]:
-    """The stored columns of the table whose history is md."""
+def _store_columns(md: list[TableVersionMd]) -> list[Column]:
+    """The stored columns of the table whose history is md. A dropped column is included: its store column still has
+    older row versions."""
     # the latest schema version that has a column describes it
     schema_cols: dict[int, schema.SchemaColumn] = {}
     for version_md in sorted(md, key=lambda m: m.schema_version_md.schema_version):
         schema_cols.update(version_md.schema_version_md.columns)
-    store_cols: list[_StoreColumn] = []
+    store_cols: list[Column] = []
     for col_id, col_md in md[0].tbl_md.column_md.items():
         if not col_md.stored:
             continue
-        is_media = ts.ColumnType.from_dict(schema_cols[col_id].col_type).is_media_type()
+        assert col_md.sa_col_type is not None
+        schema_col = schema_cols[col_id]
         store_cols.append(
-            _StoreColumn(
+            Column(
+                schema_col.name,
                 col_id=col_id,
-                is_media=is_media,
+                col_type=ts.ColumnType.from_dict(schema_col.col_type),
+                sa_col_type=ts.sa_type_from_dict(col_md.sa_col_type),
                 stores_cellmd=col_md.stores_cellmd,
-                # ColumnMd has the schema version that added the column, not the table version. The earliest table
-                # version with that schema version or a later one is the table version that added it.
-                version_add=min(
-                    m.version_md.version for m in md if m.version_md.schema_version >= col_md.schema_version_add
-                ),
-                destination=_destination(col_md, schema_cols[col_id], is_media),
+                value_expr_dict=schema_col.value_expr,
+                destination=col_md.destination,
             )
         )
     return store_cols
-
-
-def _destination(col_md: schema.ColumnMd, schema_col: schema.SchemaColumn, is_media: bool) -> str | None:
-    """The Column.destination of a stored column. A copy needs it before it writes its metadata, and Column needs a
-    TableVersion, which the copy does not have until then."""
-    if isinstance(col_md.destination, dict):
-        return ConfigVar._from_dict(col_md.destination).value()
-    if col_md.destination is not None:
-        return col_md.destination
-    # an index value column has no name, and its files go to the default media store
-    if is_media and schema_col.name is not None:
-        if schema_col.value_expr is not None:
-            return Env.get().default_output_media_dest
-        return Env.get().default_input_media_dest
-    return None
 
 
 def _remap_tbl_id(md: Any, old_id: uuid.UUID, new_id: uuid.UUID) -> Any:
@@ -152,6 +112,14 @@ def _nested_values(md: Any) -> Iterator[Any]:
             yield from _nested_values(value)
 
 
+def _is_local_dir(destination: Any) -> bool:
+    """Whether destination is a directory of this machine."""
+    return (
+        isinstance(destination, str)
+        and ObjectPath.parse_object_storage_addr(destination, False).storage_target == StorageTarget.LOCAL_STORE
+    )
+
+
 def md_for_copy(md: list[TableVersionMd], tbl_id: uuid.UUID, name: str) -> list[TableVersionMd]:
     """Return the history of a copy of the table whose history is md, with id tbl_id and name name. Raises an error if
     the table cannot be copied into this database."""
@@ -165,20 +133,7 @@ def md_for_copy(md: list[TableVersionMd], tbl_id: uuid.UUID, name: str) -> list[
             excs.ErrorCode.INVALID_STATE,
             f'Cannot copy {src_md.name!r} while an operation on it is in progress; retry the copy',
         )
-    # An embedding index builds its functions when the table is loaded, so check those before writing anything. A
-    # dropped index is checked as well: a revert of the copy restores it.
-    for idx_md in src_md.index_md.values():
-        for arg in idx_md.init_args.values():
-            if isinstance(arg, dict) and '_classpath' in arg:
-                fn = func.Function.from_dict(arg)
-                if isinstance(fn, func.InvalidFunction):
-                    raise excs.NotFoundError(
-                        excs.ErrorCode.FUNCTION_NOT_FOUND,
-                        f'Cannot copy {src_md.name!r}: the index {idx_md.name!r} uses the UDF `{fn.self_path}`, '
-                        'which is not defined in the destination database.\n'
-                        'You can use `pxt db update` to deploy the UDF to the database.',
-                    )
-    _check_value_expr_udfs(md)
+    _check_udfs(md)
 
     src_id = uuid.UUID(src_md.tbl_id)
     copy_md = [TableVersionMd.from_dict(_remap_tbl_id(m.as_dict(), src_id, tbl_id)) for m in md]
@@ -186,97 +141,40 @@ def md_for_copy(md: list[TableVersionMd], tbl_id: uuid.UUID, name: str) -> list[
     tbl_md.name = name
     tbl_md.user = Env.get().user
     for col_md in tbl_md.column_md.values():
-        if (
-            Env.get().is_proxy_daemon
-            and isinstance(col_md.destination, str)
-            and ObjectPath.parse_object_storage_addr(col_md.destination, False).storage_target
-            == StorageTarget.LOCAL_STORE
-        ):
+        if Env.get().is_proxy_daemon and _is_local_dir(col_md.destination):
             # A proxy daemon receives the metadata of a table of another machine, whose local directory doesn't exist
             # here. The column falls back to the default destination.
             col_md.destination = None
     return copy_md
 
 
-def _check_value_expr_udfs(md: list[TableVersionMd]) -> None:
-    """Raise an error if this database cannot load a UDF of a computed column in md, dropped ones included: a revert of
-    the copy restores them."""
+def _check_udfs(md: list[TableVersionMd]) -> None:
+    """Raise an error if this database cannot load a UDF of an index or a computed column in md. Dropped ones count: a
+    revert of the copy restores them."""
     src_name = md[0].tbl_md.name
+    # (description, serialized index arguments or value expression)
+    udf_callers: list[tuple[str, Any]] = [
+        (f'the index {idx_md.name!r}', idx_md.init_args) for idx_md in md[0].tbl_md.index_md.values()
+    ]
     for version_md in md:
         for col in version_md.schema_version_md.columns.values():
-            # Only the functions of the expression are loaded. Expr.from_dict() cannot be used: the copy has no
-            # metadata yet, and an earlier schema version can reference a column that was dropped since. A function
-            # with a path is a UDF. A @pxt.query has no path, and its UDFs are nested in it.
-            udfs = [
-                func.Function.from_dict(node)
-                for node in _nested_values(col.value_expr)
-                if isinstance(node, dict) and '_classpath' in node and 'path' in node
-            ]
-            invalid_udf_paths = [udf.self_path for udf in udfs if isinstance(udf, func.InvalidFunction)]
-            if len(invalid_udf_paths) > 0:
-                # the value column of an index has no name
-                col_desc = (
-                    f'the computed column {col.name!r}' if col.name is not None else 'the value column of an index'
-                )
+            # the value column of an index has no name
+            col_desc = f'the computed column {col.name!r}' if col.name is not None else 'the value column of an index'
+            udf_callers.append((col_desc, col.value_expr))
+    for desc, caller_md in udf_callers:
+        # Only the functions are loaded. Expr.from_dict() cannot be used: the copy has no metadata yet, and an earlier
+        # schema version can reference a column that was dropped since. A function with a path is a UDF. A @pxt.query
+        # has no path, and its UDFs are nested in it.
+        for node in _nested_values(caller_md):
+            if not (isinstance(node, dict) and '_classpath' in node and 'path' in node):
+                continue
+            udf = func.Function.from_dict(node)
+            if isinstance(udf, func.InvalidFunction):
                 raise excs.NotFoundError(
                     excs.ErrorCode.FUNCTION_NOT_FOUND,
-                    f'Cannot copy {src_name!r}: {col_desc} cannot be evaluated in the destination database.\n'
-                    f'The UDF `{invalid_udf_paths[0]}` is not defined in the destination database.\n'
-                    'You can use `pxt db update` to deploy the UDF to the database.',
+                    f'Cannot copy {src_name!r}: {desc} uses the UDF `{udf.self_path}`, which is not defined in the '
+                    'destination database.\nYou can use `pxt db update` to deploy the UDF to the database.',
                 )
-
-
-def _arrow_type(sa_type: sql.types.TypeEngine) -> pa.DataType:
-    """The Arrow type of a store column of type sa_type. A store table has columns with no Pixeltable type (rowid,
-    v_min, v_max, cellmd and index values), so this maps the SQL types."""
-    if isinstance(sa_type, JSONB):
-        # json text: the value of a JSONB column has no fixed Arrow type
-        return pa.string()
-    if isinstance(sa_type, sql.String):
-        return pa.string()
-    if isinstance(sa_type, sql.Boolean):
-        return pa.bool_()
-    if isinstance(sa_type, sql.BigInteger):
-        return pa.int64()
-    if isinstance(sa_type, sql.Float):
-        return pa.float64()
-    if isinstance(sa_type, sql.TIMESTAMP):
-        return pa.timestamp('us', tz='UTC')
-    if isinstance(sa_type, sql.Date):
-        return pa.date32()
-    if isinstance(sa_type, sql.LargeBinary):
-        return pa.binary()
-    if isinstance(sa_type, sql.UUID):
-        return pa.binary(16)
-    if isinstance(sa_type, (sql_vector.Vector, sql_vector.HALFVEC)):
-        # a vector element is a float32, and a halfvec element is a float16, which float32 represents exactly
-        return pa.list_(pa.float32())
-    raise AssertionError(f'Unexpected store column type: {sa_type!r}')
-
-
-def _to_arrow_value(val: Any, sa_type: sql.types.TypeEngine) -> Any:
-    if val is None:
-        return None
-    if isinstance(sa_type, JSONB):
-        return json.dumps(val)
-    if isinstance(sa_type, sql.UUID):
-        return val.bytes
-    if isinstance(sa_type, (sql_vector.Vector, sql_vector.HALFVEC)):
-        return np.asarray(val, dtype=np.float32)
-    return val
-
-
-def _from_arrow_value(val: Any, sa_type: sql.types.TypeEngine) -> Any:
-    if val is None:
-        # A Python None inserts a json 'null' into a JSONB column. The store keeps a SQL NULL there.
-        return sql.null() if isinstance(sa_type, JSONB) else None
-    if isinstance(sa_type, JSONB):
-        return json.loads(val)
-    if isinstance(sa_type, sql.UUID):
-        return uuid.UUID(bytes=val)
-    if isinstance(sa_type, (sql_vector.Vector, sql_vector.HALFVEC)):
-        return np.array(val, dtype=np.float32)
-    return val
 
 
 @dataclasses.dataclass(frozen=True)
@@ -328,10 +226,10 @@ class _TableExport:
         self._tmp_dir = tmp_dir
         self._tbl_id = uuid.UUID(md[0].tbl_md.tbl_id)
         self._sa_cols = list(sa_tbl.columns)
-        self._arrow_schema = pa.schema([(col.name, _arrow_type(col.type)) for col in self._sa_cols])
+        self._arrow_schema = pa.schema([(col.name, arrow.sa_to_arrow_type(col.type)) for col in self._sa_cols])
         cols = _store_columns(md)
-        self._media_cols = [col.store_name for col in cols if col.is_media]
-        self._cellmd_cols = [col.cellmd_store_name for col in cols if col.stores_cellmd]
+        self._media_cols = [col.store_name() for col in cols if col.col_type.is_media_type()]
+        self._cellmd_cols = [col.cellmd_store_name() for col in cols if col.stores_cellmd]
         self._exported_media = set()
         self._chunk = None
         self._writer = None
@@ -388,7 +286,8 @@ class _TableExport:
         if len(self._batch) == 0:
             return
         arrow_cols = {
-            col.name: [_to_arrow_value(row[col.name], col.type) for row in self._batch] for col in self._sa_cols
+            col.name: [arrow.sa_val_to_arrow_val(row[col.name], col.type) for row in self._batch]
+            for col in self._sa_cols
         }
         pa_table = pa.Table.from_pydict(arrow_cols, schema=self._arrow_schema)
         if self._writer is None:
@@ -556,12 +455,7 @@ def create_table_like(
             spec['media_validation'] = col._media_validation.name.lower()  # type: ignore[typeddict-item]
         destination = col._explicit_destination
         # Another database cannot reach a directory of this machine. The column takes that database's default.
-        is_local_dir = (
-            isinstance(destination, (str, FsPath))
-            and ObjectPath.parse_object_storage_addr(str(destination), False).storage_target
-            == StorageTarget.LOCAL_STORE
-        )
-        if destination is not None and not (is_other_db and is_local_dir):
+        if destination is not None and not (is_other_db and _is_local_dir(destination)):
             spec['destination'] = destination
         if col.custom_metadata is not None:
             spec['custom_metadata'] = col.custom_metadata
@@ -623,22 +517,29 @@ def place_media(md: list[TableVersionMd], rows_file: str, new_media: dict[str, s
     under the column and version of the first row in rows_file that references it. Returns url -> stored url."""
     tbl_md = md[0].tbl_md
     cols = _store_columns(md)
-    media_cols = [col for col in cols if col.is_media]
+    media_cols = [col for col in cols if col.col_type.is_media_type()]
     cellmd_cols = [col for col in cols if col.stores_cellmd]
-    read_cols = [col.store_name for col in media_cols] + [col.cellmd_store_name for col in cellmd_cols]
+    read_cols = [col.store_name() for col in media_cols] + [col.cellmd_store_name() for col in cellmd_cols]
     if tbl_md.is_data_versioned:
         read_cols.append('v_min')
+    # ColumnMd has the schema version that added a column, not the table version. The earliest table version with that
+    # schema version or a later one is the table version that added it. Adding a computed column fills the existing
+    # rows with files of that version.
+    version_add = {
+        col_id: min(m.version_md.version for m in md if m.version_md.schema_version >= col_md.schema_version_add)
+        for col_id, col_md in tbl_md.column_md.items()
+    }
 
     placements: dict[str, tuple[str | None, int, int]] = {}  # url -> (destination, column id, table version)
     for rows in _iter_rows(rows_file, read_cols):
         for row in rows:
             version = row['v_min'] if tbl_md.is_data_versioned else tbl_md.current_version
             for col in media_cols:
-                url = row[col.store_name]
+                url = row[col.store_name()]
                 if url in new_media and url not in placements:
-                    placements[url] = (col.destination, col.col_id, max(version, col.version_add))
+                    placements[url] = (col.destination, col.id, max(version, version_add[col.id]))
             for col in cellmd_cols:
-                cellmd = row[col.cellmd_store_name]
+                cellmd = row[col.cellmd_store_name()]
                 if cellmd is None:
                     continue
                 file_urls = json.loads(cellmd).get('file_urls')
@@ -646,7 +547,7 @@ def place_media(md: list[TableVersionMd], rows_file: str, new_media: dict[str, s
                     continue
                 for url in file_urls:
                     if url in new_media and url not in placements:
-                        placement = (Env.get().cell_materialization_dest, col.col_id, max(version, col.version_add))
+                        placement = (Env.get().cell_materialization_dest, col.id, max(version, version_add[col.id]))
                         placements[url] = placement
 
     unreferenced = new_media.keys() - placements.keys()
@@ -673,23 +574,18 @@ def place_media(md: list[TableVersionMd], rows_file: str, new_media: dict[str, s
         return {url: future.result() for url, future in futures.items()}
 
 
-def _media_destinations(cols: list[_StoreColumn]) -> set[str | None]:
-    """The destinations of the files of a table with the stored columns cols, as in TableVersion.delete_media()."""
-    return {col.destination for col in cols} | {Env.get().cell_materialization_dest}
-
-
 def delete_media(md: list[TableVersionMd]) -> None:
     """Delete the media files of the table whose history is md from each of its destinations."""
     tbl_id = uuid.UUID(md[0].tbl_md.tbl_id)
-    for destination in _media_destinations(_store_columns(md)):
+    for destination in TableVersion.media_destinations(_store_columns(md)):
         ObjectOps.delete(destination, tbl_id)
 
 
-def _local_media_dirs(tv: TableVersion, cols: list[_StoreColumn]) -> list[FsPath]:
+def _local_media_dirs(tv: TableVersion, cols: list[Column]) -> list[FsPath]:
     """The local directories, resolved, that contain the stored media files of tv."""
     addrs = [
         ObjectPath.parse_object_storage_addr(dest or str(Env.get().media_dir), False)
-        for dest in _media_destinations(cols)
+        for dest in TableVersion.media_destinations(cols)
     ]
     return [
         (addr.to_path / ObjectPath.table_prefix(tv.id)).resolve()
@@ -719,22 +615,22 @@ def insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, medi
             f'The rows do not match the columns of {tv.name!r}: {sorted(file_cols)} != {sorted(sa_tbl.columns.keys())}',
         )
     cols = _store_columns(md)
-    media_cols = {col.store_name for col in cols if col.is_media}
-    cellmd_cols = {col.cellmd_store_name for col in cols if col.stores_cellmd}
+    media_cols = {col.store_name() for col in cols if col.col_type.is_media_type()}
+    cellmd_cols = {col.cellmd_store_name() for col in cols if col.stores_cellmd}
     local_media_dirs = _local_media_dirs(tv, cols)
 
-    conn = get_runtime().conn
     for rows in _iter_rows(rows_file):
-        store_rows: list[dict[str, Any]] = []
+        store_rows: list[list[Any]] = []
         for row in rows:
             # a row beyond tv's history is refused, so that a later insert does not reuse its rowid
             if tv.is_data_versioned and (row['rowid'] >= tv.next_row_id or row['v_min'] > tv.version):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f'Row {row["rowid"]} is not a row of the history of {tv.name!r}'
                 )
-            store_row: dict[str, Any] = {}
-            for name, val in row.items():
-                store_val = _from_arrow_value(val, sa_tbl.columns[name].type)
+            store_row: list[Any] = []
+            for name in file_cols:
+                val = row[name]
+                store_val = arrow.arrow_val_to_sa_val(val, sa_tbl.columns[name].type)
                 if name in media_cols and val is not None:
                     store_val = _check_stored_url(tv, media_urls.get(store_val, store_val), local_media_dirs)
                 elif name in cellmd_cols and val is not None and 'file_urls' in store_val:
@@ -742,6 +638,6 @@ def insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, medi
                         _check_stored_url(tv, media_urls.get(url, url), local_media_dirs)
                         for url in store_val['file_urls']
                     ]
-                store_row[name] = store_val
+                store_row.append(store_val)
             store_rows.append(store_row)
-        conn.execute(sql.insert(sa_tbl), store_rows)
+        tv.store_tbl.sql_insert(sa_tbl, file_cols, store_rows)
