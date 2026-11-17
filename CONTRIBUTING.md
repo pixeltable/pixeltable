@@ -109,9 +109,8 @@ The notebooks under `docs/release` take the same markers, or `skip` if CI never 
 as `standard+`, `standard++` and `resource-intensive`.
 
 `pip-install-tests` tests the latest release as pip installs it, on Mondays, Wednesdays and Fridays. Its Python 3.11
-jobs install different optional packages, and each runs the `expensive` tests for its packages, so each test runs once.
-`TestBedrock` needs only core dependencies, so it runs in one job, which every third Monday also runs the
-`very_expensive` tests. One isolated
+jobs install different optional packages, and each runs the `expensive` tests for its packages, and every third Monday
+the `very_expensive` ones, so each test runs once. `TestBedrock` needs only core dependencies, so it runs in one job. One isolated
 notebook job runs the `expensive` notebooks, and every third Monday the `very_expensive` ones. No job runs the
 `resource_intensive` ones.
 

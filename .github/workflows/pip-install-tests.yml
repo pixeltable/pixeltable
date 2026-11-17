@@ -65,10 +65,10 @@ jobs:
         os: [ubuntu-24.04]
         include:
           # The only job with TestBedrock, which needs only core dependencies and AWS credentials and so would run in
-          # every 3.11 job, and every third Monday with the very_expensive tests, like standard++ in pytest.yml
+          # every 3.11 job
           - python-version: "3.11"
             package-configs: "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
-            very-expensive: true
+            bedrock: true
           # transformers-based tests need to run on a larger runner.
           - python-version: "3.11"
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
@@ -159,17 +159,17 @@ jobs:
         run: |
           MARKERS='not expensive and not very_expensive and not resource_intensive'
           if [[ '${{ matrix.python-version }}' == '3.11' ]]; then
-            # Each 3.11 job has its own optional packages, so each expensive test runs in only one of them
+            # Each 3.11 job has its own optional packages, so each expensive and very_expensive test runs in only one
             MARKERS='not very_expensive and not resource_intensive'
-          fi
-          DESELECT='--deselect=tests/functions/test_bedrock.py::TestBedrock'
-          if [[ '${{ matrix.very-expensive }}' == 'true' ]]; then
-            DESELECT=''
             # Every third Monday, by weeks since the Unix epoch
             if [[ '${{ github.event_name }}' == 'schedule' ]] \
                 && (( $(date -u +%u) == 1 && $(date -u +%s) / 604800 % 3 == 0 )); then
               MARKERS='not resource_intensive'
             fi
+          fi
+          DESELECT='--deselect=tests/functions/test_bedrock.py::TestBedrock'
+          if [[ '${{ matrix.bedrock }}' == 'true' ]]; then
+            DESELECT=''
           fi
           echo "Running tests with markers: $MARKERS"
           pytest -v -m "$MARKERS" $DESELECT --junitxml=junit-report.xml tests
