@@ -322,7 +322,6 @@ def create_table(
     if src_tbl is not None:
         assert isinstance(src_tbl, catalog.InsertableTable)
         if is_copy:
-            assert isinstance(cat, (catalog.Catalog, catalog.CatalogProxy))
             tbl, was_created = table_copy.copy_table(src_tbl, cat, path_obj, if_exists_)
         else:
             tbl, was_created = table_copy.create_table_like(src_tbl, cat, path_obj, if_exists_)

@@ -41,9 +41,7 @@ from .table_version import TableVersion
 from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
-    from .catalog import Catalog
     from .catalog_base import CatalogBase
-    from .catalog_proxy import CatalogProxy
     from .path import Path
     from .table import Table
 
@@ -377,7 +375,7 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool) -> _
 
 
 def copy_table(
-    tbl: InsertableTable, dest_catalog: Catalog | CatalogProxy, dest_path: Path, if_exists: IfExistsParam
+    tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam
 ) -> tuple[Table, bool]:
     """Copy the local base table tbl to dest_path in dest_catalog, the catalog of the same database or a hosted one."""
     # 'error' and 'ignore' are decided before the export, so that no rows are copied for nothing.
