@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
-# Copies the notebooks to the target path for nbmake. The notebooks' test tiers, and `skip` for the ones CI never runs,
-# are pytest markers: NOTEBOOK_MARKERS in tests/notebook_markers.py.
+# Copies the notebooks to the target path for nbmake. The notebooks' test tiers, and Skip for the ones CI never runs,
+# are in NOTEBOOK_MARKERS in tests/notebook_markers.py.
 
 # Notebooks that need a GPU or a different pip setup
 SKIP_NOTEBOOKS=()

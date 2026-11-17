@@ -40,7 +40,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
 
-from .notebook_markers import NOTEBOOK_MARKERS
+from .notebook_markers import NOTEBOOK_MARKERS, Skip
 from .utils import (
     CLOUD_DB_ROOT_URIS,
     IN_CI,
@@ -104,8 +104,12 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
                 f'NOTEBOOK_MARKERS has notebooks that are not under docs/release: {sorted(unknown)}'
             )
         for item in notebooks:
-            for marker_name in NOTEBOOK_MARKERS.get(item.path.stem, ()):
-                item.add_marker(marker_name)
+            markers = NOTEBOOK_MARKERS.get(item.path.stem, ())
+            if isinstance(markers, Skip):
+                item.add_marker(pytest.mark.skip(reason=markers.reason))
+            else:
+                for marker_name in markers:
+                    item.add_marker(marker_name)
 
     offenders: list[str] = []
     for item in items:
