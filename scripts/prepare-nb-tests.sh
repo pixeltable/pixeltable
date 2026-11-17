@@ -1,5 +1,8 @@
 #!/bin/bash -e
 
+# Copies the notebooks to the target path for nbmake. The notebooks' test tiers are pytest markers: NOTEBOOK_MARKERS
+# in tests/conftest.py.
+
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
     llm-tool-calling                # Relies on the user separately running an MCP server
@@ -19,61 +22,11 @@ if ! nvidia-smi > /dev/null 2>&1; then
     )
 fi
 
-# Notebooks that are skipped unless --include-very-expensive is passed
-# Almost all notebooks that use external services should be on this list. OpenAI integration is a notable exception as
-# it tends to be more reliable than others.
-VERY_EXPENSIVE_NOTEBOOKS=(
-    img-detection-vs-segmentation   # Resource intensive
-    img-image-to-image              # Resource intensive
-    object-detection-in-videos      # Resource intensive
-    video-generate-ai               # Video generation API calls
-    working-with-anthropic
-    working-with-bedrock
-    working-with-deepseek
-    working-with-fal                # [PXT-1233] fal.ai integration failing on CI
-    working-with-fireworks
-    working-with-gemini             # High dollar cost
-    working-with-groq
-    working-with-jina
-    working-with-mistralai
-    working-with-nebius
-    working-with-openrouter
-    working-with-parallel
-    working-with-replicate          # Unreliable
-    working-with-together           # Poor reliability
-    working-with-vlmrun
-    working-with-vlmrun-gateway
-    working-with-voyageai
-)
-
-# Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
-EXPENSIVE_NOTEBOOKS=(
-    audio-transcriptions
-    computed-columns
-    data-import-huggingface
-    doc-chunk-for-rag
-    embedding-indexes
-    img-promptable-segmentation
-    multimodal_backend
-    queries-and-expressions
-    rag-demo
-    rag-operations
-    search-semantic-text
-    search-similar-images
-    ten-minute-tour
-    video-image-slideshow
-    working-with-hugging-face
-    working-with-llama-cpp
-    working-with-ollama             # [PXT-1246] Unreliable
-)
-
 IFS=$'\n'
 SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
 
 DO_PIP_INSTALL=true
-INCLUDE_VERY_EXPENSIVE=false
-INCLUDE_EXPENSIVE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -81,17 +34,9 @@ while [[ $# -gt 0 ]]; do
             DO_PIP_INSTALL=false
             shift
             ;;
-        --include-very-expensive)
-            INCLUDE_VERY_EXPENSIVE=true
-            shift
-            ;;
-        --include-expensive)
-            INCLUDE_EXPENSIVE=true
-            shift
-            ;;
         -*)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-expensive] target-path <notebook-paths>"
+            echo "Usage: $0 [--no-pip] target-path <notebook-paths>"
             exit 1
             ;;
         *)
@@ -101,7 +46,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$2" ]; then
-    echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-expensive] target-path <notebook-paths>"
+    echo "Usage: $0 [--no-pip] target-path <notebook-paths>"
     exit 1
 fi
 
@@ -121,12 +66,6 @@ echo "Target path: $TARGET_DIR"
 echo "Notebook paths: $@"
 if [[ $DO_PIP_INSTALL == false ]]; then
     echo "Skipping pip install commands in notebooks."
-fi
-if [[ $INCLUDE_VERY_EXPENSIVE == true ]]; then
-    echo "Including very expensive notebooks."
-fi
-if [[ $INCLUDE_EXPENSIVE == true ]]; then
-    echo "Including expensive notebooks."
 fi
 
 mkdir -p "$TARGET_DIR"
@@ -152,22 +91,6 @@ for nb in "${SKIP_NOTEBOOKS[@]}"; do
     echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in SKIP_NOTEBOOKS."
     rm "$TARGET_DIR/${nb}.ipynb"
 done
-
-# Remove very expensive notebooks unless --include-very-expensive was passed
-if [[ $INCLUDE_VERY_EXPENSIVE == false ]]; then
-    for nb in "${VERY_EXPENSIVE_NOTEBOOKS[@]}"; do
-        echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in VERY_EXPENSIVE_NOTEBOOKS."
-        rm "$TARGET_DIR/${nb}.ipynb"
-    done
-fi
-
-# Remove expensive notebooks unless --include-expensive was passed
-if [[ $INCLUDE_EXPENSIVE == false ]]; then
-    for nb in "${EXPENSIVE_NOTEBOOKS[@]}"; do
-        echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in EXPENSIVE_NOTEBOOKS."
-        rm "$TARGET_DIR/${nb}.ipynb"
-    done
-fi
 
 # Get a list of all API keys referenced in the notebooks
 REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN|SECRET)(_[A-Z0-9_]*)?|HF_TOKEN' "$TARGET_DIR"/*.ipynb | sort | uniq)

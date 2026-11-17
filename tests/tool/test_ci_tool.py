@@ -6,6 +6,7 @@ from tool.ci_tool import (
     DEFAULT_MARKERS,
     EXPENSIVE_MARKERS,
     EXPENSIVE_PLATFORMS,
+    LARGE_PLATFORM,
     MAIN_PLATFORM,
     RESOURCE_INTENSIVE_MARKERS,
     TRIGGERS,
@@ -37,7 +38,7 @@ class TestBuildConfigs:
 
     def test_every_declared_platform_is_used(self) -> None:
         configs = build_configs('workflow_dispatch', force_all=True, has_aws_credentials=True)
-        assert {MAIN_PLATFORM, *BASIC_PLATFORMS, *EXPENSIVE_PLATFORMS, *ALTERNATIVE_PLATFORMS} <= {
+        assert {MAIN_PLATFORM, *BASIC_PLATFORMS, *EXPENSIVE_PLATFORMS, *ALTERNATIVE_PLATFORMS, LARGE_PLATFORM} <= {
             cfg.os for cfg in configs
         }
 
@@ -67,6 +68,33 @@ class TestBuildConfigs:
         markers = [cfg.pytest_markers for cfg in configs if cfg.test_category == 'py']
         assert sorted(m for m in markers if m != DEFAULT_MARKERS + suffix) == sorted(m + suffix for m in tiered)
         assert DEFAULT_MARKERS + suffix in markers
+
+    @pytest.mark.parametrize(
+        ('trigger', 'force_all', 'notebook_markers'),
+        [
+            ('pull_request', False, []),
+            ('merge_group', False, [f'{EXPENSIVE_MARKERS} and not skip_merge_queue']),
+            ('schedule', False, [RESOURCE_INTENSIVE_MARKERS]),
+            ('schedule', True, [VERY_EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS]),
+        ],
+    )
+    def test_notebook_markers_by_trigger(self, trigger: str, force_all: bool, notebook_markers: list[str]) -> None:
+        configs = build_configs(trigger, force_all=force_all, has_aws_credentials=True)
+        assert [cfg.pytest_markers for cfg in configs if cfg.test_category == 'ipynb'] == notebook_markers
+
+    @pytest.mark.parametrize('trigger', ['pull_request', 'merge_group'])
+    def test_merge_queue_excludes_scheduled_only_tiers(self, trigger: str) -> None:
+        excluded = {'not skip_merge_queue', 'not very_expensive', 'not resource_intensive'}
+        for cfg in build_configs(trigger, force_all=False, has_aws_credentials=True):
+            assert excluded <= set(cfg.pytest_markers.split(' and ')), cfg.display_name
+
+    @pytest.mark.parametrize(
+        ('trigger', 'force_all'),
+        [('pull_request', False), ('merge_group', False), ('schedule', False), ('schedule', True)],
+    )
+    def test_large_runner_runs_only_resource_intensive(self, trigger: str, force_all: bool) -> None:
+        for cfg in build_configs(trigger, force_all=force_all, has_aws_credentials=True):
+            assert (cfg.os == LARGE_PLATFORM) == (cfg.pytest_markers == RESOURCE_INTENSIVE_MARKERS), cfg.display_name
 
     def test_unknown_trigger_is_rejected(self) -> None:
         with pytest.raises(AssertionError):
