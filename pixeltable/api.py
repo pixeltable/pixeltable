@@ -257,24 +257,20 @@ def create_table(
             if is_copy:
                 error_msg += '. To copy only its rows, pass a query such as `tbl.select()` as `source`.'
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, error_msg)
-        args_from_src_tbl = {
-            'source_format': source_format,
-            'schema_overrides': schema_overrides,
-            'comment': comment,
-            'custom_metadata': custom_metadata,
-            'extra_args': extra_args,
+        # the new table takes these settings from src_tbl, so that passing one is an error
+        is_arg_given = {
+            'source_format': source_format is not None,
+            'schema_overrides': schema_overrides is not None,
+            'comment': comment is not None,
+            'custom_metadata': custom_metadata is not None,
+            'extra_args': extra_args is not None,
+            'primary_key': bool(primary_key),
+            'media_validation': media_validation_ != catalog.MediaValidation.ON_WRITE,
+            'has_default_idxs': has_default_idxs,
+            '_is_data_versioned': not _is_data_versioned,
         }
-        given_args = [name for name, value in args_from_src_tbl.items() if value is not None]
-        if primary_key is not None and len(primary_key) > 0:
-            given_args.append('primary_key')
-        if media_validation_ != catalog.MediaValidation.ON_WRITE:
-            given_args.append('media_validation')
-        if has_default_idxs:
-            given_args.append('has_default_idxs')
-        if not _is_data_versioned:
-            given_args.append('_is_data_versioned')
-        if len(given_args) > 0:
-            given_args_str = ', '.join(f'`{name}`' for name in given_args)
+        given_args_str = ', '.join(f'`{name}`' for name, is_given in is_arg_given.items() if is_given)
+        if given_args_str != '':
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 f'`{src_tbl_arg}` cannot be combined with {given_args_str}: the new table takes them from '
