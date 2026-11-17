@@ -62,6 +62,8 @@ class UdfServer:
             return
         # the checks come before reading the body, so a caller without the secret can't make the server buffer one
         if scope['method'] != 'POST':
+            # GETs come from Modal, which polls /metrics, and from ModalServerClient._monitor(), which probes for a
+            # running container
             status, body = 404, b''
         elif not self._is_authorized(scope):
             status, body = 401, b''

@@ -559,6 +559,11 @@ class TestConfig:
         for text, message in (
             # a local service runs in-process, at whatever size its process has
             ('[[pixeltable.database]]\nservices.api = { cpu = 1.0 }\n', r'`services` applies to a hosted database'),
+            # a local database has no pods to size
+            (
+                '[[pixeltable.database]]\ncpu = 1.0\ndisk_gb = 10\n',
+                r'the compute settings \(`cpu`, `disk_gb`\) apply to a hosted database',
+            ),
             (
                 "[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = { disk_gb = 10 }\n",
                 r'unknown settings: disk_gb',

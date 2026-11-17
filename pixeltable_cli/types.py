@@ -383,20 +383,16 @@ class DbChangeOp(ChangeOp):
     details: dict[str, str] = pydantic.Field(default_factory=dict)
 
     @classmethod
-    def capacity(
-        cls, field: str, current: float | int | None, declared: float | int, *, requires_restart: bool = True
-    ) -> DbChangeOp:
-        """requires_restart: False for a local database, which has no pods"""
+    def capacity(cls, field: str, current: float | int | None, declared: float | int) -> DbChangeOp:
         was = 'unreported' if current is None else str(current)
-        description = f'{field} will be {declared} rather than {was}'
         return cls(
             target='capacity',
             name=field,
             op='alter',
             severity='destructive' if current is not None and declared < current else 'additive',
-            description=f'{description}, which restarts the database' if requires_restart else description,
+            description=f'{field} will be {declared} rather than {was}, which restarts the database',
             details={'from': was, 'to': str(declared)},
-            requires_restart=requires_restart,
+            requires_restart=True,
         )
 
     @classmethod

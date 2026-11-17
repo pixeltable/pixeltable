@@ -235,9 +235,7 @@ def create_db_update_ops(
 
     current_capacity = DatabaseCapacity() if current is None else current.capacity()
     for field, value in current_capacity.changes(target.capacity()).model_dump(exclude_none=True).items():
-        ops.append(
-            DbChangeOp.capacity(field, getattr(current_capacity, field), value, requires_restart=requires_restart)
-        )
+        ops.append(DbChangeOp.capacity(field, getattr(current_capacity, field), value))
 
     return ops
 

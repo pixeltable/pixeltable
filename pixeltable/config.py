@@ -133,6 +133,16 @@ class DatabaseConfig(DatabaseCapacity):
                 raise ValueError(f'`services` has both {other!r} and {path!r}, which differ only in case')
         return self
 
+    @pydantic.model_validator(mode='after')
+    def _check_capacity(self) -> Self:
+        declared = list(self.capacity().model_dump(exclude_none=True))
+        if self.name == LOCAL_DATABASE and len(declared) > 0:
+            fields = ', '.join(f'`{field}`' for field in declared)
+            raise ValueError(
+                f'the compute settings ({fields}) apply to a hosted database; a local database has no pods'
+            )
+        return self
+
 
 # the entry in [[pixeltable.database]] that configures the local database
 LOCAL_DATABASE = 'local'
