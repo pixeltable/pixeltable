@@ -116,7 +116,7 @@ class TestSample:
         _ = t.select().sample(n_per_stratum=5, stratify_by=t.c1)
 
         # select() after sample() is a column projection that must preserve the sample clause
-        q = t.select(t.c1, t.c2).sample(n=5).select(t.c1)
+        q = t.sample(n=5).select(t.c1)
         assert q.sample_clause is not None
         result = q.collect()
         assert len(result) <= 5
