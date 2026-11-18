@@ -222,6 +222,11 @@ class TestJson:
         assert col(pxtf.json.dumps(t.j)) == ['[1, 2]', '[3.5]', None]
         rs = t.order_by(t.id).select(t.j, n=t.j.len()).collect()
         assert [(r['j'], r['n']) for r in rs] == [([1, 2], 2), ([3.5], 1), (None, None)]
+        assert [r['id'] for r in t.order_by(t.j.len(), t.id).select(t.id).collect()] == [2, 1, 3]
+        u = pxt.create_table('json_sql_fn_join', {'n': pxt.Int})
+        u.insert([{'n': 1}, {'n': 2}])
+        rs = t.join(u, on=t.j.len() == u.n).order_by(t.id).select(t.id).collect()
+        assert [r['id'] for r in rs] == [1, 2]
 
         # add_computed_column() fills the existing rows
         validate_update_status(t.add_computed_column(n=t.j.len()), expected_rows=3)

@@ -1395,7 +1395,11 @@ class Planner:
             )
 
         plan = cls._add_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
-        plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, sql_exprs, plan)
+        # order-by exprs and join predicates are evaluated only in SQL
+        python_exprs = [*analyzer.select_list, *analyzer.grouping_exprs, *analyzer.stratify_exprs]
+        if analyzer.filter is not None:
+            python_exprs.append(analyzer.filter)
+        plan = cls._add_cell_reconstruction_node(python_exprs, sql_exprs, plan)
 
         if analyzer.filter is not None:
             plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
