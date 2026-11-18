@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, NamedTuple, Sequence, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -811,8 +811,8 @@ class Planner:
         2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
         The json-typed ColumnRefs that JsonPaths are anchored on also need the node, which loads their objects that are
         stored in remote chunks.
-        ColumnRefs that only appear inside exprs computed in SQL (sql_exprs) are skipped: their slots are never
-        populated.
+        Only ColumnRefs whose slots the SQL scan populates (members of sql_exprs) are reconstructed. A ColumnRef that
+        appears only inside an expr computed in SQL, or only in an order-by or join clause, has no value in the row.
         """
 
         def json_filter(e: exprs.Expr) -> bool:
@@ -833,25 +833,23 @@ class Planner:
         def binary_filter(e: exprs.Expr) -> bool:
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
 
-        def candidates(filter: Callable[[exprs.Expr], bool]) -> list[exprs.Expr]:
-            # don't descend into exprs computed in SQL
-            matches = exprs.Expr.list_subexprs(
-                expr_list, filter=lambda e: filter(e) or e in sql_exprs, traverse_matches=False
-            )
-            return [e for e in matches if filter(e)]
-
-        json_candidates = candidates(json_filter)
-        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
+        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef) and e in sql_exprs]
         json_ref_ids = {e._expr_id for e in json_refs}
         json_path_anchors = [
             e.anchor
             for e in json_candidates
             if isinstance(e, exprs.JsonPath)
             and isinstance(e.anchor, exprs.ColumnRef)
+            and e.anchor in sql_exprs
             and e.anchor._expr_id not in json_ref_ids
         ]
-        array_refs = [e for e in candidates(array_filter) if isinstance(e, exprs.ColumnRef)]
-        binary_refs = [e for e in candidates(binary_filter) if isinstance(e, exprs.ColumnRef)]
+        array_candidates = exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False)
+        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef) and e in sql_exprs]
+        binary_candidates = exprs.Expr.list_subexprs(
+            expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False
+        )
+        binary_refs = [e for e in binary_candidates if e in sql_exprs]
         if len(json_refs) > 0 or len(json_path_anchors) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
             return exec.CellReconstructionNode(
                 json_refs, array_refs, binary_refs, json_path_anchors, input.row_builder, input=input
@@ -1395,11 +1393,7 @@ class Planner:
             )
 
         plan = cls._add_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
-        # order-by exprs and join predicates are evaluated only in SQL
-        python_exprs = [*analyzer.select_list, *analyzer.grouping_exprs, *analyzer.stratify_exprs]
-        if analyzer.filter is not None:
-            python_exprs.append(analyzer.filter)
-        plan = cls._add_cell_reconstruction_node(python_exprs, sql_exprs, plan)
+        plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, sql_exprs, plan)
 
         if analyzer.filter is not None:
             plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
