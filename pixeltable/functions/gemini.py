@@ -26,7 +26,7 @@ import os
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Sequence, cast
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Coroutine, Sequence, TypeVar, cast
 
 import numpy as np
 import PIL.Image
@@ -43,6 +43,8 @@ if TYPE_CHECKING:
     from google import genai
 
 _logger = logging.getLogger(__name__)
+
+_T = TypeVar('_T')
 
 # Max raw file size (bytes) for inline data; larger files use the Files API.
 GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
@@ -86,6 +88,33 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
 
 def _genai_client() -> 'genai.client.Client':
     return get_runtime().get_client('gemini')
+
+
+def _api_version() -> str | None:
+    """The API version of the Gemini client, which google-genai exposes only through private attributes."""
+    http_options = getattr(getattr(_genai_client(), '_api_client', None), '_http_options', None)
+    return getattr(http_options, 'api_version', None)
+
+
+async def _with_api_version_hint(call: Awaitable[_T]) -> _T:
+    """Await a Gemini API call, naming `GOOGLE_GENAI_API_VERSION` in a 400 or 404 from the v1 API.
+
+    The v1 API, google-genai 3.x's default, doesn't serve some models and lacks features such as speech generation and
+    system instructions, and its errors don't mention v1beta.
+    """
+    from google.genai import errors
+
+    try:
+        return await call
+    except errors.ClientError as exc:
+        if exc.code not in (400, 404) or _api_version() != 'v1':
+            raise
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            f'{exc.message or exc} The Gemini client uses the v1 API, which lacks some models and features; '
+            'set GOOGLE_GENAI_API_VERSION=beta to use the v1beta API.',
+            provider='gemini',
+        ) from exc
 
 
 class GeminiRateLimitsInfo(env.RateLimitsInfo):
@@ -183,7 +212,9 @@ async def generate_content(
     contents = _process_media_contents(contents, large_video_paths)
     async with _gemini_file_uploads(large_video_paths) as uploaded:
         contents = _replace_upload_placeholders(contents, uploaded)
-        response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
+        response = await _with_api_version_hint(
+            client.aio.models.generate_content(model=model, contents=contents, config=config_)
+        )
         result = response.model_dump()
         # `model_dump()` (default mode) preserves `inline_data.data` as raw `bytes`; `mode='json'` would
         # url-safe-base64-encode which is suboptimal as we'd have to convert it back to binary to convert to PIL image.
@@ -330,7 +361,9 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
     config_ = GenerateImagesConfig(**config) if config else None
-    response = await _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config_)
+    response = await _with_api_version_hint(
+        _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config_)
+    )
     return response.generated_images[0].image._pil_image
 
 
@@ -433,8 +466,12 @@ async def generate_video(
             # create() also supports streams; this request returns a complete interaction.
             interaction = cast(
                 'genai.interactions.Interaction',
-                await client.aio.interactions.create(
-                    model=model, input=contents, response_format={'delivery': 'uri', **(config or {}), 'type': 'video'}
+                await _with_api_version_hint(
+                    client.aio.interactions.create(
+                        model=model,
+                        input=contents,
+                        response_format={'delivery': 'uri', **(config or {}), 'type': 'video'},
+                    )
                 ),
             )
             video = interaction.output_video
@@ -516,7 +553,9 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))
     )
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    response = await _with_api_version_hint(
+        _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    )
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError, TypeError) as exc:
@@ -587,7 +626,9 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
         )
     )
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    response = await _with_api_version_hint(
+        _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    )
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError, TypeError) as exc:
@@ -663,10 +704,12 @@ async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict 
     if size_bytes > GEMINI_INLINE_LIMIT_BYTES:
         async with _gemini_file_uploads([audio]) as uploaded:
             audio_part = types.Part.from_uri(file_uri=uploaded[0].uri, mime_type=uploaded[0].mime_type)
-            response = await client.aio.models.generate_content(
-                model=model,
-                contents=[audio_part, prompt],  # type: ignore[arg-type]
-                config=config_,
+            response = await _with_api_version_hint(
+                client.aio.models.generate_content(
+                    model=model,
+                    contents=[audio_part, prompt],  # type: ignore[arg-type]
+                    config=config_,
+                )
             )
     else:
         mime_type, _ = mimetypes.guess_type(audio, strict=False)
@@ -679,10 +722,12 @@ async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict 
         except (OSError, ValueError) as exc:
             raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Failed to read audio file: {audio}') from exc
         audio_part = types.Part.from_bytes(data=audio_data, mime_type=mime_type)
-        response = await client.aio.models.generate_content(
-            model=model,
-            contents=[audio_part, prompt],  # type: ignore[arg-type]
-            config=config_,
+        response = await _with_api_version_hint(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[audio_part, prompt],  # type: ignore[arg-type]
+                config=config_,
+            )
         )
 
     return response.text
@@ -812,7 +857,9 @@ async def _embed_content(
     # one Content per item: a flat list of parts is a single multimodal input to the newer embedding models,
     # which then return one embedding for the whole batch
     contents_: list[types.ContentUnion] = [types.UserContent(parts=item) for item in contents]
-    result = await client.aio.models.embed_content(model=model, contents=contents_, config=config_)
+    result = await _with_api_version_hint(
+        client.aio.models.embed_content(model=model, contents=contents_, config=config_)
+    )
     if len(result.embeddings) != len(contents):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
