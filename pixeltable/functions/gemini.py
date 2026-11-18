@@ -11,6 +11,9 @@ Supports two authentication methods:
 - Vertex AI: set `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_PROJECT` (and optionally
   `GOOGLE_CLOUD_LOCATION`), then authenticate via Application Default Credentials
   (e.g. `gcloud auth application-default login`).
+
+google-genai 3.x sends requests to the `v1` API by default, which lacks features such as speech generation and system
+instructions. To use them, set `GOOGLE_GENAI_API_VERSION=beta`.
 """
 
 import asyncio
