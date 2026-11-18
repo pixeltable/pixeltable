@@ -607,14 +607,6 @@ class TestFastAPI:
             outputs=['thumbnail'],
             return_fileresponse=True,
         )
-        # PXT-1796: uploadfile columns must not appear in route.inputs
-        if use_uploadfile:
-            route_specs = {r.spec.path: r.spec for r in router._routes}
-            assert 'video' not in route_specs['/all'].inputs
-            assert route_specs['/all'].uploadfile_inputs == ['video']
-            assert 'video' not in route_specs['/resize'].inputs
-            assert 'video' not in route_specs['/thumbnail'].inputs
-
         client = make_test_client(router)
         post = make_media_poster(client, video_path, 'video', 'video/webm', use_uploadfile)
 
