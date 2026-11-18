@@ -1535,6 +1535,13 @@ class TestRecompute:
             assert (dry.returncode, dry.stdout, dry.stderr) == (1, '', real.stderr)
         assert 'would recompute' in cli('recompute', p('cli_rc_err/t'), 'DOUBLED', '-n').stdout
 
+        # a view named like its base owns the column that the base's later column of the same name shadows
+        pxt.create_dir(p('cli_rc_err/views'), if_exists='ignore')
+        pxt.create_view(p('cli_rc_err/views/t'), t, additional_columns={'tripled': t.a * 3}, if_exists='replace')
+        t.add_computed_column(tripled=t.a * 3)
+        dry = cli('recompute', p('cli_rc_err/views/t'), 'tripled', '-n', check=False)
+        assert dry.returncode == 0 and 'would recompute tripled' in dry.stdout, dry.stderr
+
 
 class TestRevert:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:

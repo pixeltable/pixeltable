@@ -366,17 +366,14 @@ def _defining_base(md: TableMetadata, column: str) -> tuple[str | None, bool]:
     """(the path of the base that defines a column a view inherits, or None for the table's own column; whether the
     column's cells can be recomputed there, which a snapshot's cannot).
 
-    The defining base is the furthest one up whose column has the same `defined_in`: a query view's own column can
-    shadow a base column of the same name.
+    The owner is found by table id, not by `defined_in`: a view and its base can share a name, and a query view's own
+    column can shadow a base column of the same name.
     """
-    owner = md['columns'][column]['defined_in']
+    owner_id = pxt.get_table(md['path'])[column].col_md.qcolid.tbl_id
     path = None
-    while md['base'] is not None:
-        base_md = pxt.get_table(md['base']).get_metadata()
-        base_col = base_md['columns'].get(column)
-        if base_col is None or base_col['defined_in'] != owner:
-            break
-        path, md = md['base'], base_md
+    while md['id'] != owner_id:
+        assert md['base'] is not None
+        path, md = md['base'], pxt.get_table(md['base']).get_metadata()
     # a snapshot's base is a versioned path, such as 'dir/t:5'
     in_snapshot = md['is_snapshot'] or (
         path is not None and Path.parse(path, allow_versioned_path=True).version is not None
