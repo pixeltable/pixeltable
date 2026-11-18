@@ -1,4 +1,4 @@
-"""Liveness of a process we started, as far as its pid can tell us."""
+"""Finding, probing and stopping processes by pid. Stdlib plus psutil, so the pxt client imports it cheaply."""
 
 import sys
 
@@ -72,3 +72,38 @@ def pid_alive(pid: int) -> bool:
         return False
     except (psutil.Error, OSError):
         return True  # the process exists, but this one cannot read its state
+
+
+def find_process(pid: int, started_at: float | None) -> psutil.Process | None:
+    """Return the live process with pid and creation time started_at, or None.
+
+    A pid alone does not identify a process: the OS reuses the pid of an exited process. A record written without a
+    creation time has started_at None, which matches any live process with pid.
+    """
+    if not pid_alive(pid):
+        return None
+    try:
+        proc = psutil.Process(pid)
+        return proc if started_at is None or proc.create_time() == started_at else None
+    except (psutil.Error, OSError):
+        return None
+
+
+def terminate_and_wait(proc: psutil.Process, timeout: float) -> None:
+    """Terminate proc and wait up to timeout seconds for it to exit; kill it if it is still running, and wait up to
+    timeout seconds again.
+
+    psutil never signals a process that reused proc.pid after the creation of proc. wait() reaps proc if it is a child
+    of this process, and otherwise returns once its parent has reaped it.
+    """
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout)
+        except psutil.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout)
+    except (psutil.Error, OSError):
+        # Gone, exiting or still unreaped after the second wait. On Linux, psutil re-raises FileNotFoundError when
+        # /proc/<pid>/stat is gone before /proc/<pid>, as during an exit.
+        pass

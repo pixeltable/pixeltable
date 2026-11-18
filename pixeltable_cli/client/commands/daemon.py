@@ -6,15 +6,18 @@ import os
 import sys
 from typing import Any
 
+import psutil
+
 from pixeltable_cli.client.utils import (
+    DAEMON_STOP_TIMEOUT_SECS,
     describe_in_flight_requests,
     ensure_running,
     fetch_health,
-    kill_and_wait,
     plural,
     port_is_open,
     read_pidfile,
 )
+from pixeltable_cli.process import find_process, terminate_and_wait
 from pixeltable_cli.utils import get_port, pidfile_path, working_dirs_path
 
 from ..parser import Parser
@@ -76,7 +79,7 @@ def _start() -> None:
 
 
 def _stop(force: bool, ok_if_absent: bool = False) -> None:
-    tracked_pid = read_pidfile()
+    tracked = read_pidfile()
     health = fetch_health()
 
     in_flight = health.get('in_flight', []) if health is not None else []
@@ -89,33 +92,31 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
         )
         sys.exit(1)
 
-    if tracked_pid is None and health is None:
+    if tracked is None and health is None:
         if ok_if_absent:
             return
         print('pxt: no daemon running', file=sys.stderr)
         sys.exit(1)
 
-    # Pick the PID to kill: by default the pidfile's; with --force, fall back to whatever is
+    # Pick the process to kill: by default the pidfile's; with --force, fall back to whatever is
     # responding on the port. Refuse the mismatch case unless the user opted in.
-    pid_to_kill: int | None
-    if health is not None and tracked_pid is not None and health.get('pid') == tracked_pid:
-        pid_to_kill = tracked_pid
-    elif health is not None and tracked_pid is not None and health.get('pid') != tracked_pid:
+    target: psutil.Process | None
+    if health is None:
+        # No responder, but the pidfile's daemon is alive: a hung daemon, holding the port without listening.
+        target = tracked
+    elif tracked is not None and health.get('pid') == tracked.pid:
+        target = tracked
+    elif tracked is not None:
         if not force:
             print(
                 f'pxt: responder on port {get_port()} (PID {health.get("pid")}) does not match '
-                f'pidfile (PID {tracked_pid}); refusing to kill it. Use --force to override.',
+                f'pidfile (PID {tracked.pid}); refusing to kill it. Use --force to override.',
                 file=sys.stderr,
             )
             sys.exit(1)
-        pid_to_kill = health.get('pid')
-    elif health is None and tracked_pid is not None:
-        # No responder but we have a pidfile entry. Could be a hung daemon (PID alive but not
-        # listening) or a stale pidfile (PID gone).
-        pid_to_kill = tracked_pid
+        target = find_process(health['pid'], None)
     else:
-        # health is not None, tracked_pid is None: no pidfile but something is responding.
-        # Refuse unless forced - we have no proof the responder is ours.
+        # No pidfile, but something is responding. Refuse unless forced - we have no proof the responder is ours.
         if not force:
             print(
                 f'pxt: a process on port {get_port()} (PID {health.get("pid")}) is responding but '
@@ -123,17 +124,16 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
                 file=sys.stderr,
             )
             sys.exit(1)
-        pid_to_kill = health.get('pid')
+        target = find_process(health['pid'], None)
 
-    if pid_to_kill is not None:
-        kill_and_wait(pid_to_kill)
-    # Daemon's atexit handler only fires on graceful exit; clean up the pidfile here so a
-    # subsequent stop doesn't trip the "stale pidfile" branch.
+    if target is not None:
+        terminate_and_wait(target, DAEMON_STOP_TIMEOUT_SECS)
+    # the daemon's atexit handler removes the pidfile only on a graceful exit
     try:
         os.remove(pidfile_path())
     except OSError:
         pass
-    print(f'pxt: stopped daemon (PID {pid_to_kill})')
+    print('pxt: stopped daemon' if target is None else f'pxt: stopped daemon (PID {target.pid})')
 
 
 def _status(as_json: bool) -> None:
