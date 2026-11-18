@@ -95,6 +95,11 @@ def day_of(when: datetime) -> str:
 
 
 @pxt.udf
+def count_items(items: pxt.Json) -> int:
+    return len(items)
+
+
+@pxt.udf
 def failing_udf(x: int) -> int:
     raise ValueError(f'bad value: {x}')
 
@@ -2319,6 +2324,41 @@ class TestFunction:
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'udf_variadic_kw': parameter 'kwargs' has no type"
         ):
             pxt.tool(TestFunction.udf_variadic_kw)
+
+    def test_tool_json_param(self, db_root: DatabaseRoot) -> None:
+        from pixeltable.functions import anthropic, openai
+
+        tools = pxt.tools(count_items)
+        t = pxt.create_table(
+            db_root.make_catalog_path('tool_json'), {'id': pxt.Int, 'anthropic_resp': pxt.Json, 'openai_resp': pxt.Json}
+        )
+        t.add_computed_column(anthropic_calls=anthropic.invoke_tools(tools, t.anthropic_resp))
+        t.add_computed_column(openai_calls=openai.invoke_tools(tools, t.openai_resp))
+
+        def anthropic_resp(args: dict) -> dict:
+            return {'content': [{'type': 'tool_use', 'name': 'count_items', 'input': args}]}
+
+        def openai_resp(args: str) -> dict:
+            tool_call = {'function': {'name': 'count_items', 'arguments': args}}
+            return {'choices': [{'message': {'tool_calls': [tool_call]}}]}
+
+        t.insert(
+            [
+                {
+                    'id': 1,
+                    'anthropic_resp': anthropic_resp({'items': [1, 2, 3]}),
+                    'openai_resp': openai_resp('{"items": [1]}'),
+                },
+                {
+                    'id': 2,
+                    'anthropic_resp': anthropic_resp({'items': 'abcd'}),
+                    'openai_resp': openai_resp('{"items": {"a": 1}}'),
+                },
+            ]
+        )
+        res = t.order_by(t.id).select(t.anthropic_calls, t.openai_calls).collect()
+        assert res['anthropic_calls'] == [{'count_items': [3]}, {'count_items': [4]}]
+        assert res['openai_calls'] == [{'count_items': [1]}, {'count_items': [1]}]
 
     @pytest.mark.db_roots('local', reason='builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:
