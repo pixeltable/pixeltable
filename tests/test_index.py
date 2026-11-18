@@ -372,6 +372,9 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(image=sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected exactly one of'):
+            _ = t.order_by(t.split.similarity()).limit(1).collect()
+
     def test_add_index_after_drop(
         self, small_img_tbl: pxt.Table, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
