@@ -22,10 +22,10 @@ RESOURCE_INTENSIVE_MARKERS = 'resource_intensive'
 # skip_test_if_not_installed() and the install configuration.
 
 MAIN_PLATFORM = 'ubuntu-24.04'
-BASIC_PLATFORMS = ('macos-15', 'windows-2025')
+BASIC_PLATFORMS = ('macos-26', 'windows-2025')
 ALL_PLATFORMS = (MAIN_PLATFORM, *BASIC_PLATFORMS)
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
-ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
+ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-26-intel')
 LARGE_PLATFORM = 'ubuntu-large'  # A paid runner, for the resource_intensive tests and notebooks only
 
 # The GitHub event names that pytest.yml is triggered on

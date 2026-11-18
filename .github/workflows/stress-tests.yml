@@ -78,7 +78,7 @@ jobs:
       # A failure on one OS should not cancel the others
       fail-fast: false
       matrix:
-        os: [ ubuntu-24.04, macos-15, windows-2025 ]
+        os: [ ubuntu-24.04, macos-26, windows-2025 ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults:

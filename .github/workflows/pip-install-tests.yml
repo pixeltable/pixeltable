@@ -81,10 +81,10 @@ jobs:
           # Test the basic pixeltable installation on other platforms.
           - python-version: "3.11"
             package-configs: ""
-            os: macos-15
+            os: macos-26
           - python-version: "3.11"
             package-configs: ""
-            os: macos-15-intel
+            os: macos-26-intel
           - python-version: "3.11"
             package-configs: ""
             os: windows-2025
