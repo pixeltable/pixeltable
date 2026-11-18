@@ -116,6 +116,15 @@ def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
     return None
 
 
+class ReservedNameRow(TypedDict):
+    count: int
+
+
+@pxt.iterator
+def reserved_name_iterator(x: int) -> Iterator[ReservedNameRow]:
+    yield from []
+
+
 @pxt.iterator
 def pop_iterator(x: int, opts: dict, items: list) -> Iterator[MyRow]:
     n = opts['nested'].pop('n', None)
@@ -429,6 +438,10 @@ class TestIterator:
             match=r'The `conditional_output_schema` for iterator `.*conditional_returns_none` returned None',
         ):
             pxt.create_view(p('view_cond_none'), t, iterator=conditional_returns_none(t.input))
+
+        # output column name is reserved
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r"'count' is a reserved name in Pixeltable"):
+            pxt.create_view(p('view_reserved_name'), t, iterator=reserved_name_iterator(t.input))
 
     # test_evolving_iterator stays local-only: it monkey-patches the module-global `evolving_iterator` in this
     # process, which the proxy daemon (a separate process resolving its own module state) would never observe.
