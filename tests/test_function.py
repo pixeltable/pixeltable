@@ -2376,6 +2376,24 @@ class TestFunction:
         lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
         assert lookup.matching.col_type == fn2.signature.return_type
 
+        # a model is accepted once it is bound to its table
+        table_model = pxt.model_base()
+
+        class Items(table_model, name='items'):
+            item_id: pxt.String
+            name: pxt.String
+
+        with pxt_raises(pxt.ErrorCode.NOT_BOUND, match='`Items` is not yet bound to an actual table'):
+            pxt.retrieval_udf(Items)
+
+        table_model.create_all('')
+        Items.insert([{'item_id': 'A1', 'name': 'apple'}, {'item_id': 'B2', 'name': 'banana'}])
+        fn4 = pxt.retrieval_udf(Items, parameters=[Items.item_id], limit=1)
+        assert fn4.name == 'items'
+        assert list(fn4.signature.parameters.keys()) == ['item_id']
+        res = Items.select(found=fn4(item_id='B2')).limit(1).collect()
+        assert res[0] == {'found': {'item_id': 'B2', 'name': 'banana'}}
+
     @pytest.mark.db_roots('local', reason='builds a query function from a table via Function.from_table')
     def test_from_table(self, uses_db: None) -> None:
         schema: dict[str, Any] = {'in1': pxt.Int, 'in2': pxt.String, 'in3': pxt.Float | None, 'in4': pxt.Image | None}

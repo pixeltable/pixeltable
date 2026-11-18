@@ -13,6 +13,7 @@ from .signature import Signature
 if TYPE_CHECKING:
     from pixeltable._query import Query, ResultSet
     from pixeltable._query_base import QueryBase
+    from pixeltable.catalog.model import TableModelMeta
 
 
 class QueryTemplateFunction(Function):
@@ -307,7 +308,7 @@ def query(*args: Any, **kwargs: Any) -> Any:
 
 
 def retrieval_udf(
-    table: catalog.Table,
+    table: catalog.Table | TableModelMeta,
     name: str | None = None,
     description: str | None = None,
     parameters: Iterable[str | exprs.ColumnRef] | None = None,
@@ -320,7 +321,7 @@ def retrieval_udf(
     returns the rows of the table whose columns equal the specified arguments.
 
     Args:
-        table: The table to use as the dataset for the retrieval tool.
+        table: The table to use as the dataset for the retrieval tool, or a model that is bound to one.
         name: The name of the tool. If not specified, then the name of the table will be used by default.
         description: The description of the tool. If not specified, then a default description will be generated.
         parameters: The columns of the table to use as parameters. If not specified, all data columns
@@ -337,6 +338,11 @@ def retrieval_udf(
             matches.
         - Otherwise: a list of such dicts, one per matching row up to `limit`, or an empty list if no row matches.
     """
+    from pixeltable.catalog.model import TableModelMeta
+
+    if isinstance(table, TableModelMeta):
+        table = table.table
+
     # Argument validation
     col_refs: list[exprs.ColumnRef]
     col_names = table.columns()
