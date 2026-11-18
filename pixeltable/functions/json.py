@@ -590,25 +590,29 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         elements = bound_args['elements']
 
         el_col_type = elements.col_type
-        type_msg = (
-            'list_iterator(): `elements` needs a list-of-dicts type with known keys, such as '
-            '`pxt.Json[list[Item]]` for a TypedDict `Item`; cast an untyped value with '
-            f'`.astype(pxt.Json[list[Item]])`. Got `{el_col_type}`'
-        )
+
+        def type_error() -> excs.RequestError:
+            return excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'list_iterator(): `elements` needs a list-of-dicts type with known keys, such as '
+                '`pxt.Json[list[Item]]` for a TypedDict `Item`; cast an untyped value with '
+                f'`.astype(pxt.Json[list[Item]])`. Got `{el_col_type}`',
+            )
+
         if (
             not isinstance(el_col_type, ts.JsonType)
             or el_col_type.type_schema is None
             or not isinstance(el_col_type.type_schema.type_spec, list)
             or builtins.len(el_col_type.type_schema.type_spec) != 0
         ):
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, type_msg)
+            raise type_error()
         dict_type = el_col_type.type_schema.variadic_type
         if (
             not isinstance(dict_type, ts.JsonType)
             or dict_type.type_schema is None
             or not isinstance(dict_type.type_schema.type_spec, dict)
         ):
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, type_msg)
+            raise type_error()
 
         return dict_type.type_schema.type_spec  # type: ignore[return-value]
 
