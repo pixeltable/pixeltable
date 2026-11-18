@@ -2587,7 +2587,11 @@ class TestTable:
 
         res = t.select(img=t.img.localpath).collect()
         assert len(res) == 2
-        assert all(Path(row['img']).exists() for row in res)
+        paths = [Path(row['img']) for row in res]
+        assert all(path.read_bytes() == Path(img_file).read_bytes() for path in paths)
+        # locally both rows wait on one save; through the proxy, the client sends each row's file separately
+        if db_root.id == 'local':
+            assert paths[0] == paths[1]
 
     @pytest.mark.skipif(
         'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,
