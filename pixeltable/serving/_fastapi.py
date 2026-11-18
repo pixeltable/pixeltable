@@ -524,6 +524,7 @@ def _run_endpoint_op(
     tmp_paths: list[Path],
     media: _ResponseMedia,
     telemetry_ctx: telemetry.CtxSnapshot | None = None,
+    upload_name_map: dict[str, str] | None = None,
 ) -> T:
     # a background job runs on an executor thread, so it restores the request's context to join its trace
     ctx_token = telemetry.restore_context(telemetry_ctx)
@@ -538,6 +539,11 @@ def _run_endpoint_op(
     except Exception as e:
         _unlink_tmp_paths(tmp_paths)
         if isinstance(e, pxt.Error):
+            if upload_name_map and e.error_code == excs.ErrorCode.INVALID_DATA_FORMAT:
+                msg = e.args[0]
+                for tmp_path, field_name in upload_name_map.items():
+                    msg = msg.replace(tmp_path, field_name)
+                e = type(e)(e.error_code, msg)
             raise _http_exception(e) from e
         raise
     finally:
@@ -587,12 +593,14 @@ class PxtEndpoint:
 
         # write out uploads while the request is still alive
         tmp_paths: list[Path] = []
+        upload_name_map: dict[str, str] = {}
         if len(self.route.spec.uploadfile_inputs) > 0:
             # list(...): make sure that the sequence of name/val pairs can't change underneath us
             for input_name, val in list(kwargs.items()):
                 if input_name in self.route.spec.uploadfile_inputs:
                     path = self.router._write_to_temp(val)
                     tmp_paths.append(path)
+                    upload_name_map[str(path)] = val.filename or input_name
                     kwargs[input_name] = str(path)
 
         if self.route.spec.background:
@@ -604,10 +612,12 @@ class PxtEndpoint:
                 if origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment:
                     raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
                 job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
-            self.router._submit_job(job_id, self.endpoint_op, self.route, kwargs, tmp_paths, media)
+            self.router._submit_job(job_id, self.endpoint_op, self.route, kwargs, tmp_paths, media, upload_name_map)
             return BackgroundJobResponse(id=job_id, job_url=job_url)
         else:
-            return _run_endpoint_op(self.endpoint_op, self.route, kwargs, tmp_paths, media)
+            return _run_endpoint_op(
+                self.endpoint_op, self.route, kwargs, tmp_paths, media, upload_name_map=upload_name_map
+            )
 
 
 class FastAPIRouter(fastapi.APIRouter):
@@ -2922,6 +2932,7 @@ class FastAPIRouter(fastapi.APIRouter):
         kwargs: dict[str, Any],
         tmp_paths: list[Path],
         media: _ResponseMedia,
+        upload_name_map: dict[str, str] | None = None,
     ) -> None:
         """Run endpoint_op as the background job job_id. Raises a 503 if this router takes no more jobs."""
         # captured on the request thread, so that the job's spans join the request's trace
@@ -2947,7 +2958,9 @@ class FastAPIRouter(fastapi.APIRouter):
                 )
             else:
                 job = _Job(
-                    self._executor.submit(_run_endpoint_op, endpoint_op, route, kwargs, tmp_paths, media, telemetry_ctx)
+                    self._executor.submit(
+                        _run_endpoint_op, endpoint_op, route, kwargs, tmp_paths, media, telemetry_ctx, upload_name_map
+                    )
                 )
                 self._jobs[job_id] = job
                 self._has_run_jobs = True

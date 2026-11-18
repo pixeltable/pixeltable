@@ -933,6 +933,27 @@ class TestFastAPI:
             normalized_path = t.where(t.id == 3).select(p=t.normalized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, normalized_path, 'audio/')
 
+    def test_upload_error_uses_field_name(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        """Upload validation errors must name the field, not the server temp path."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve/vids'), {'id': pxt.Int | None, 'clip': pxt.Video | None})
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/insert', uploadfile_inputs=['clip'])
+        client = make_test_client(router)
+
+        bad_file = tmp_path / 'clip.txt'
+        bad_file.write_bytes(b'not a video')
+        with open(bad_file, 'rb') as f:
+            resp = client.post('/insert', files={'clip': ('clip.txt', f, 'text/plain')}, data={'id': '1'})
+        assert resp.status_code == 422, resp.text
+        detail = resp.json().get('detail', '')
+        assert 'clip' in detail, detail
+        assert '/tmp' not in detail and 'tmp' not in detail.lower().split('clip')[0], detail
+
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video_bg(
