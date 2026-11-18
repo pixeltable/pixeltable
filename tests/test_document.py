@@ -70,6 +70,25 @@ class TestDocument:
         assert status.num_rows == len(file_paths)
         assert status.num_excs >= len(file_paths)
 
+    def test_insert_md_without_mistune(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib.util
+
+        from pixeltable.env import Env
+
+        md_path = next(p for p in self.valid_doc_paths() if p.endswith('.md'))
+        find_spec = importlib.util.find_spec
+        monkeypatch.setattr(
+            importlib.util, 'find_spec', lambda name, *args: None if name == 'mistune' else find_spec(name, *args)
+        )
+        monkeypatch.setattr(Env.get()._Env__optional_packages['mistune'], 'is_installed', False)  # type: ignore[attr-defined]
+
+        t = pxt.create_table('docs', {'doc': pxt.Document})
+        status = t.insert([{'doc': md_path}], on_error='ignore')
+        assert status.num_excs == 1
+        msg = t.select(m=t.doc.errormsg).collect()['m'][0]
+        assert 'This feature requires the `mistune` package' in msg, msg
+        assert 'pip install -U mistune' in msg, msg
+
     def test_get_document_handle(self, init_env: None) -> None:
         skip_test_if_not_installed('markitdown', 'mistune')
 

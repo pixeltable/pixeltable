@@ -63,6 +63,8 @@ def get_handle_by_extension(path: str, extension: str) -> DocumentHandle | None:
             return DocumentHandle(doc_format, md_ast=get_office_handle(path))
         if doc_format == ts.DocumentType.DocumentFormat.XLSX:
             return DocumentHandle(doc_format, md_ast=get_office_handle(path))
+    except excs.Error:
+        raise
     except Exception as exc:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_DATA_FORMAT, f'An error occurred processing a {doc_format} document: {path}'
