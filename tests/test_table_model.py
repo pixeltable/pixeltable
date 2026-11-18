@@ -678,15 +678,18 @@ class TestTableModel:
         # one change set that both adds and drops a column
         TableModelV2 = pxt.model_base()
 
+        # the annotation gives the column type when Column() has no `type`
         class NotesV2(TableModelV2, name='notes', _is_data_versioned=is_data_versioned):
-            note_id = Column(type=pxt.Int, primary_key=True)
+            note_id: pxt.Int = Column(primary_key=True)
             val: pxt.Int | None
             extra: pxt.String | None
+            doubled = note_id * 2
 
         TableModelV2.update_all(root, allow_destructive=True)
         t = NotesV2.table
-        assert list(t.get_metadata()['columns']) == ['note_id', 'val', 'extra']
+        assert list(t.get_metadata()['columns']) == ['note_id', 'val', 'extra', 'doubled']
         assert t.get_metadata()['columns']['note_id']['is_primary_key']
+        assert t.get_metadata()['columns']['note_id']['type_'] == 'Int'
 
         # the key is still enforced afterwards, and the rows that were already there are intact
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
@@ -2629,11 +2632,19 @@ class TestTableModel:
             class SecondDup(TableModel, name='dup_name'):
                 id: pxt.Int | None
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must define `type` or `value`, but not both'):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"for 'bad' has no type: annotate the column .* or pass `type=`"
+        ):
 
             class BadColSpec(TableModel, name='bad_col_spec'):
                 id: pxt.Int | None
                 bad = Column()
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must define `type` or `value`, but not both'):
+
+            class BothColSpec(TableModel, name='both_col_spec'):
+                id: pxt.Int | None
+                both = Column(type=pxt.Int, value=1)
 
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).

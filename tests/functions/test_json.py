@@ -626,9 +626,21 @@ class TestJson:
         for expr in invalid_type_cases:
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                match=r'list_iterator\(\): Expected a type for `elements` matching `list\[dict\]`',
+                match=r'list_iterator\(\): `elements` needs a list-of-dicts type with known keys, such as '
+                r'`pxt.Json\[list\[Item\]\]` for a TypedDict `Item`; cast an untyped value with '
+                r'`.astype\(pxt.Json\[list\[Item\]\]\)`. Got `',
             ):
                 pxtf.json.list_iterator(expr)
+
+        # the form the error message suggests works on untyped json
+        class Item(TypedDict):
+            a: int
+
+        t.insert([{'col_4': {'stops': [{'a': 1}, {'a': 2}]}}])
+        v = pxt.create_view(
+            'test_view', t, iterator=pxtf.json.list_iterator(t.col_4.stops.astype(pxt.Json[list[Item]]))
+        )
+        assert v.order_by(v.pos).collect()['a'] == [1, 2]
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'list_iterator\(\): No inputs provided'):
             pxtf.json.list_iterator()
