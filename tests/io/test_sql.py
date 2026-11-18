@@ -651,12 +651,18 @@ class TestSql:
         pk_src = _seed_source(
             engine, 'pk_src', [sql.Column('review_id', sql.Text, nullable=True)], [{'review_id': 'r1'}]
         )
-        with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Primary key column 'review_id' is nullable in the SQL source\. Make it non-nullable with "
-            r"`schema_overrides=\{'review_id': pxt\.String\}`",
-        ):
+        pk_err = (
+            r"Primary key column 'review_id' is nullable\. Make it non-nullable with "
+            r"`schema_overrides=\{'review_id': pxt\.String\}`"
+        )
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=pk_err):
             import_sql(pk_src, engine, p('pk_dest'), primary_key='review_id')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=pk_err):
+            import_sql(pk_src, engine, p('pk_dest'), primary_key='Review_ID')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=pk_err):
+            import_sql(
+                pk_src, engine, p('pk_dest'), primary_key='review_id', schema_overrides={'review_id': pxt.String | None}
+            )
         pk_tbl = import_sql(
             pk_src, engine, p('pk_dest'), primary_key='review_id', schema_overrides={'review_id': pxt.String}
         )
