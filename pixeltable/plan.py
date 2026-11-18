@@ -1169,23 +1169,6 @@ class Planner:
         return combined_ordering
 
     @classmethod
-    def _verify_ordering(cls, analyzer: Analyzer) -> None:
-        """Raise if the order_by() clause and the window functions require conflicting orderings."""
-        _ = cls._combine_orderings([analyzer.order_by_clause, *analyzer.get_window_fn_orderings()])
-
-    @classmethod
-    def _order_grouping_exprs(cls, analyzer: Analyzer) -> list[exprs.Expr]:
-        """Return the grouping exprs in the order of the order_by() clause, followed by the remaining ones.
-
-        AggregationNode only needs equal grouping values to be adjacent, so any order of the grouping exprs works.
-        """
-        order_by_ids = [item.expr._expr_id for item in analyzer.order_by_clause]
-        grouping_exprs_by_id = {e._expr_id: e for e in analyzer.group_by_clause}
-        ordered_exprs = [grouping_exprs_by_id[expr_id] for expr_id in order_by_ids if expr_id in grouping_exprs_by_id]
-        ordered_exprs.extend(e for e in analyzer.group_by_clause if e._expr_id not in order_by_ids)
-        return ordered_exprs
-
-    @classmethod
     def _create_agg_input_ordering(cls, analyzer: Analyzer) -> OrderByClause:
         """
         Combine the ordering requirements of the order_by() clause, the window functions, the grouping exprs and
@@ -1193,7 +1176,13 @@ class Planner:
 
         Raises if they conflict.
         """
-        grouping_ordering = [OrderByItem(e, None) for e in cls._order_grouping_exprs(analyzer)]
+        # AggregationNode only needs equal grouping values to be adjacent: order the grouping exprs like the
+        # order_by() clause, followed by the remaining ones
+        order_by_ids = [item.expr._expr_id for item in analyzer.order_by_clause]
+        grouping_exprs_by_id = {e._expr_id: e for e in analyzer.group_by_clause}
+        ordered_exprs = [grouping_exprs_by_id[expr_id] for expr_id in order_by_ids if expr_id in grouping_exprs_by_id]
+        ordered_exprs.extend(e for e in analyzer.group_by_clause if e._expr_id not in order_by_ids)
+        grouping_ordering = [OrderByItem(e, None) for e in ordered_exprs]
         if combine_order_by_clauses([analyzer.order_by_clause, grouping_ordering]) is None:
             # TODO(PXT-1827): sort the output of AggregationNode instead of raising
             raise excs.RequestError(
@@ -1361,7 +1350,8 @@ class Planner:
         sql_elements = analyzer.sql_elements
         ctx = exec.ExecContext(row_builder)
 
-        cls._verify_ordering(analyzer)
+        # raises if the order_by() clause and the window functions require conflicting orderings
+        _ = cls._combine_orderings([analyzer.order_by_clause, *analyzer.get_window_fn_orderings()])
         cls._verify_join_clauses(analyzer)
 
         # materialized in SQL, by the SqlScanNode or SqlJoinNode:
