@@ -4624,7 +4624,6 @@ class TestTable:
             t.recompute_columns()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot use errors_only=True with multiple columns'):
             t.recompute_columns(t.i1, t.s1, errors_only=True)
-
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
             y = pxt.create_table(p('other_table'), {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
