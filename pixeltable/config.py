@@ -782,10 +782,20 @@ class Config:
                 f'  pxt secret set {hosted_db.name} {env_var}=<value>'
             )
         else:
+            # the control plane accepts a database-scoped secret only once the first update has registered the database
             advice = (
-                'and the UDF servers of the pixeltable.udf setting receive their secrets through `pxt secret`. '
-                f'Move it to {self.__config_file} or to the environment variable {env_var}, and run:\n'
-                f'  pxt secret set pxt://<org> {env_var}=<value>'
+                'and `pxt db update` uploads the settings of that file to Pixeltable Cloud for the UDF servers of the '
+                f'pixeltable.udf setting. Move it to {self.__config_file} or to the environment variable {env_var}. '
+                f'Then set {env_var} for the UDF servers with `pxt secret set`, at one of two scopes:\n'
+                f'- the organization, with <org> from `pxt org list`; every database in it without its own {env_var} '
+                'receives the value as well:\n'
+                f'    pxt secret set pxt://<org> {env_var}=<value>\n'
+                '    pxt db update\n'
+                '- the local database alone, with pxt://<org>:<db> from the output of the first `pxt db update`, which '
+                'registers the database in Pixeltable Cloud:\n'
+                '    pxt db update\n'
+                f'    pxt secret set pxt://<org>:<db> {env_var}=<value>\n'
+                '    pxt db update'
             )
         return excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,

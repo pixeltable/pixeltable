@@ -101,6 +101,18 @@ def _set_udf_setting(project_root: Path, udf_paths: Iterable[str]) -> None:
     Config.init(reinit=True, project_root=project_root)
 
 
+def _run_width_query(env: dict[str, str], project_root: Path) -> subprocess.CompletedProcess[str]:
+    # the process reads the pixeltable.udf setting of the project in its working directory
+    return subprocess.run(
+        [sys.executable, '-c', _WIDTH_QUERY_SCRIPT],
+        env=env,
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 @pytest.fixture
 def udf_setting(udf_servers: None, project_env: Path) -> Path:
     """Puts _SERVED_UDFS into the pixeltable.udf setting of a project and returns the project's root."""
@@ -225,17 +237,16 @@ class TestUdfServer:
         # a query of a process with another secret fails
         _set_udf_setting(udf_setting, ['pixeltable.functions.string.format'])
         env = {**os.environ, 'PXT_UDF_SERVERS_HEADERS': json.dumps({UDF_SECRET_HEADER_NAME: 'other'})}
-        # the process reads the pixeltable.udf setting of the project in its working directory
-        query = subprocess.run(
-            [sys.executable, '-c', _WIDTH_QUERY_SCRIPT],
-            env=env,
-            cwd=udf_setting,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        query = _run_width_query(env, udf_setting)
         assert query.returncode != 0
         assert 'refused the credentials of this process (HTTP 401)' in query.stderr
+
+        # a query fails in a pod of a hosted database deployed without UDF servers
+        env = {**os.environ, 'PXTCLOUD_ORG': 'myorg', 'PXTCLOUD_DB': 'mydb'}
+        del env['PXT_UDF_SERVERS']
+        query = _run_width_query(env, udf_setting)
+        assert query.returncode != 0
+        assert 'Run `pxt db update pxt://myorg:mydb` to deploy them.' in query.stderr
 
     @pytest.mark.skip_merge_queue  # downloads a Hugging Face model
     @pytest.mark.xdist_group('large_model')

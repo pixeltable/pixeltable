@@ -178,12 +178,14 @@ class ModalEndpoints:
         """Read the endpoints from the environment, or get the local database's endpoints from the control plane."""
         if os.environ.get(cls.SERVERS_VAR, '') != '':
             return cls(cls._env_object(cls.SERVERS_VAR), cls._env_object(cls.HEADERS_VAR))
-        if Env.get().hosted_db() is not None:
+        hosted_db = Env.get().hosted_db()
+        if hosted_db is not None:
+            org, db_name = hosted_db
             # the control plane sets SERVERS_VAR in the pods of a release with UDF servers
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 "The pixeltable.udf setting has no effect here: the database's release was deployed without UDF "
-                f'servers ({cls.SERVERS_VAR} is not set). Run `pxt db update` to deploy them.',
+                f'servers ({cls.SERVERS_VAR} is not set). Run `pxt db update pxt://{org}:{db_name}` to deploy them.',
             )
         servers = db.local_db_udf_servers()
         return cls(servers.urls, servers.headers)

@@ -728,8 +728,9 @@ class TestConfig:
         config = load("[openai]\napi_key = 'sk-project'\n\n[pixeltable.udf.'pixeltable.functions.video.clip']\n")
         with pxt_raises(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            match=r'(?s)Move it to .*home\.toml or to the environment variable OPENAI_API_KEY, and run:.*'
-            r'pxt secret set pxt://<org> OPENAI_API_KEY=<value>',
+            match=r'(?s)Move it to .*home\.toml or to the environment variable OPENAI_API_KEY\..*'
+            r'pxt secret set pxt://<org> OPENAI_API_KEY=<value>\n    pxt db update\n.*'
+            r'pxt db update\n    pxt secret set pxt://<org>:<db> OPENAI_API_KEY=<value>\n    pxt db update$',
         ):
             config.create_project_config(config.get_database_config(local_uri))
 
