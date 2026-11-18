@@ -89,6 +89,36 @@ class TestDocument:
         assert 'This feature requires the `mistune` package' in msg, msg
         assert 'pip install -U mistune' in msg, msg
 
+    def test_insert_invalid_docs(self, uses_db: None, tmp_path: Any) -> None:
+        skip_test_if_not_installed('markitdown', 'mistune')
+        import zipfile
+
+        expected: dict[str, str] = {}
+        for ext, format_name in (('html', 'HTML'), ('md', 'Markdown'), ('xml', 'XML'), ('txt', 'text')):
+            path = str(tmp_path / f'bad.{ext}')
+            with open(path, 'wb') as fp:
+                fp.write(b'\xff\xfe\x00not utf-8')
+            expected[path] = format_name
+        pdf_path = str(tmp_path / 'bad.pdf')
+        with open(pdf_path, 'wb') as fp:
+            fp.write(b'not a pdf')
+        expected[pdf_path] = 'PDF'
+        for ext in ('docx', 'pptx', 'xlsx'):
+            path = str(tmp_path / f'bad.{ext}')
+            with zipfile.ZipFile(path, 'w') as zf:
+                zf.writestr('[Content_Types].xml', '<not valid')
+            expected[path] = 'Office'
+
+        t = pxt.create_table('docs', {'doc': pxt.Document})
+        for path in expected:
+            status = t.insert([{'doc': path}], on_error='ignore')
+            assert status.num_excs == 1, path
+        rows = t.select(t.doc.errortype, t.doc.errormsg).collect()
+        assert rows['doc_errortype'] == ['RequestError'] * len(expected)
+        assert sorted(rows['doc_errormsg']) == sorted(
+            f'Not a valid {format_name} document: {path}' for path, format_name in expected.items()
+        )
+
     def test_get_document_handle(self, init_env: None) -> None:
         skip_test_if_not_installed('markitdown', 'mistune')
 
