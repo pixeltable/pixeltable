@@ -250,8 +250,8 @@ def to_int(self: float) -> int:
 def _(self: sql.ColumnElement) -> sql.ColumnElement | None:
     if isinstance(self.type, sql.Integer):
         return sql.cast(self, sql.BigInteger)
-    # sql.Numeric includes sql.Float
-    if isinstance(self.type, sql.Numeric):
+    # sql.Float is a subclass of sql.Numeric in SQLAlchemy 2.0, but not in 2.1
+    if isinstance(self.type, (sql.Numeric, sql.Float)):
         return sql.cast(sql.func.trunc(self), sql.BigInteger)
     if isinstance(self.type, sql.Boolean):
         # Postgres casts a boolean only to integer
