@@ -73,7 +73,7 @@ jobs:
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy"
             os: ubuntu-24.04
           - python-version: "3.11"
-            package-configs: "whisperx transformers timm"
+            package-configs: "whisperx transformers timm soundfile"
             os: ubuntu-24.04
           # The only job on a large runner, and it runs only the resource_intensive tests
           - python-version: "3.11"
