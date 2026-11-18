@@ -115,12 +115,6 @@ class TestSample:
         _ = t.select().sample(fraction=0.123, stratify_by=t.c1)
         _ = t.select().sample(n_per_stratum=5, stratify_by=t.c1)
 
-        # select() after sample() is a column projection that must preserve the sample clause
-        q = t.sample(n=5).select(t.c1)
-        assert q.sample_clause is not None
-        result = q.collect()
-        assert len(result) <= 5
-
         # test stratify_by list
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a list of scalar expressions'):
             _ = t.select().sample(n=10, stratify_by=47)
@@ -162,6 +156,24 @@ class TestSample:
         r = query.collect()
         print(r)
         cls._check_sample_count(expected, len(r))
+
+    def test_select_after_sample(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
+
+        sampled = t.sample(n=5, seed=0, stratify_by=t.c4).collect()
+        projected = t.sample(n=5, seed=0, stratify_by=t.c4).select(t.c1).collect()
+        assert list(projected.schema) == ['c1']
+        assert len(sampled) == 5
+        assert sorted(projected['c1']) == sorted(sampled['c1'])
+
+        if not is_data_versioned:
+            return
+        # a snapshot of the projection must leave the parent query's stratify exprs untouched
+        parent = t.sample(n=5, seed=0, stratify_by=t.c2 % 2)
+        expected = sorted(parent.select(t.c2).collect()['c2'])
+        pxt.create_snapshot(p('snap'), parent.select(t.c1))
+        assert sorted(parent.select(t.c2).collect()['c2']) == expected
 
     def test_sample_basic_n(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
