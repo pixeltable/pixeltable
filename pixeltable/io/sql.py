@@ -168,21 +168,25 @@ def import_sql(
         seen_cols.add(col_name)
         source_names.append(col_name)
 
-    pk_names = {
-        catalog.fold_identifier(name) for name in ([primary_key] if isinstance(primary_key, str) else primary_key or [])
-    }
+    pk_names: set[str] = set()
+    if isinstance(primary_key, str):
+        pk_names.add(catalog.fold_identifier(primary_key))
+    elif primary_key is not None:
+        for pk_name in primary_key:
+            pk_names.add(catalog.fold_identifier(pk_name))
+
     schema: dict[str, Any] = {}
     for sa_col, col_name in zip(sa_cols, source_names, strict=True):
         # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
         nullable_attr = getattr(sa_col, 'nullable', True)
         nullable = True if nullable_attr is None else nullable_attr
+        if catalog.fold_identifier(col_name) in pk_names:
+            nullable = False
         pxt_type: ts.ColumnType | None
         if col_name in schema_overrides:
             pxt_type = schema_overrides[col_name]
         else:
-            pxt_type = ts.ColumnType.from_sa_type(
-                sa_col.type, nullable=nullable and catalog.fold_identifier(col_name) not in pk_names
-            )
+            pxt_type = ts.ColumnType.from_sa_type(sa_col.type, nullable=nullable)
 
         if pxt_type is None:
             raise excs.RequestError(
