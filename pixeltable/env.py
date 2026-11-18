@@ -51,7 +51,6 @@ from pixeltable.utils.sql import add_option_to_db_url, redact_db_url
 if TYPE_CHECKING:
     # aliased to avoid clashing with pathlib.Path above; env<->catalog is circular, so this stays type-only
     from pixeltable.catalog.path import Path as CatalogPath
-    from pixeltable.exec.expr_eval.modal_client import ModalEndpoints
 
 _logger = logging.getLogger(__name__)
 
@@ -69,6 +68,16 @@ class UdfConfig:
     # the UDF's path in the setting; the control plane identifies the UDF's server by it
     setting_path: str
     resources: UdfResources
+
+
+@dataclasses.dataclass(frozen=True)
+class UdfEndpoints:
+    """The URLs of a database's UDF servers, and the headers that authorize calls to them."""
+
+    # keyed by the UDF's path in the pixeltable.udf setting
+    server_urls: dict[str, str]
+    # sent with every request
+    headers: dict[str, str] = dataclasses.field(repr=False)
 
 
 _DEFAULT_PROXY_DOMAIN = 'pxt.run'
@@ -179,7 +188,7 @@ class Env:
     _udf_configs_cache: tuple[dict[str, Any], dict[str, UdfConfig]] | None
     # the endpoints of the UDF servers; valid until this process changes the local database's deployment, re-imports
     # project code or gets a failed call, each of which drops them
-    _udf_endpoints: ModalEndpoints | None
+    _udf_endpoints: UdfEndpoints | None
     _dbms: Dbms | None
     _db_lock: threading.Lock  # serializes ensure_connected()
     _db_connected: bool
@@ -1098,16 +1107,16 @@ class Env:
             return info
 
     @property
-    def udf_endpoints(self) -> ModalEndpoints | None:
+    def udf_endpoints(self) -> UdfEndpoints | None:
         return self._udf_endpoints
 
     @udf_endpoints.setter
-    def udf_endpoints(self, endpoints: ModalEndpoints | None) -> None:
+    def udf_endpoints(self, endpoints: UdfEndpoints | None) -> None:
         self._udf_endpoints = endpoints
 
     @classmethod
     def drop_udf_endpoints(cls) -> None:
-        """Make the next ModalEndpoints.get() look up the endpoints of the UDF servers again."""
+        """Make the next udf_servers.udf_endpoints() look up the endpoints of the UDF servers again."""
         # not Env.get(): it would create an Env, which has no endpoints to drop
         if cls._instance is not None:
             cls._instance._udf_endpoints = None

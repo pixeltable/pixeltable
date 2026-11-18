@@ -14,12 +14,12 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.exec.expr_eval.modal_client import UDF_SECRET_HEADER_NAME
 from pixeltable.functions.image import resize, rotate
 from pixeltable.functions.string import format
 from pixeltable.functions.timestamp import make_timestamp
 from pixeltable.functions.video import clip, get_duration, segment_video
 from pixeltable.functions.vision import bboxes_resize
+from pixeltable.service.udf_servers import UDF_SECRET_HEADER_NAME
 
 from .utils import free_port, get_image_files, get_video_files, pxt_raises, reload_catalog, skip_test_if_not_installed
 

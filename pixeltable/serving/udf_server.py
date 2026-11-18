@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 
 from pixeltable import exceptions as excs, func
 from pixeltable.env import Env
-from pixeltable.exec.expr_eval.modal_client import UDF_SECRET_HEADER_NAME, UdfCallRequest, UdfCallResponse
 from pixeltable.func.symbols import resolve_symbol
+from pixeltable.service.udf_servers import UDF_SECRET_HEADER_NAME, UdfCallRequest, UdfCallResponse
 from pixeltable.utils.local_store import TempStore
 
 

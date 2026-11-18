@@ -1,136 +1,22 @@
 """Client side of the UDFs in the pixeltable.udf setting, which run on Modal Servers (pixeltable.serving.modal_server).
 
-Contains the encoding of a call's request and response, the Servers' URLs, and the client that sends a UDF's calls to
-its Server.
+Contains the client that sends a UDF's calls to its Server through Modal's proxy.
 """
 
-from __future__ import annotations
-
 import asyncio
-import dataclasses
-import json
 import logging
-import os
-import pickle
-import threading
 import time
-from typing import Any, ClassVar
 
 import httpx
-from typing_extensions import Self
 
-from pixeltable import exceptions as excs, exprs, func, type_system as ts
+from pixeltable import exceptions as excs
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.service import db, proxy_protocol
+from pixeltable.service import udf_servers
 
 from .interfaces import FnCallArgs
 
 _logger = logging.getLogger('pixeltable')
-
-
-@dataclasses.dataclass(frozen=True)
-class UdfCallRequest:
-    """One call to a UDF, as sent to UdfServer.run().
-
-    As in FnCallArgs, a call has either args and kwargs, for one row, or batch_args and batch_kwargs, with one value
-    per row, for a batched UDF.
-    """
-
-    # UdfServer.run() calls the UDF's overload with this signature
-    signature: func.Signature
-    # the name of the calling process's default time zone (Env.default_time_zone)
-    time_zone: str
-    args: list[Any] | None = None
-    kwargs: dict[str, Any] | None = None
-    batch_args: list[list[Any]] | None = None
-    batch_kwargs: dict[str, list[Any]] | None = None
-
-    def encode(self, fn_call: exprs.FunctionCall) -> bytes:
-        # self.signature gives no column type to a value passed through *args or **kwargs
-        arg_types = [arg.col_type for arg in fn_call.args]
-        kwarg_types = {name: arg.col_type for name, arg in fn_call.kwargs.items()}
-        encode_media = proxy_protocol.encode_media_files
-        wire: dict[str, Any] = {'signature': self.signature.as_dict(), 'time_zone': self.time_zone}
-        if self.batch_args is not None:
-            assert self.batch_kwargs is not None
-            wire['batch_args'] = [
-                [encode_media(val, arg_types[i]) for val in vals] for i, vals in enumerate(self.batch_args)
-            ]
-            wire['batch_kwargs'] = {
-                name: [encode_media(val, kwarg_types[name]) for val in vals] for name, vals in self.batch_kwargs.items()
-            }
-        else:
-            assert self.args is not None and self.kwargs is not None
-            wire['args'] = [encode_media(val, arg_types[i]) for i, val in enumerate(self.args)]
-            wire['kwargs'] = {name: encode_media(val, kwarg_types[name]) for name, val in self.kwargs.items()}
-        return _encode_body(wire)
-
-    @classmethod
-    def decode(cls, body: bytes) -> Self:
-        wire = _decode_body(body)
-        return cls(
-            func.Signature.from_dict(wire['signature']),
-            wire['time_zone'],
-            wire.get('args'),
-            wire.get('kwargs'),
-            wire.get('batch_args'),
-            wire.get('batch_kwargs'),
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class UdfCallResponse:
-    """The result of a UdfServer.run() call."""
-
-    # one value per row of the request; None if error is set
-    values: list[Any] | None
-    # the exception raised by the UDF, which becomes the error of every row of the request
-    error: Exception | None
-    # how long the UDF ran in the container
-    duration_seconds: float
-    # the provider's ID of the container that ran the call
-    container_id: str | None
-
-    def encode(self, return_type: ts.ColumnType) -> bytes:
-        values = self.values
-        if values is not None:
-            values = [proxy_protocol.encode_media_files(val, return_type) for val in values]
-        return _encode_body(
-            {
-                'values': values,
-                'error': None if self.error is None else self._pickled_error(),
-                'duration_seconds': self.duration_seconds,
-                'container_id': self.container_id,
-            }
-        )
-
-    @classmethod
-    def decode(cls, body: bytes) -> Self:
-        wire = _decode_body(body)
-        error = None if wire['error'] is None else pickle.loads(wire['error'])
-        return cls(wire['values'], error, wire['duration_seconds'], wire['container_id'])
-
-    def _pickled_error(self) -> bytes:
-        """Pickle error, or a RuntimeError with its type and message if error does not survive pickling."""
-        assert self.error is not None
-        try:
-            data = pickle.dumps(self.error)
-            pickle.loads(data)
-        except Exception:
-            data = pickle.dumps(RuntimeError(f'{type(self.error).__name__}: {self.error}'))
-        return data
-
-
-def _encode_body(wire: dict[str, Any]) -> bytes:
-    sink = proxy_protocol.InlinePartSink()
-    head = json.dumps(proxy_protocol.serialize_args(wire, sink), separators=(',', ':')).encode()
-    return proxy_protocol.encode_body(head, sink.binary_parts)
-
-
-def _decode_body(body: bytes) -> dict[str, Any]:
-    head, parts = proxy_protocol.decode_body(body)
-    return proxy_protocol.deserialize_value(json.loads(head), parts)
 
 
 # how long a call waits for the Server to start a container
@@ -140,72 +26,6 @@ _PROBE_SECONDS = 1.0
 # time limit for opening a connection (TCP and TLS) to a Server; without it, a hung TLS handshake would wait for the
 # call's full timeout
 _CONNECT_SECONDS = 10
-
-
-# the name of the HTTP header with the secret that UdfServer requires of a call
-UDF_SECRET_HEADER_NAME = 'Pxt-Udf-Secret'
-
-
-@dataclasses.dataclass(frozen=True)
-class ModalEndpoints:
-    """The URLs of a database's Modal Servers, and the headers that authorize calls to them."""
-
-    SERVERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS'
-    HEADERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_HEADERS'
-    # serializes the calls of _load()
-    _load_lock: ClassVar[threading.Lock] = threading.Lock()
-
-    # keyed by the UDF's path in the pixeltable.udf setting
-    server_urls: dict[str, str]
-    # sent with every request
-    headers: dict[str, str] = dataclasses.field(repr=False)
-
-    @classmethod
-    def get(cls) -> ModalEndpoints:
-        """Return the process's endpoints, looked up if Env has none."""
-        env = Env.get()
-        endpoints = env.udf_endpoints
-        if endpoints is None:
-            with cls._load_lock:
-                endpoints = env.udf_endpoints
-                if endpoints is None:
-                    endpoints = cls._load()
-                    env.udf_endpoints = endpoints
-        return endpoints
-
-    @classmethod
-    def _load(cls) -> Self:
-        """Return the endpoints in the environment, or the local database's endpoints from local_db_udf_servers()."""
-        if os.environ.get(cls.SERVERS_VAR, '') != '':
-            return cls(cls._env_object(cls.SERVERS_VAR), cls._env_object(cls.HEADERS_VAR))
-        hosted_db = Env.get().hosted_db()
-        if hosted_db is not None:
-            org, db_name = hosted_db
-            # the control plane sets SERVERS_VAR in the pods of a release with UDF servers
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                "The pixeltable.udf setting has no effect here: the database's release was deployed without UDF "
-                f'servers ({cls.SERVERS_VAR} is not set). Run `pxt db update pxt://{org}:{db_name}` to deploy them.',
-            )
-        servers = db.local_db_udf_servers()
-        return cls(servers.urls, servers.headers)
-
-    @classmethod
-    def _env_object(cls, var: str) -> dict[str, str]:
-        """Return the JSON object of strings in the environment variable var."""
-        text = os.environ.get(var, '')
-        if text == '':
-            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{var} is not set in the environment')
-        invalid = excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'{var} in the environment is not a JSON object of strings'
-        )
-        try:
-            value = json.loads(text)
-        except json.JSONDecodeError:
-            raise invalid from None
-        if not isinstance(value, dict) or not all(isinstance(v, str) for v in value.values()):
-            raise invalid
-        return value
 
 
 @register_client('modal', credential_param=None)
@@ -270,7 +90,7 @@ class ModalServerClient:
         endpoints = Env.get().udf_endpoints
         if endpoints is None:
             # a local database's lookup fingerprints the project and calls the control plane
-            endpoints = await asyncio.to_thread(ModalEndpoints.get)
+            endpoints = await asyncio.to_thread(udf_servers.udf_endpoints)
         url = endpoints.server_urls.get(self.setting_path)
         if url is None:
             raise excs.RequestError(
@@ -281,12 +101,12 @@ class ModalServerClient:
         self.url = url
         self.headers = endpoints.headers
 
-    async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
+    async def call(self, call_args: FnCallArgs) -> udf_servers.UdfCallResponse:
         """Run call_args on the Server."""
         assert self.url is not None
         time_zone = Env.get().default_time_zone
         assert time_zone is not None
-        request_body = UdfCallRequest(
+        request_body = udf_servers.UdfCallRequest(
             call_args.pxt_fn.signature,
             time_zone.key,
             call_args.args,
@@ -323,7 +143,7 @@ class ModalServerClient:
             Env.drop_udf_endpoints()
         if response.status_code == 401:
             # Modal's proxy answers 401 for a proxy token that it doesn't accept, and UdfServer.handle() for a wrong
-            # secret; both are in ModalEndpoints.headers
+            # secret; both are in UdfEndpoints.headers
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_AUTH_ERROR,
                 f'The UDF server of {self.setting_path} refused the credentials of this process (HTTP 401). If the UDF '
@@ -335,7 +155,7 @@ class ModalServerClient:
                 f'The call to the UDF server of {self.setting_path} failed with status {response.status_code}: '
                 f'{response.text}',
             )
-        result = UdfCallResponse.decode(response.content)
+        result = udf_servers.UdfCallResponse.decode(response.content)
         _logger.debug(
             f'Modal call of {self.setting_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
             f'UDF {result.duration_seconds:.2f}s, container {result.container_id}'
