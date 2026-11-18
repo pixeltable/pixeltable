@@ -2333,6 +2333,10 @@ class TestFunction:
         ):
             pxt.tool(TestFunction.udf_variadic_kw)
 
+        # a Json parameter and an optional parameter with a None default stay accepted
+        for fn in (pop_max_tokens, TestFunction.udf_default_param_none):
+            pxt.tools(pxt.tool(fn)).model_dump()
+
     def test_tool_json_param(self, db_root: DatabaseRoot) -> None:
         from pixeltable.functions import anthropic, openai
 
