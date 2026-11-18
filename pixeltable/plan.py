@@ -237,11 +237,6 @@ class Analyzer:
         elif len(e.components) == 0:
             # e does not reference a table column
             return True, True
-        elif isinstance(e, exprs.JsonMapperDispatch) and e.target_expr.contains_(filter=_is_std_agg_fn_call):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_EXPRESSION,
-                f'Aggregate function in the lambda of {e.op.name.lower()}(): {e.target_expr!s}',
-            )
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
             statuses: list[tuple[bool, bool]] = [self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
