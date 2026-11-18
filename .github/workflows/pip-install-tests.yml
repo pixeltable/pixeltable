@@ -242,6 +242,13 @@ jobs:
       - name: Run isolated notebook tests
         # The resource_intensive notebooks run only on a large runner, in pytest.yml
         run: |
+          # TODO: drop each skip once its package supports Python 3.14
+          if (( $(echo '${{ matrix.python-version }}' | cut -d. -f2) >= 14 )); then
+            for skip in embedding-indexes:tensorflow-text audio-podcast-chapters:whisperx; do
+              echo "Skipping ${skip%%:*}: ${skip#*:} has no release for Python ${{ matrix.python-version }}"
+              find docs/release -name "${skip%%:*}.ipynb" -delete
+            done
+          fi
           EXCLUDED='expensive very_expensive resource_intensive'
           if [[ '${{ matrix.expensive }}' == 'true' ]]; then
             EXCLUDED='very_expensive resource_intensive'

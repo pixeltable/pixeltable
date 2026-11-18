@@ -36,10 +36,6 @@ for nb in $EXCLUDED_NOTEBOOKS; do
     echo "Skipping $nb because of its test markers"
     rm -f "${TEST_PATH:?}/${nb:?}.ipynb"
 done
-# tensorflow-text and whisperx have no releases for Python 3.14+
-if (( $(echo "$PY_VERSION" | cut -d. -f2) >= 14 )); then
-    rm -f "$TEST_PATH"/embedding-indexes.ipynb "$TEST_PATH"/audio-podcast-chapters.ipynb
-fi
 
 NB_CONDA_ENV=nb-test-env
 FAILURES=0
