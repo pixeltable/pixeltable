@@ -180,7 +180,7 @@ def _extract_bool_tool_arg(kwargs: dict[str, Any], param_name: str) -> bool | No
 @udf
 def _extract_json_tool_arg(kwargs: dict[str, Any], param_name: str) -> ts.Json | None:
     # providers decode the arguments before they get here, so a Json value is already a dict, list, str, etc.
-    return kwargs.get(param_name)
+    return _extract_arg(lambda val: val, kwargs, param_name)
 
 
 @udf
