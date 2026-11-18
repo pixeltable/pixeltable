@@ -92,6 +92,51 @@ class TestGeminiLocal:
         with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='unexpected response structure'):
             get_runtime().run_coro(single_voice('Say something.', model='gemini-test', voice='Kore'))
 
+    @pytest.mark.parametrize('api_version', ['v1', 'v1beta'])
+    @pytest.mark.parametrize(
+        ('code', 'status', 'message', 'token'),
+        [
+            # errors that google-genai 3.4 raised on the v1 API
+            (
+                400,
+                'INVALID_ARGUMENT',
+                'Invalid JSON payload received. Unknown name "speechConfig" at \'generation_config\'',
+                'speechConfig',
+            ),
+            (404, 'NOT_FOUND', 'models/gemini-3.1-pro-preview is not found for API version v1', 'pro-preview'),
+        ],
+    )
+    def test_v1_rejection_names_api_version(
+        self,
+        api_version: str,
+        code: int,
+        status: str,
+        message: str,
+        token: str,
+        init_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A 400 or 404 from the v1 API names GOOGLE_GENAI_API_VERSION; other API versions' errors pass through."""
+        skip_test_if_not_installed('google.genai')
+        from google.genai import errors
+
+        from pixeltable.functions import gemini
+
+        error = errors.ClientError(code, {'error': {'code': code, 'message': message, 'status': status}})
+        client = SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(side_effect=error))),
+            _api_client=SimpleNamespace(_http_options=SimpleNamespace(api_version=api_version)),
+        )
+        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
+        single_voice = gemini.generate_speech.py_fns[0]
+        speech = single_voice('Say something.', model='gemini-test', voice='Kore')
+        if api_version == 'v1':
+            with pxt_raises(pxt.ErrorCode.PROVIDER_BAD_REQUEST, match=f'{token}.*GOOGLE_GENAI_API_VERSION=beta'):
+                get_runtime().run_coro(speech)
+        else:
+            with pytest.raises(errors.ClientError, match=token):
+                get_runtime().run_coro(speech)
+
     def _mock_response(self, outcome: str, monkeypatch: pytest.MonkeyPatch) -> 'types.GenerateContentResponse':
         """Makes the gemini client return a response of the given shape, and returns that response."""
         from google.genai import types
