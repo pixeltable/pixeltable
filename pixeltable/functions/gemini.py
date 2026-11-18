@@ -32,7 +32,6 @@ import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs, telemetry_schemas, type_system as ts
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff, parse_duration_str
 from pixeltable.utils.local_store import TempStore
 
@@ -993,7 +992,15 @@ def _replace_upload_placeholders(obj: Any, uploaded: list['genai.types.File']) -
     return obj
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'embed_content',
+    'generate_content',
+    'generate_images',
+    'generate_speech',
+    'generate_video',
+    'invoke_tools',
+    'transcribe',
+]
 
 
 def __dir__() -> list[str]:

@@ -11,6 +11,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog import table_copy
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
@@ -221,7 +222,7 @@ class TestCopyTable:
         FileCache.get().clear()
         assert_resultset_eq(t2.select(t2.id, t2.rot).order_by(t2.id).collect(), src_rows)
 
-    def test_copy_table_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+    def test_copy_table_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         is_other_db = db_root.id != 'local'
         kwargs: dict[str, Any]  # a case's table, as source or as schema_source
@@ -347,8 +348,9 @@ class TestCopyTable:
         dst7.revert()
         assert list(pxt.get_table(p('dst7')).collect()) == [{'n': 1, 'c1': 2, 'c2': 3}]
 
-        # a referenced local media file that no longer exists
-        img_path = tmp_path / 'img.jpg'
+        # A referenced local media file that no longer exists. It is under the Pixeltable home, so that the insert
+        # keeps its url. The insert copies a file of the system temp dir into the media store.
+        img_path = Config.get().home / 'missing_img.jpg'
         shutil.copy(get_image_files()[0], img_path)
         t.insert([{'id': 0, 'img': str(img_path)}])
         img_path.unlink()

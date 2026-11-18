@@ -19,7 +19,6 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf
@@ -41,6 +40,25 @@ def dumps(obj: pxt.Json) -> str:
 @dumps.to_sql
 def _(obj: sql.ColumnElement) -> sql.ColumnElement:
     return obj.cast(sql.Text)
+
+
+@pxt.udf
+def loads(s: str) -> pxt.Json | None:
+    """
+    Parse a JSON string. The string `'null'` gives `None`.
+
+    Equivalent to [`json.loads()`](https://docs.python.org/3/library/json.html#json.loads).
+
+    Args:
+        s: A JSON-formatted string.
+
+    Returns:
+        The parsed JSON value.
+
+    Examples:
+        >>> t.add_computed_column(boxes=pxtf.json.loads(t.boxes_text))
+    """
+    return json.loads(s)
 
 
 def _jsonb_object_length(obj: sql.ColumnElement) -> sql.ColumnElement:
@@ -194,7 +212,8 @@ def _number_array_agg(self: sql.ColumnElement, agg_fn: Any, empty_value: int | N
     an empty array yields empty_value rather than null.
     """
     elem = sql.func.jsonb_array_elements(self).column_valued('e')
-    agg: sql.ColumnElement = sql.select(agg_fn(elem.cast(sql.Numeric))).scalar_subquery()
+    # without type_, SQLAlchemy leaves the type of avg() as NullType
+    agg: sql.ColumnElement = sql.select(agg_fn(elem.cast(sql.Numeric), type_=sql.Numeric)).scalar_subquery()
     if empty_value is not None:
         agg = sql.func.coalesce(agg, empty_value)
     return sql.case((sql.func.jsonb_typeof(self) == 'array', agg), else_=sql.func.jsonb_array_length(self))
@@ -628,7 +647,27 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         return output_schema  # type: ignore[return-value]
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'concat',
+    'contains',
+    'count',
+    'dumps',
+    'flatten',
+    'get',
+    'is_empty',
+    'items',
+    'keys',
+    'len',
+    'list_iterator',
+    'loads',
+    'make_list',
+    'max',
+    'mean',
+    'merge',
+    'min',
+    'sum',
+    'values',
+]
 
 
 def __dir__() -> list[str]:

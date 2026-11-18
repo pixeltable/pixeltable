@@ -14,7 +14,6 @@ import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger(__name__)
@@ -166,7 +165,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             self.start_extraction_time = None
 
         _logger.debug(
-            f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
+            f'frame_iterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
             f'keyframes_only={self.keyframes_only}'
         )
         self._start_decoding()
@@ -517,8 +516,8 @@ def video_splitter(
                     target_duration = None  # the rest of the video
 
                 segment_path = str(TempStore.create_path(extension='.mp4'))
-                cmd = av_utils.ffmpeg_clip_cmd(video, segment_path, start_time, target_duration)
-                _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                cmd = av_utils.ffmpeg_clip_output_args(video, segment_path, start_time, target_duration)
+                _ = av_utils.run_ffmpeg(cmd)
 
                 # use the actual duration
                 actual_duration = av_utils.get_video_duration(segment_path)
@@ -564,7 +563,7 @@ def video_splitter(
         base_path = TempStore.create_path(extension='')
         # Use ffmpeg -f segment for accurate segmentation with re-encoding
         output_pattern = f'{base_path}_segment_%04d.mp4'
-        cmd = av_utils.ffmpeg_segment_cmd(
+        cmd = av_utils.ffmpeg_segment_args(
             video,
             output_pattern,
             segment_duration=duration,
@@ -573,7 +572,7 @@ def video_splitter(
             video_encoder_args=video_encoder_args,
         )
         try:
-            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            _ = av_utils.run_ffmpeg(cmd)
             output_paths = sorted(glob.glob(f'{base_path}_segment_*.mp4'))
             # TODO: is this actually an error?
             # if len(output_paths) == 0:
@@ -664,13 +663,12 @@ def _(bound_args: dict[str, Any]) -> None:
             )
 
 
-_class_names = [
-    'FrameAttrs',
+__all__ = [
     'Frame',
-    'frame_iterator',
+    'FrameAttrs',
     'LegacyFrame',
-    'legacy_frame_iterator',
     'VideoSegment',
+    'frame_iterator',
+    'legacy_frame_iterator',
     'video_splitter',
 ]
-__all__ = local_public_names(__name__) + _class_names

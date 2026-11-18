@@ -14,7 +14,6 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env, register_client
 from pixeltable.func.signature import Batch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from mistralai.client import Mistral
@@ -159,7 +158,7 @@ def _(model: str) -> ts.ArrayType:
     return ts.ArrayType((dimensions,), dtype=ts.FloatType())
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'embeddings', 'fim_completions']
 
 
 def __dir__() -> list[str]:

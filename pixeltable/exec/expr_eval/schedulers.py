@@ -16,10 +16,11 @@ from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retryable_error
 
 from .interfaces import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
+from .modal_client import ModalServerClient
 
 _logger = logging.getLogger(__name__)
 
-__all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
+__all__ = ['ModalScheduler', 'RateLimitsScheduler', 'RequestRateScheduler']
 
 _RETRYABLE_PXT_ERROR_CODES = frozenset(
     (excs.ErrorCode.PROVIDER_ERROR, excs.ErrorCode.RATE_LIMITED, excs.ErrorCode.PROVIDER_OVERLOADED)
@@ -488,5 +489,86 @@ class RequestRateScheduler(Scheduler):
             return exponential_backoff(num_retries, max_delay=self.MAX_RETRY_DELAY)
 
 
+class ModalScheduler(Scheduler):
+    """
+    Scheduler for the calls of a UDF in the pixeltable.udf setting, which run in the UDF's Modal containers.
+
+    TODO: move the telemetry, result and exception handling of _exec() into Scheduler, for all schedulers
+    """
+
+    _POOL_PREFIX = 'modal:'
+
+    client: ModalServerClient
+    # allows at most UdfResources.max_containers calls in flight, one per container of the Server
+    call_slots: asyncio.Semaphore
+
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+        super().__init__(resource_pool, dispatcher)
+        udf_path = resource_pool.removeprefix(self._POOL_PREFIX)
+        resources = env.Env.get().udf_resources()[udf_path]
+        self.client = ModalServerClient(udf_path, resources.timeout_seconds)
+        self.call_slots = asyncio.Semaphore(resources.max_containers)
+        loop_task = asyncio.create_task(self._main_loop())
+        self.dispatcher.register_task(loop_task)
+
+    @classmethod
+    def get_resource_pool(cls, udf_path: str) -> str:
+        """Return the resource pool of the calls to the UDF at udf_path."""
+        return f'{cls._POOL_PREFIX}{udf_path}'
+
+    @classmethod
+    def matches(cls, resource_pool: str) -> bool:
+        return resource_pool.startswith(cls._POOL_PREFIX)
+
+    async def _main_loop(self) -> None:
+        # connect() deploys the App if this process hasn't yet; connecting at the first call avoids a deploy for a
+        # query without rows
+        item = await self.queue.get()
+        # an exception in connect() fails the query, while _exec() turns the exception of a call into errors of that
+        # call's rows
+        await self.client.connect()
+        while True:
+            # with all of the Server's containers busy, Modal queues a call, and the time in the queue counts against
+            # the call's timeout
+            await self.call_slots.acquire()
+            task = asyncio.create_task(self._exec(item.request, item.exec_ctx))
+            self.dispatcher.register_task(task)
+            item = await self.queue.get()
+
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx) -> None:
+        slot_idx = request.fn_call.slot_idx
+        try:
+            with (
+                telemetry.span(
+                    f'pixeltable.udf.{request.pxt_fn.display_name}',
+                    level=telemetry.DEBUG,
+                    set_current=telemetry.current_span() is not None,
+                    **telemetry_schemas.UdfCallAttrs(
+                        udf_path=request.pxt_fn.self_path,
+                        column=self.dispatcher.col_names.get(slot_idx),
+                        batch_size=len(request.rows) if request.is_batched else None,
+                        resource_pool=self.resource_pool,
+                    ),
+                ),
+                telemetry_schemas.udf_call(request.pxt_fn),
+            ):
+                response = await self.client.call(request)
+                if response.error is not None:
+                    raise response.error
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            for row in request.rows:
+                row.set_exc(slot_idx, exc)
+            self.dispatcher.dispatch_exc(request.rows, slot_idx, exc_tb, exec_ctx)
+            return
+        finally:
+            self.call_slots.release()
+
+        assert response.values is not None and len(response.values) == len(request.rows)
+        for row, value in zip(request.rows, response.values):
+            row[slot_idx] = value
+        self.dispatcher.dispatch(request.rows, exec_ctx)
+
+
 # all concrete Scheduler subclasses that implement matches()
-SCHEDULERS = [RateLimitsScheduler, RequestRateScheduler]
+SCHEDULERS: list[type[Scheduler]] = [RateLimitsScheduler, RequestRateScheduler, ModalScheduler]

@@ -27,7 +27,7 @@ class ObjectRef(Expr):
         super().__init__(ts.JsonType())  # JsonType: this could be anything
         self._scope = scope
         self.owner = owner
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         # We have no components, so we can't rely on the default behavior here (otherwise, all ObjectRef
@@ -35,16 +35,15 @@ class ObjectRef(Expr):
         return [('addr', id(self))]
 
     def substitute(self, subs: ExprDict[Expr]) -> Expr:
-        # Just return self; we need to avoid creating a new id after doing the substitution, because otherwise
-        # we'll wind up in a situation where the scope_anchor of the enclosing JsonMapper is different from the
-        # nested ObjectRefs inside its target_expr (and therefore occupies a different slot_idx).
-        return self
+        # copy() keeps _expr_id; with a new id, the scope_anchor of the enclosing JsonMapper would differ from the
+        # nested ObjectRefs inside its target_expr (and therefore occupy a different slot_idx).
+        return self.copy()
 
     def scope(self) -> ExprScope:
         return self._scope
 
     def _equals(self, other: ObjectRef) -> bool:
-        return self.id == other.id
+        return self._expr_id == other._expr_id
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
@@ -54,4 +53,4 @@ class ObjectRef(Expr):
         pass
 
     def __repr__(self) -> str:
-        return f'ObjectRef({self.owner}, {self.id}, {self.owner.id})'
+        return f'ObjectRef({self.owner!s}, {self._expr_id}, {self.owner._expr_id})'

@@ -32,14 +32,12 @@ class ObjectStoreSaveNode(ExecNode):
             src_path -> [dest1, dest2, ...]
                 dest1: [row_location1, row_location2, ...]
     Paths with multiple destinations are removed from the TempStore only after all destination copies are complete.
-
-    TODO:
-    - Process a row at a time and limit the number of in-flight rows to control memory usage
     """
 
     QUEUE_DEPTH_HIGH_WATER = 50  # target number of in-flight requests
     QUEUE_DEPTH_LOW_WATER = 20  # target number of in-flight requests
     BATCH_SIZE = 16
+    MAX_BUFFERED_ROWS = 2048
     MAX_WORKERS = 15
 
     class WorkDesignator(NamedTuple):
@@ -64,6 +62,7 @@ class ObjectStoreSaveNode(ExecNode):
     file_col_info: list[exprs.ColumnSlotIdx]
 
     # execution state
+    num_input_rows: int
     num_returned_rows: int
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
@@ -103,7 +102,13 @@ class ObjectStoreSaveNode(ExecNode):
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
 
+    @property
+    def num_buffered_rows(self) -> int:
+        # we can't rely on ready_rows because it includes placeholders for in-flight rows
+        return self.num_input_rows - self.num_returned_rows
+
     def _init_exec_state(self) -> None:
+        self.num_input_rows = 0
         self.num_returned_rows = 0
         self.ready_rows = deque()
         self.in_flight_rows = {}
@@ -123,6 +128,8 @@ class ObjectStoreSaveNode(ExecNode):
             input_batch = await anext(input_iter)
             if input_batch is None:
                 self.input_finished = True
+            else:
+                self.num_input_rows += len(input_batch)
             return input_batch
         except StopAsyncIteration:
             self.input_finished = True
@@ -132,22 +139,29 @@ class ObjectStoreSaveNode(ExecNode):
         async with contextlib.aclosing(aiter(self.input)) as input_iter:
             with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
                 while True:
-                    # Create work to fill the queue to the high water mark,
-                    # without overrunning the in-flight row limit.
-                    while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
+                    # Fetch whole batches; buffered rows can overshoot the limit by less than one input batch.
+                    while (
+                        not self.input_finished
+                        and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER
+                        and self.num_buffered_rows < self.MAX_BUFFERED_ROWS
+                    ):
                         input_batch = await self.get_input_batch(input_iter)
                         if input_batch is not None:
                             self.__process_input_batch(input_batch, executor)
 
-                    # Wait for enough completions to enable more queueing or if we're done
+                    # Wait for queue capacity, end-of-input work, or a blocked output at the row limit.
                     while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (
-                        self.input_finished and self.queued_work > 0
+                        self.queued_work > 0
+                        and (
+                            self.input_finished
+                            or (self.num_buffered_rows >= self.MAX_BUFFERED_ROWS and not self.__has_ready_batch())
+                        )
                     ):
                         done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
                         self.__process_completions(done)
 
                     # Emit results to meet batch size requirements or empty the in-flight row queue
-                    if self.__has_ready_batch() or (
+                    while self.__has_ready_batch() or (
                         len(self.ready_rows) > 0 and self.input_finished and self.queued_work == 0
                     ):
                         # create DataRowBatch from the first BATCH_SIZE ready rows
@@ -273,8 +287,12 @@ class ObjectStoreSaveNode(ExecNode):
                 # The url does not point to a local file, do not attempt to copy/move it
                 continue
 
-            if destination is None and not TempStore.contains_path(src_path):
-                # Do not copy local file URLs to the LocalStore
+            if (
+                destination is None
+                and not TempStore.contains_path(src_path)
+                and not TempStore.in_system_temp_dir(src_path)
+            ):
+                # Do not copy local file URLs to the LocalStore, unless the OS may clean up the file
                 continue
 
             file_size = src_path.stat().st_size

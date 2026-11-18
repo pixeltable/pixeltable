@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import vllm
@@ -190,7 +189,7 @@ _model_cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str], 'vllm.LLM'] = {}
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'generate']
 
 
 def __dir__() -> list[str]:

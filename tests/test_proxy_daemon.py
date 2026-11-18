@@ -5,6 +5,7 @@ import io
 import json
 import math
 import pathlib
+import shutil
 import socket
 import socketserver
 import ssl
@@ -21,6 +22,7 @@ from typing import Any
 import httpx
 import numpy as np
 import PIL.Image
+import psutil
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -45,7 +47,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
-from .utils import DatabaseRoot, get_image_files, pxt_raises, reload_env
+from .utils import DatabaseRoot, bystander_process, get_image_files, pxt_raises, reload_env
 
 _KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
@@ -268,7 +270,7 @@ class TestProxyDaemon:
     def test_update_status_from_older_server(self) -> None:
         """An UpdateStatus decodes when its RowCountStats contains an unknown field."""
         sink = proxy_protocol.InlinePartSink()
-        status = pxt.UpdateStatus(row_count_stats=RowCountStats(ins_rows=2))
+        status = pxt.UpdateStatus(row_count_stats=RowCountStats(inserted_rows=2))
         wire = proxy_protocol.serialize_args({'status': status}, sink)['status']
         wire['v']['row_count_stats']['computed_values'] = 0
         assert proxy_protocol.deserialize_value(wire, sink.binary_parts) == status
@@ -1147,6 +1149,38 @@ class TestProxyDaemon:
             assert copy._id == copy_id and was_created
         assert sorted(copy.collect()['id']) == [0, 1]
 
+    @pytest.mark.parametrize(('creation_time_offset', 'live'), [(0.0, True), (None, True), (-100.0, False)])
+    def test_port_lock_creation_time(self, init_env: None, creation_time_offset: float | None, live: bool) -> None:
+        """A port.lock that records an earlier creation time than the process with its pid has is stale: that daemon
+        is gone and another process reused its pid. One that records none, from an older daemon, goes by the pid
+        alone."""
+        db = 'port_lock_test'
+        proxy_daemon.create(db)
+        try:
+            with bystander_process() as bystander:
+                info: dict[str, Any] = {'port': 1, 'pid': bystander.pid}
+                if creation_time_offset is not None:
+                    info['process_started_at'] = psutil.Process(bystander.pid).create_time() + creation_time_offset
+                (proxy_daemon.proxy_home(db) / 'port.lock').write_text(json.dumps(info))
+                assert proxy_daemon.read_port_lock(db) == (info if live else None)
+        finally:
+            shutil.rmtree(proxy_daemon.proxy_home(db))
+
+    def test_stop_reused_port_lock_pid(self, init_env: None) -> None:
+        """stop() removes a stale port.lock without signaling the process that now has its pid."""
+        db = 'port_lock_test'
+        proxy_daemon.create(db)
+        lock = proxy_daemon.proxy_home(db) / 'port.lock'
+        try:
+            with bystander_process() as bystander:
+                started_at = psutil.Process(bystander.pid).create_time()
+                lock.write_text(json.dumps({'port': 1, 'pid': bystander.pid, 'process_started_at': started_at - 100}))
+                proxy_daemon.stop(db)
+                assert not lock.exists()
+                assert bystander.poll() is None
+        finally:
+            shutil.rmtree(proxy_daemon.proxy_home(db))
+
 
 class _ScriptedResponse:
     def __init__(self, status: int, body: bytes) -> None:
@@ -1796,7 +1830,8 @@ class TestTunnelRetries:
         assert opened == [live]
 
     def test_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it_is_not_handed_out(self) -> None:
-        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is dropped."""
+        """A daemon from an earlier release closes a connection idle 5 s, which loses a request sent while that close is
+        on its way."""
         stale, fresh = _ScriptedConn(), _ScriptedConn()
         opened: list[_ScriptedConn] = []
 

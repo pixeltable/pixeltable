@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import fal_client
@@ -90,7 +89,7 @@ async def run(input: dict[str, Any], *, app: str) -> pxt.Json:
     return result
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['run']
 
 
 def __dir__() -> list[str]:

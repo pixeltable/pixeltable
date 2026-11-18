@@ -14,8 +14,8 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestOpenRouter:
     def test_chat_completions(self, uses_db: None) -> None:
@@ -85,7 +85,7 @@ class TestOpenRouter:
         # Test with transforms
         t.add_computed_column(
             summary=chat_completions(
-                messages=[{'role': 'user', 'content': f'Summarize: {t.text}'}],
+                messages=[{'role': 'user', 'content': 'Summarize: ' + t.text}],
                 model='openai/gpt-5.4-mini',
                 transforms=['middle-out'],
             )
