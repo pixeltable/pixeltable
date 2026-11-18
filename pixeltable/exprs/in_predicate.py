@@ -57,18 +57,14 @@ class InPredicate(Expr):
                 f'isin(): argument must be an Iterable (eg, list, dict, ...), not {value_set!r}',
             )
         value_list = list(value_set)
+        if self._lhs.col_type.is_uuid_type():
+            value_list = [_str_to_uuid(val) for val in value_list]
         if not filter_type_mismatches:
             return value_list
 
         # ignore elements of the wrong type
         result = []
-        for raw_val in value_list:
-            val = raw_val
-            if isinstance(raw_val, str) and self._lhs.col_type.is_uuid_type():
-                try:
-                    val = uuid.UUID(raw_val)
-                except ValueError:
-                    continue
+        for val in value_list:
             try:
                 self._lhs.col_type.validate_literal(val)
                 result.append(val)
@@ -103,10 +99,23 @@ class InPredicate(Expr):
             data_row[self.slot_idx] = lhs_val in value_list
 
     def _as_dict(self) -> dict:
-        return {'value_list': self.value_list, **super()._as_dict()}
+        value_list = self.value_list
+        if value_list is not None:
+            # stored as JSON; the constructor turns the strings back into UUIDs
+            value_list = [str(val) if isinstance(val, uuid.UUID) else val for val in value_list]
+        return {'value_list': value_list, **super()._as_dict()}
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> InPredicate:
         assert 'value_list' in d
         assert len(components) <= 2
         return cls(components[0], d['value_list'], components[1] if len(components) == 2 else None)
+
+
+def _str_to_uuid(val: Any) -> Any:
+    if isinstance(val, str):
+        try:
+            return uuid.UUID(val)
+        except ValueError:
+            pass
+    return val
