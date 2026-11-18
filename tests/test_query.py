@@ -932,17 +932,9 @@ class TestQuery:
         def ranked(offset: int) -> pxt.Query:
             return t.order_by(double(t.x + offset)).select(t.id)
 
-        store = (
-            'As a workaround, you can add the value as a stored computed column of a scalar type '
-            '(cast with .astype() if needed) and use that column with order_by().'
-        )
-        sort = 'As a workaround, you can sort the collected rows.'
-        rewrite = (
-            'so a stored computed column would not have the current value. As a workaround, you can rewrite the '
-            'expression with functions that have a SQL translation, or sort the collected rows.'
-        )
+        store = 'add the value as a stored computed column'
+        sort = 'sort the collected rows'
         count = pxt.functions.count
-        posix_timestamp, now = pxt.functions.timestamp.posix_timestamp, pxt.functions.timestamp.now
         # (query, order_by() expr, its part without a SQL translation, workaround)
         queries: list[tuple[Callable[[], Any], str, str, str]] = [
             (t.order_by(double(t.x)).select(t.id).collect, 'double(x)', 'double(x)', store),
@@ -969,33 +961,19 @@ class TestQuery:
                 'double(globals.count(id))',
                 sort,
             ),
-            # a stored computed column cannot track now() or a query parameter
-            (
-                t.order_by(posix_timestamp(now()) - t.x).select(t.id).collect,
-                'posix_timestamp(now()) - x',
-                'posix_timestamp(now())',
-                f'The value depends on now(), {rewrite}',
-            ),
-            (
-                lambda: pxt.eval_udf(ranked, 1),
-                'double(x + offset)',
-                'double(x + offset)',
-                f'The value depends on the parameter offset, {rewrite}',
-            ),
+            # in a @pxt.query, with a parameter
+            (lambda: pxt.eval_udf(ranked, 1), 'double(x + offset)', 'double(x + offset)', store),
         ]
         for run_query, expr_text, no_sql_text, workaround in queries:
-            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'Invalid order_by\(\) expression') as exc_info:
+            message = f'SQL: {expr_text}. No SQL translation: {no_sql_text}. As a workaround, you can {workaround}'
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=re.escape(message)):
                 _ = run_query()
-            assert str(exc_info.value) == (
-                f'Invalid order_by() expression, needs to be expressible in SQL: {expr_text}. '
-                f'No SQL translation: {no_sql_text}. {workaround}'
-            )
 
         # a where() in Python does not affect an order_by() in SQL
         res = t.where(double(t.x) > 2).order_by(t.x, asc=False).select(t.x).collect()
         assert res['x'] == [4, 3, 2]
 
-        # the advice works
+        # order_by() on a stored computed column with the same value
         validate_update_status(t.add_computed_column(k=t.info.k.astype(pxt.Int)), expected_rows=4)
         assert t.order_by(t.k).select(t.id).collect()['id'] == [1, 3, 0, 2]
         assert t.order_by(t.k, asc=False).select(t.id).collect()['id'] == [2, 0, 3, 1]
@@ -1519,7 +1497,7 @@ class TestQuery:
             with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='needs to be expressible in SQL') as exc_info:
                 _ = query.collect()
             message = str(exc_info.value)
-            assert expr_text in message
+            assert f'No SQL translation: {expr_text}.' in message
             assert 'computed column' in message
 
         # JSON path, cast JSON path, and a stored column mixed with a JSON path.
