@@ -344,13 +344,14 @@ class _ModelNamespace(dict):
             if 'type' in spec and 'value' in spec:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column specification for {name!r} must define `type` or `value`, but not both',
+                    f'Column specification for {name!r} cannot define both `type` and `value`',
                 )
             if 'type' not in spec and 'value' not in spec:
-                # the type comes from the annotation, which is always recorded after the assignment;
-                # TableModelMeta.__new__() rejects the spec if no annotation follows
-                self.known_cols[name] = spec
-                return
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column specification for {name!r} defines neither `type` nor `value`; pass `type=` to '
+                    'Column() for a stored column (a type annotation does not set it) or `value=` for a computed one',
+                )
         else:
             # Computed column expression.
             expr = exprs.Expr.from_object(value)
@@ -384,13 +385,8 @@ class _ModelNamespace(dict):
                 ) from exc
         type_ = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
         if name in self.known_cols:
-            spec = self.known_cols[name]
-            if 'type' not in spec and 'value' not in spec:
-                spec['type'] = type_  # type: ignore[typeddict-item]
-                super().__setitem__(name, exprs.ColumnRefByName(name, type_))
-                return
             # We previously processed this column via set_col_value(). Sanity check the type.
-            if col_type_from_spec(spec) != type_:
+            if col_type_from_spec(self.known_cols[name]) != type_:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA, f'Conflicting type annotation for column {name!r}.'
                 )
@@ -692,13 +688,6 @@ class TableModelMeta(type):
 
         if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
-        for col_name, spec in namespace.known_cols.items():
-            if 'type' not in spec and 'value' not in spec:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column specification for {col_name!r} has no type: annotate the column '
-                    f'(`{col_name}: pxt.Int = pxt.Column(...)`) or pass `type=` to Column()',
-                )
 
         # "normalize" the namespace to a plain dict; at this point, we're done with the special namespace treatment
         namespace_dict = dict(namespace)

@@ -33,8 +33,6 @@ class TestTableModel2:
                 custom_metadata={'chicken': 'eggs'},
                 comment='This is a column with special properties',
             )
-            # the type comes from the annotation
-            annotated_with_props: pxt.Image | None = Column(media_validation='on_write', comment='annotated')  # type: ignore[assignment]
             computed_with_special_props = pxt.Column(value=(value / 3), stored=False)
             computed_with_special_props_2 = pxt.Column(value=img.rotate(90))
 
@@ -66,9 +64,6 @@ class TestTableModel2:
                 'custom_metadata': {'chicken': 'eggs'},
                 'comment': 'This is a column with special properties',
             }
-        )
-        tbl2.add_column(
-            annotated_with_props={'type': pxt.Image | None, 'media_validation': 'on_write', 'comment': 'annotated'}
         )
         tbl2.add_computed_column(computed_with_special_props=(tbl2.value / 3), stored=False)
         tbl2.add_computed_column(computed_with_special_props_2=tbl2.img.rotate(90))

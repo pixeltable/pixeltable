@@ -678,18 +678,15 @@ class TestTableModel:
         # one change set that both adds and drops a column
         TableModelV2 = pxt.model_base()
 
-        # the annotation gives the column type when Column() has no `type`
         class NotesV2(TableModelV2, name='notes', _is_data_versioned=is_data_versioned):
-            note_id: pxt.Int = Column(primary_key=True)  # type: ignore[assignment]
+            note_id = Column(type=pxt.Int, primary_key=True)
             val: pxt.Int | None
             extra: pxt.String | None
-            doubled = note_id * 2
 
         TableModelV2.update_all(root, allow_destructive=True)
         t = NotesV2.table
-        assert list(t.get_metadata()['columns']) == ['note_id', 'val', 'extra', 'doubled']
+        assert list(t.get_metadata()['columns']) == ['note_id', 'val', 'extra']
         assert t.get_metadata()['columns']['note_id']['is_primary_key']
-        assert t.get_metadata()['columns']['note_id']['type_'] == 'Int'
 
         # the key is still enforced afterwards, and the rows that were already there are intact
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
@@ -2632,15 +2629,22 @@ class TestTableModel:
             class SecondDup(TableModel, name='dup_name'):
                 id: pxt.Int | None
 
-        with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA, match=r"for 'bad' has no type: annotate the column .* or pass `type=`"
-        ):
+        neither = r"Column specification for 'bad' defines neither `type` nor `value`; pass `type=` to Column\(\)"
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
 
             class BadColSpec(TableModel, name='bad_col_spec'):
                 id: pxt.Int | None
                 bad = Column()
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must define `type` or `value`, but not both'):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
+
+            class BadPkColSpec(TableModel, name='bad_pk_col_spec'):
+                bad = Column(primary_key=True)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column specification for 'both' cannot define both `type` and `value`",
+        ):
 
             class BothColSpec(TableModel, name='both_col_spec'):
                 id: pxt.Int | None
