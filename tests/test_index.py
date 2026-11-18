@@ -1334,12 +1334,16 @@ class TestIndex:
         assert len(res) == 3
         assert all(isinstance(row['col_0'], np.ndarray) and row['col_0'].dtype == np.float32 for row in res)
 
+        # l2 similarity is a distance, so the nearest row comes first in ascending order
+        nearest_first = metric == 'l2'
         sim = t.text.similarity(string='zero')
-        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=nearest_first).collect()
         assert res[0]['rowid'] == 0
+        reversed_res = t.select(t.rowid, sim=sim).order_by(sim, asc=not nearest_first).collect()
+        assert reversed_res['rowid'] == res['rowid'][::-1]
 
         sim = t.text.similarity(string='one')
-        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=nearest_first).collect()
         assert res[0]['rowid'] == 1
 
     def test_array_column_embedding_index(
