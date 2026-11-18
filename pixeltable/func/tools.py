@@ -33,6 +33,18 @@ class Tool(pydantic.BaseModel):
     name: str | None = None
     description: str | None = None
 
+    @pydantic.model_validator(mode='after')
+    def _check_param_types(self) -> 'Tool':
+        for sig in self.fn.signatures:
+            for param in sig.parameters.values():
+                if _tool_arg_extractor(param.col_type) is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Tool {self.name or self.fn.name!r}: parameter {param.name!r} has type `{param.col_type}`, '
+                        f'which a tool cannot take; supported types are {_TOOL_PARAM_TYPES}',
+                    )
+        return self
+
     @property
     def parameters(self) -> dict[str, Parameter]:
         return self.fn.signature.parameters
@@ -63,19 +75,29 @@ class Tool(pydantic.BaseModel):
         return self.fn(**kwargs)
 
     def __extract_tool_arg(self, param: Parameter, kwargs: 'exprs.Expr') -> 'exprs.FunctionCall':
-        if param.col_type.is_string_type():
-            return _extract_str_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_int_type():
-            return _extract_int_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_float_type():
-            return _extract_float_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_bool_type():
-            return _extract_bool_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_json_type():
-            return _extract_json_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_uuid_type():
-            return _extract_uuid_tool_arg(kwargs, param_name=param.name)
-        raise AssertionError(param.col_type)
+        extractor = _tool_arg_extractor(param.col_type)
+        assert extractor is not None, param.col_type
+        return extractor(kwargs, param_name=param.name)
+
+
+_TOOL_PARAM_TYPES = 'String, Int, Float, Bool, UUID and Json'
+
+
+def _tool_arg_extractor(col_type: ts.ColumnType) -> Function | None:
+    """Returns the UDF that extracts a tool argument of col_type, or None if tools don't support col_type."""
+    if col_type.is_string_type():
+        return _extract_str_tool_arg
+    if col_type.is_int_type():
+        return _extract_int_tool_arg
+    if col_type.is_float_type():
+        return _extract_float_tool_arg
+    if col_type.is_bool_type():
+        return _extract_bool_tool_arg
+    if col_type.is_json_type():
+        return _extract_json_tool_arg
+    if col_type.is_uuid_type():
+        return _extract_uuid_tool_arg
+    return None
 
 
 class ToolChoice(pydantic.BaseModel):

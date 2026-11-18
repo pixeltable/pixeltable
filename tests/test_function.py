@@ -90,6 +90,11 @@ def doubled(xs: Batch[int]) -> Batch[int]:
 
 
 @pxt.udf
+def day_of(when: datetime) -> str:
+    return when.strftime('%A')
+
+
+@pxt.udf
 def failing_udf(x: int) -> int:
     raise ValueError(f'bad value: {x}')
 
@@ -2296,6 +2301,14 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
+
+        msg = r"Tool 'day_of': parameter 'when' has type `Timestamp`, which a tool cannot take"
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tool(day_of)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tools(day_of)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'weekday': parameter 'when'"):
+            pxt.tool(day_of, name='weekday')
 
     @pytest.mark.db_roots('local', reason='builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:

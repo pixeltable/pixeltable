@@ -1218,6 +1218,8 @@ def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     entire contents of the UDF docstring. If a UDF is wrapped in a `pxt.tool()` invocation, then the name and/or
     description may be customized.
 
+    A tool's parameters must be of type `String`, `Int`, `Float`, `Bool`, `UUID` or `Json`.
+
     Args:
         args: The UDFs to use as tools.
 
