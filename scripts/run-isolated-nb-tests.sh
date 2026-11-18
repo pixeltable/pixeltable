@@ -36,6 +36,13 @@ for nb in $EXCLUDED_NOTEBOOKS; do
     echo "Skipping $nb because of its test markers"
     rm -f "${TEST_PATH:?}/${nb:?}.ipynb"
 done
+# TODO: drop each skip once its package supports Python 3.14
+if (( $(echo "$PY_VERSION" | cut -d. -f2) >= 14 )); then
+    for skip in embedding-indexes:tensorflow-text audio-podcast-chapters:whisperx; do
+        echo "Skipping ${skip%%:*}: ${skip#*:} has no release for Python $PY_VERSION"
+        rm -f "${TEST_PATH:?}/${skip%%:*}.ipynb"
+    done
+fi
 
 NB_CONDA_ENV=nb-test-env
 FAILURES=0
