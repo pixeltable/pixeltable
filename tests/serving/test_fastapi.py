@@ -950,9 +950,9 @@ class TestFastAPI:
         with open(bad_file, 'rb') as f:
             resp = client.post('/insert', files={'clip': ('clip.txt', f, 'text/plain')}, data={'id': '1'})
         assert resp.status_code == 422, resp.text
-        detail = resp.json().get('detail', '')
-        assert 'clip' in detail, detail
-        assert '/tmp' not in detail and 'tmp' not in detail.lower().split('clip')[0], detail
+        detail = resp.json()['detail']
+        assert detail['error_code'] == 'INVALID_DATA_FORMAT', detail
+        assert detail['message'] == 'Not a valid video: clip.txt', detail
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])

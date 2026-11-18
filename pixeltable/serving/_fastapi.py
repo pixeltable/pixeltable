@@ -542,7 +542,8 @@ def _run_endpoint_op(
             if upload_name_map and e.error_code == excs.ErrorCode.INVALID_DATA_FORMAT:
                 msg = e.args[0]
                 for tmp_path, field_name in upload_name_map.items():
-                    msg = msg.replace(tmp_path, field_name)
+                    # over proxy, the daemon reports the temp file by its basename only
+                    msg = msg.replace(tmp_path, field_name).replace(Path(tmp_path).name, field_name)
                 e = type(e)(e.error_code, msg)
             raise _http_exception(e) from e
         raise
