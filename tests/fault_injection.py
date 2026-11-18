@@ -61,6 +61,10 @@ class FaultManager:
                 raise AssertionError(f'A fault is already armed at {loc}')
             self._fault_state[loc] = fault
 
+    def remove_fault(self, loc: FaultLocation) -> None:
+        with self._lock:
+            self._fault_state.pop(loc, None)
+
     def process_location(self, loc: FaultLocation, kwargs: dict[str, Any]) -> None:
         with self._lock:
             fault = self._fault_state.get(loc)

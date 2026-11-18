@@ -14,15 +14,18 @@ import shutil
 import signal
 import sys
 import threading
+import time
 import urllib.parse
 import uuid
 from typing import Any, Callable, Generator, Iterator, get_args
 
+import psutil
 import pytest
 import requests
 import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
+from _pytest.faulthandler import fault_handler_stderr_fd_key
 from filelock import FileLock
 from sqlalchemy import text
 
@@ -40,6 +43,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
 
+from .notebook_markers import NOTEBOOK_MARKERS
 from .utils import (
     CLOUD_DB_ROOT_URIS,
     IN_CI,
@@ -93,6 +97,12 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
             item.add_marker(pytest.mark.skip_merge_queue)
             item.add_marker(pytest.mark.xdist_group('large_model'))
+
+    for item in items:
+        if item.path.suffix == '.ipynb':
+            marker_names, reason = NOTEBOOK_MARKERS.get(item.path.stem, ((), None))
+            for marker_name in marker_names:
+                item.add_marker(marker_name if reason is None else getattr(pytest.mark, marker_name)(reason=reason))
 
     offenders: list[str] = []
     for item in items:
@@ -168,6 +178,52 @@ def _clear_model_caches() -> None:
     if platform.libc_ver()[0] == 'glibc':
         # glibc keeps freed memory in the process's heap unless asked to return it
         ctypes.CDLL('libc.so.6').malloc_trim(0)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item: pytest.Item) -> Generator[None, object, object]:
+    """At faulthandler_timeout, after pytest's stack dump, a dump of this process's child processes.
+
+    A main thread blocked on a subprocess looks the same in the stack dump whether the child is spinning, blocked, or
+    gone while another process holds its pipes. The SIGUSR1 dump in CI also skips Windows.
+    """
+    timer: threading.Timer | None = None
+    timeout = float(item.config.getini('faulthandler_timeout') or 0)
+    if timeout > 0:
+        fd = item.config.stash[fault_handler_stderr_fd_key]
+        timer = threading.Timer(timeout, _dump_child_processes, args=(item, fd))
+        timer.daemon = True
+        timer.start()
+    try:
+        return (yield)  # noqa: B901
+    finally:
+        if timer is not None:
+            timer.cancel()
+
+
+def _dump_child_processes(item: pytest.Item, fd: int) -> None:
+    children = psutil.Process().children(recursive=True)
+    cpu_before: dict[int, float] = {}
+    for child in children:
+        with contextlib.suppress(psutil.Error):
+            cpu_before[child.pid] = sum(child.cpu_times()[:2])
+    # CPU time rising over the interval means a busy child; flat means a blocked one
+    time.sleep(10)
+    lines = [f'Child processes of pid {os.getpid()} in {item.nodeid}:']
+    for child in children:
+        try:
+            with child.oneshot():
+                cpu = f'{cpu_before.get(child.pid, float("nan")):.1f}s -> {sum(child.cpu_times()[:2]):.1f}s'
+                lines.append(
+                    f'  pid {child.pid} {child.status()}, cpu {cpu}, {child.num_threads()} threads: '
+                    + ' '.join(child.cmdline())
+                )
+        except psutil.Error as e:
+            lines.append(f'  pid {child.pid}: {e!r}')
+    if len(children) == 0:
+        lines.append('  none')
+    with contextlib.suppress(OSError):
+        os.write(fd, ('\n'.join(lines) + '\n').encode())
 
 
 def pytest_runtest_teardown(item: pytest.Item) -> None:

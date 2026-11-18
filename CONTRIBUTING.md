@@ -76,6 +76,47 @@ already have standard developer tools such as `git` and `make` installed on your
 
 We recommend VSCode for development: <https://code.visualstudio.com/>
 
+## Test tiers
+
+CI runs the tests (`.github/workflows/pytest.yml`) on a PR, in the merge queue, daily, and weekly on Tuesdays. A manual
+dispatch runs the daily jobs, or the weekly ones with "Run on all platforms" selected. Four independent pytest markers
+decide where a test runs:
+
+| Marker | PR | Merge queue | Daily | Weekly |
+|---|---|---|---|---|
+| none | Yes | Yes | Yes | Yes |
+| `skip_merge_queue` | | | Yes | Yes |
+| `expensive` | | One job | One job | One job |
+| `very_expensive` | | | | One job |
+| `resource_intensive` | | | Large runner | Large runner |
+
+* `skip_merge_queue`: live calls to services not reliable enough for the merge queue, model and dataset downloads,
+    and external object stores.
+* `expensive`: paid API calls too costly for every job. They run only on `standard+`, or `standard++` on the weekly
+    run.
+* `very_expensive`: the costliest API calls, such as video generation. They run only on `standard++`.
+* `resource_intensive`: more memory, disk or CPU time than a standard GitHub-hosted runner has. They run only on the
+    `resource-intensive` job, on a paid large runner, which runs nothing else.
+
+A test with several markers runs only where all of them allow: most paid providers are `skip_merge_queue` and
+`expensive`, so they run on `standard+` daily and `standard++` weekly. `very_expensive` and `resource_intensive` never
+run on PRs or in the merge queue, so they need no `skip_merge_queue`. PRs have no API keys, so tests that need one
+skip there. The marker descriptions in `pyproject.toml` and `.github/instructions/tests.instructions.md` say which
+marker a new test takes.
+
+The notebooks under `docs/release` take the same markers, or `skip` if CI never runs them, each with a reason, in
+`tests/notebook_markers.py`. `notebooks+`, `notebooks++` and `resource-intensive-notebooks` run on the same triggers
+as `standard+`, `standard++` and `resource-intensive`.
+
+`pip-install-tests` tests the latest release as pip installs it, on Mondays, Wednesdays and Fridays. Its Python 3.11
+jobs install different optional packages, and each runs the `expensive` tests for its packages, and every third Monday
+the `very_expensive` ones, so each test runs once. `TestBedrock` needs only core dependencies, so it runs in one job. One isolated
+notebook job runs the `expensive` notebooks, and every third Monday the `very_expensive` ones. No job runs the
+`resource_intensive` ones.
+
+Locally, `make test` runs only the tests with none of these markers, and `make fullpytest` runs all of them. To choose
+tiers, pass `-m`: for example, `pytest -m 'not resource_intensive' tests/functions/test_openai.py`.
+
 ## Building and Serving Documentation Locally
 
 Pixeltable uses [Mintlify](https://mintlify.com) for documentation. If you're contributing to the docs, you may want to build and preview them locally before submitting a PR.
@@ -170,13 +211,13 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         `claude review: error paths`. Claude reacts to the comment with a thumbs-up when the review starts, and posts
         its summary and inline comments as one review. A request while a Claude review of the PR runs starts no other.
         The comment-triggered review cannot push code.
-    * When a scheduled `tests`, `stress-tests`, or `nightly` run on `main` fails, the same workflow starts a separate
-        CI-fix job with Opus. That job may open one fix PR per workflow from a `claude/ci-fix-<workflow>-<run>`
+    * When a scheduled `tests`, `stress-tests`, or `pip-install-tests` run on `main` fails, the same workflow starts a
+        separate CI-fix job with Opus. That job may open one fix PR per workflow from a `claude/ci-fix-<workflow>-<run>`
         branch. The workflow then comments `agent review` on the PR, which is meant for Grok and Muse, and runs the
         Claude review above on it as a sibling job; the review job still cannot push. A person addresses the findings
         and merges. The job does not auto-fix core catalog, transaction, or concurrency failures, and it does not
-        reopen a PR a person closed. Nightly tests the `release` tag, so a fix on `main` does not clear nightly until
-        the next release.
+        reopen a PR a person closed. `pip-install-tests` tests the `release` tag, so a fix on `main` does not clear it
+        until the next release.
     * To have your coding agent review a PR or branch, ask it to `review <PR or branch> with structure-review`, or
         run `/structure-review <PR or branch>` in Claude Code. The agent drafts the review and posts nothing unless
         you ask. Reviewing a PR requires the GitHub CLI, authenticated with `gh auth login`.

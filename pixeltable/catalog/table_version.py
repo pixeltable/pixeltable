@@ -1295,7 +1295,7 @@ class TableVersion:
 
     def insert(
         self,
-        source: list[dict[str, Any]] | SqlDataSource | None,
+        source: Iterable[dict[str, Any]] | SqlDataSource | None,
         query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
@@ -1303,7 +1303,7 @@ class TableVersion:
         skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """
-        Insert rows into this table from an explicit list of dicts, a Query, or a SqlDataSource.
+        Insert rows into this table from a stream of row dicts, a Query, or a SqlDataSource.
 
         With skip_existing_keys, a row whose primary key is already in the table is not inserted.
         """
