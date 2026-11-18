@@ -25,6 +25,7 @@ from .utils import (
     get_documents,
     get_image_files,
     get_video_files,
+    local_embedding,
     pxt_raises,
     reload_catalog,
     skip_test_if_not_installed,
@@ -470,6 +471,144 @@ class TestQuery:
         # limit greater than join cardinality: returns all rows
         res = small1.join(small2, on=small1.id, how='inner').select(small1.i).limit(1000).collect()
         assert len(res) == 10
+
+    def test_join_unselected_cols(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """where(), order_by() and group_by() of a join accept columns that select() omits."""
+        p = db_root.make_catalog_path
+        artists = pxt.create_table(
+            p('artists'),
+            {'aid': pxt.String, 'grp': pxt.String | None},
+            primary_key='aid',
+            _is_data_versioned=is_data_versioned,
+        )
+        posters = pxt.create_table(
+            p('posters'),
+            {'pid': pxt.String, 'aid': pxt.String | None, 'year': pxt.Int | None, 'title': pxt.String | None},
+            primary_key='pid',
+            _is_data_versioned=is_data_versioned,
+        )
+        # inv fails for p0
+        posters.add_computed_column(inv=100 / (posters.year - 1900))
+        artists.insert({'aid': f'a{i}', 'grp': 'x' if i < 2 else 'y'} for i in range(4))
+        titles = ['abc', 'def', 'ghi', 'jkl', 'mno', 'pqr', 'stu', 'vwx']
+        posters.insert(
+            ({'pid': f'p{i}', 'aid': f'a{i % 4}', 'year': 1900 + i, 'title': titles[i]} for i in range(8)),
+            on_error='ignore',
+        )
+        posters.add_embedding_index('title', embedding=local_embedding)
+        sim = posters.title.similarity(string=titles[3])
+
+        for how in ('inner', 'left', 'full_outer'):
+            # every poster has an artist and vice versa, so all join types return the same rows
+            j = posters.join(artists, on=posters.aid == artists.aid, how=how)
+
+            # where()
+            res = j.where(posters.year < 1904).select(posters.pid).collect()
+            assert sorted(res['pid']) == ['p0', 'p1', 'p2', 'p3']
+            res = j.where(artists.grp == 'x').select(posters.pid).collect()
+            assert sorted(res['pid']) == ['p0', 'p1', 'p4', 'p5']
+            res = j.where((posters.year >= 1904) & (artists.grp == 'x')).select(artists.aid).collect()
+            assert sorted(res['aid']) == ['a0', 'a1']
+            res = j.where(posters.year % 2 == artists.grp.len()).select(posters.pid).collect()
+            assert sorted(res['pid']) == ['p1', 'p3', 'p5', 'p7']
+            res = j.where(sim > 0.99).select(posters.pid).collect()
+            assert res['pid'] == ['p3']
+            res = j.where(posters.inv.errortype != None).select(artists.aid).collect()
+            assert res['aid'] == ['a0']
+            assert j.where(posters.year < 1904).count() == 4
+            res = j.where(posters.year < 1904).select(n=pxt.functions.count(posters.pid)).collect()
+            assert res['n'] == [4]
+            res = (
+                j.where(posters.year < 1906).group_by(artists.grp).select(n=pxt.functions.count(posters.pid)).collect()
+            )
+            assert sorted(res['n']) == [2, 4]
+            res = j.group_by(artists.grp).select(pids=pxt.functions.json.make_list(posters.pid)).collect()
+            assert sorted(sorted(pids) for pids in res['pids']) == [['p0', 'p1', 'p4', 'p5'], ['p2', 'p3', 'p6', 'p7']]
+            # window function
+            res = j.select(
+                posters.pid, total=pxt.functions.sum(posters.year - 1900, group_by=artists.grp, order_by=posters.year)
+            ).collect()
+            assert dict(zip(res['pid'], res['total'])) == {
+                'p0': 0, 'p1': 1, 'p4': 5, 'p5': 10, 'p2': 2, 'p3': 5, 'p6': 11, 'p7': 18
+            }  # fmt: skip
+
+            # order_by()
+            res = j.order_by(posters.year, asc=False).select(posters.pid).collect()
+            assert res['pid'] == [f'p{i}' for i in range(7, -1, -1)]
+            res = j.order_by(artists.grp, posters.year % 4, posters.year).select(posters.pid).collect()
+            assert res['pid'] == ['p0', 'p4', 'p1', 'p5', 'p2', 'p6', 'p3', 'p7']
+            res = j.order_by(sim, asc=False).select(posters.pid).limit(1).collect()
+            assert res['pid'] == ['p3']
+            res = j.order_by(sim, asc=False).select(posters.pid, sim=sim).limit(1).collect()
+            assert res['pid'] == ['p3']
+
+            # where() and order_by() combined
+            res = j.where(artists.grp == 'y').order_by(posters.year, asc=False).select(posters.pid).limit(3).collect()
+            assert res['pid'] == ['p7', 'p6', 'p3']
+
+        # cross join
+        j = posters.join(artists, how='cross')
+        res = j.where((posters.year == 1900) & (artists.grp == 'x')).select(artists.aid).collect()
+        assert sorted(res['aid']) == ['a0', 'a1']
+
+        # three tables
+        grps = pxt.create_table(
+            p('grps'), {'grp': pxt.String, 'label': pxt.String | None}, _is_data_versioned=is_data_versioned
+        )
+        grps.insert([{'grp': 'x', 'label': 'first'}, {'grp': 'y', 'label': 'second'}])
+        j = posters.join(artists, on=posters.aid == artists.aid).join(grps, on=artists.grp == grps.grp)
+        res = j.where(grps.label == 'second').order_by(posters.year).select(artists.aid).collect()
+        assert res['aid'] == ['a2', 'a3', 'a2', 'a3']
+
+        if is_data_versioned:
+            # view and snapshot
+            recent = pxt.create_view(p('recent'), posters.where(posters.year >= 1904))
+            snap = pxt.create_snapshot(p('artists_snap'), artists)
+            j = recent.join(snap, on=recent.aid == snap.aid)
+            res = j.where(snap.grp == 'x').order_by(recent.year, asc=False).select(recent.pid).collect()
+            assert res['pid'] == ['p5', 'p4']
+
+    def test_outer_join_nulls(self, db_root: DatabaseRoot) -> None:
+        """Expressions over an outer join see nulls in the columns of unmatched rows."""
+        p = db_root.make_catalog_path
+        people = pxt.create_table(p('people'), {'pid': pxt.String, 'name': pxt.String | None}, primary_key='pid')
+        visits = pxt.create_table(
+            p('visits'),
+            {'vid': pxt.String, 'pid': pxt.String | None, 'note': pxt.String | None, 'scan': pxt.Array | None},
+            primary_key='vid',
+        )
+        people.insert([{'pid': 'p1', 'name': 'Ann'}, {'pid': 'p2', 'name': 'Bob'}])
+        visits.insert(
+            [
+                {'vid': 'v1', 'pid': 'p1', 'note': 'hello', 'scan': np.ones((100, 100), dtype=np.int64)},
+                {'vid': 'v2', 'pid': 'p3', 'note': None, 'scan': None},
+            ]
+        )
+
+        q = people.join(visits, on=people.pid == visits.pid, how='left')
+        # where() on the nullable side, with and without the column in select()
+        assert q.where(visits.vid == None).select(people.pid).collect()['pid'] == ['p2']
+        assert q.where(visits.vid == None).select(people.pid, visits.vid).collect()['pid'] == ['p2']
+        assert q.where(visits.note == 'hello').select(people.pid).collect()['pid'] == ['p1']
+        assert q.where(visits.pid == None).select(people.pid).collect()['pid'] == ['p2']
+        assert q.where(visits.vid != None).select(people.pid).collect()['pid'] == ['p1']
+        assert q.where(visits.scan == None).select(people.pid).collect()['pid'] == ['p2']
+        assert q.where(visits.scan != None).select(people.pid, visits.scan).collect()['pid'] == ['p1']
+        assert q.where((visits.note == None) | (visits.note == 'hello')).order_by(people.pid).select(
+            people.pid
+        ).collect()['pid'] == ['p1', 'p2']
+        # select() and order_by()
+        res = q.select(people.pid, no_visit=visits.vid == None).order_by(people.pid).collect()
+        assert res['no_visit'] == [False, True]
+        res = q.select(people.pid).order_by(visits.vid == None, asc=False).collect()
+        assert res['pid'] == ['p2', 'p1']
+
+        q = people.join(visits, on=people.pid == visits.pid, how='full_outer')
+        assert q.where(visits.vid == None).select(people.pid).collect()['pid'] == ['p2']
+        assert q.where(people.name == None).select(visits.vid).collect()['vid'] == ['v2']
+        assert q.where((people.pid == None) | (visits.vid == None)).count() == 2
+        res = q.select(visits.vid, no_person=people.name == None, no_visit=visits.vid == None).collect()
+        assert sorted(zip(res['no_person'], res['no_visit'])) == [(False, False), (False, True), (True, False)]
 
     def test_limit_iterator_views(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

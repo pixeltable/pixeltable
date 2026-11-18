@@ -35,7 +35,7 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 class TestVision:
     @pytest.mark.xdist_group('yolox')
-    @pytest.mark.very_expensive
+    @pytest.mark.skip_merge_queue
     @rerun_on_network_error()
     def test_eval(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
@@ -80,7 +80,7 @@ class TestVision:
         ).collect()
 
     @pytest.mark.xdist_group('yolox')
-    @pytest.mark.very_expensive
+    @pytest.mark.skip_merge_queue
     @rerun_on_network_error()
     def test_bboxes_draw(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
@@ -1347,7 +1347,7 @@ class TestVision:
         # Distinct ids must get distinct colors.
         assert not np.array_equal(viz_a[0, 0], viz_a[3, 5])
 
-    @pytest.mark.very_expensive  # Downloads a Hugging Face model
+    @pytest.mark.resource_intensive
     @pytest.mark.xdist_group('large_model')
     def test_overlay_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')

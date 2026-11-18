@@ -133,14 +133,14 @@ class ModelQuery(QueryBase):
                     f'Table {path.tbl_name()!r} has no column {col_name!r}, which a similarity() call references.',
                 )
             subst[sim] = exprs.SimilarityExpr(
-                sim.components[0].copy().substitute(subst),
+                sim.components[0].substitute(subst),
                 idx_name=sim.idx_name,
                 qcol_id=new_md.qcolid,
                 table_version_key=catalog.TableVersionKey(new_md.qcolid.tbl_id, new_md.col_effective_version),
             )
 
         def rebound(e: exprs.Expr) -> exprs.Expr:
-            return bind_query_templates(e.copy().substitute(subst), catalog_dir)
+            return bind_query_templates(e.substitute(subst), catalog_dir)
 
         return pxt.Query._from_query(self, from_clause=FromClause(tbls=[path]), substitution_fn=rebound)
 

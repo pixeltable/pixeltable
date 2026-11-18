@@ -107,9 +107,12 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     return sql.sql.func.count(val)
 
 
+_MIN_MAX_TYPES = (str, int, float, bool, ts.Timestamp, ts.Date)
+
+
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: t | None} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
+    type_substitutions=tuple({T: t | None} for t in _MIN_MAX_TYPES),  # type: ignore[misc]
 )
 class min(func.Aggregator, typing.Generic[T]):
     """
@@ -161,7 +164,7 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
 
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: t | None} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
+    type_substitutions=tuple({T: t | None} for t in _MIN_MAX_TYPES),  # type: ignore[misc]
 )
 class max(func.Aggregator, typing.Generic[T]):
     """

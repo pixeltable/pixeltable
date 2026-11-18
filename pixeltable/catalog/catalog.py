@@ -203,7 +203,7 @@ def _retry_loop(request: LockRequest) -> Callable[[Callable[..., T]], Callable[.
                     if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
-                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}: {e.orig}')
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
                             raise excs.ConcurrencyError(
@@ -592,7 +592,7 @@ class Catalog(CatalogBase):
                             # Handle retriable errors
                             has_exc = True
                             if _is_retryable_exc(e) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
-                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
+                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}: {e.orig}')
                                 num_retries += 1
                                 time.sleep(random.uniform(0.1, 0.5))
                                 # attempt failed -- don't try to commit the transaction before retrying
@@ -3300,7 +3300,7 @@ class Catalog(CatalogBase):
                         excs.ErrorCode.SERIALIZATION_FAILURE, f'Serialization retry limit ({_MAX_RETRIES}) exceeded'
                     ) from e
                 num_retries += 1
-                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}: {e.orig}')
                 time.sleep(random.uniform(0.1, 0.5))
 
     def _handle_path_collision(
