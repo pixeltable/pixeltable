@@ -1,4 +1,4 @@
-"""Videos and their frames, with every computed column on Modal (see [tool.pixeltable.udf] in pyproject.toml)."""
+"""Videos and their frames; the UDFs under [tool.pixeltable.udf] in pyproject.toml run on Modal, the rest locally."""
 
 # ruff: noqa: F821  # a model body refers to its own columns, and an iterator's, by bare name
 
@@ -17,13 +17,11 @@ DETECTION_MODEL = 'facebook/detr-resnet-50'
 class Videos(TableModel, name='videos'):
     video_id = pxt.Column(type=pxt.Int, primary_key=True)
     video: pxt.Video
-    duration = video.get_duration()
     excerpt = video.clip(start_time=0.0, duration=2.0)
     segments = video.segment_video(duration=5.0)
 
 
 class Frames(TableModel, name='frames', base=Videos, iterator=frame_iterator(video=Videos.video, fps=1)):
-    thumbnail = frame.resize((320, 180))
     rotated = frame.rotate(90)
     caption = huggingface.image_captioning(frame, model_id=CAPTION_MODEL, model_kwargs={'max_length': 30})
     detections = huggingface.detr_for_object_detection(frame, model_id=DETECTION_MODEL, threshold=0.8)
@@ -36,7 +34,7 @@ def frames(video_id: int) -> pxt.Query:
     return (
         Frames.where(Frames.video_id == video_id)
         .order_by(Frames.pos)
-        .select(Frames.pos, Frames.rotated, Frames.thumbnail, Frames.caption, Frames.detections, Frames.annotated)
+        .select(Frames.pos, Frames.rotated, Frames.caption, Frames.detections, Frames.annotated)
     )
 
 
@@ -46,7 +44,7 @@ def similar_frames(text: str, limit: int = 3) -> pxt.Query:
     return (
         Frames.order_by(sim, asc=False)
         .limit(limit)
-        .select(Frames.video_id, Frames.pos, Frames.thumbnail, Frames.caption, Frames.annotated, sim=sim)
+        .select(Frames.video_id, Frames.pos, Frames.caption, Frames.annotated, sim=sim)
     )
 
 
@@ -61,7 +59,7 @@ demo.add_insert_route(
     path='/videos',
     inputs=[Videos.video_id],
     uploadfile_inputs=['video'],
-    outputs=[Videos.video_id, Videos.duration, Videos.excerpt, Videos.segments],
+    outputs=[Videos.video_id, Videos.excerpt, Videos.segments],
 )
 demo.add_query_route(path='/frames', query=frames)
 demo.add_query_route(path='/similar', query=similar_frames)

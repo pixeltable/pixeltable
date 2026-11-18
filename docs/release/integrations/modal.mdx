@@ -3,115 +3,77 @@ title: 'Modal'
 description: 'Run built-in Pixeltable UDFs on Modal CPU and GPU containers'
 ---
 
-Pixeltable runs built-in synchronous UDFs listed under `[pixeltable.udf]` in `pixeltable.toml`, or `[tool.pixeltable.udf]` in `pyproject.toml`, on dedicated Modal Server containers over HTTP/2. Your tables, indexes, and unlisted columns stay in your local database or your hosted Pixeltable Cloud database, and only calls to the listed UDFs run on Modal.
+Each built-in UDF you list under `[tool.pixeltable.udf]` in `pyproject.toml`, or `[pixeltable.udf]` in `pixeltable.toml`, runs on its own Modal Server, with the CPU, memory and GPU you give it. Tables, indexes and the other columns stay in your local database or your hosted database; only the calls to the listed UDFs go to Modal.
 
-Pixeltable Cloud builds the container image from your project's `uv.lock` and deploys the UDF servers when you run `pxt db update`. You only need a Pixeltable Cloud sign-in (`pxt login`), not a Modal account or token.
+`pxt db update` builds the container image from your project's `uv.lock` in Pixeltable Cloud and deploys the servers. You sign in with `pxt login`; you need no Modal account or token.
 
 <Note>
-  Only built-in synchronous UDFs under `pixeltable.functions` support `pixeltable.udf`. Custom `@pxt.udf` functions and async UDFs run in the local or hosted database process.
+  Only synchronous UDFs under `pixeltable.functions` can be listed. `pxt` refuses the setting if it names a `@pxt.udf` of your own or an async UDF.
 </Note>
 
 ## Configure UDF servers
 
-Add one section per UDF under `[tool.pixeltable.udf]` in `pyproject.toml` (or `[pixeltable.udf]` in `pixeltable.toml`). Add a `[[tool.pixeltable.database]]` entry named `'local'` with `system_dependencies = ['ffmpeg']` when any offloaded UDF processes video or audio.
+Add one section per UDF. When a listed UDF processes video or audio, add a `[[tool.pixeltable.database]]` entry named `local` with `system_dependencies = ['ffmpeg']`, which installs FFmpeg in the image.
 
-<Tabs>
-  <Tab title="pyproject.toml">
-    ```toml
-    [project]
-    name = "modal-demo"
-    version = "0.1.0"
-    requires-python = ">=3.11"
-    dependencies = [
-        "pixeltable[serve]",
-        "torch>=2.5",
-        "transformers>=4.48",
-        "timm>=1.0.11",
-    ]
+```toml pyproject.toml
+[project]
+name = "modal-demo"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["pixeltable[serve]", "torch>=2.11", "transformers>=5.6", "timm>=1.0.11"]
 
-    [tool.pixeltable]
-    log_level = "DEBUG"
+[tool.pixeltable]
+log_level = "DEBUG"
 
-    [tool.pixeltable.udf.'pixeltable.functions.video.get_duration']
-    cpu = 1
+[tool.pixeltable.udf.'pixeltable.functions.video.clip']
+cpu = 2
 
-    [tool.pixeltable.udf.'pixeltable.functions.video.clip']
-    cpu = 2
+[tool.pixeltable.udf.'pixeltable.functions.video.segment_video']
+cpu = 2
 
-    [tool.pixeltable.udf.'pixeltable.functions.video.editing.segment_video']
-    cpu = 2
+[tool.pixeltable.udf.'pixeltable.functions.video.concat_videos']
+cpu = 2
 
-    [tool.pixeltable.udf.'pixeltable.functions.video.concat_videos']
-    cpu = 2
+[tool.pixeltable.udf.'pixeltable.functions.image.rotate']
+cpu = 1
 
-    [tool.pixeltable.udf.'pixeltable.functions.image.resize']
-    cpu = 2
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.clip']
+cpu = 2
+memory_mb = 4096
+gpu = "T4"
 
-    [tool.pixeltable.udf.'pixeltable.functions.vision.bboxes_draw']
-    cpu = 2
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.image_captioning']
+cpu = 2
+memory_mb = 8192
+gpu = "T4"
 
-    [tool.pixeltable.udf.'pixeltable.functions.huggingface.clip']
-    cpu = 2
-    memory_mb = 4096
-    gpu = "T4"
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.detr_for_object_detection']
+cpu = 2
+memory_mb = 8192
+gpu = "T4"
 
-    [tool.pixeltable.udf.'pixeltable.functions.huggingface.image_captioning']
-    cpu = 2
-    memory_mb = 8192
-    gpu = "T4"
+[[tool.pixeltable.database]]
+name = 'local'
+system_dependencies = ['ffmpeg']
+```
 
-    [tool.pixeltable.udf.'pixeltable.functions.huggingface.detr_for_object_detection']
-    cpu = 2
-    memory_mb = 8192
-    gpu = "T4"
+In `pixeltable.toml`, drop the `tool.` prefix: `[pixeltable.udf.'pixeltable.functions.video.clip']`, `[[pixeltable.database]]`.
 
-    [[tool.pixeltable.database]]
-    name = 'local'
-    system_dependencies = ['ffmpeg']
-    ```
-  </Tab>
-  <Tab title="pixeltable.toml">
-    ```toml
-    [pixeltable]
-    log_level = "DEBUG"
-
-    [pixeltable.udf.'pixeltable.functions.video.clip']
-    cpu = 2
-
-    [pixeltable.udf.'pixeltable.functions.huggingface.image_captioning']
-    cpu = 2
-    memory_mb = 8192
-    gpu = "T4"
-
-    [pixeltable.udf.'pixeltable.functions.huggingface.detr_for_object_detection']
-    cpu = 2
-    memory_mb = 8192
-    gpu = "T4"
-
-    [[pixeltable.database]]
-    name = 'local'
-    system_dependencies = ['ffmpeg']
-    ```
-  </Tab>
-</Tabs>
-
-### Resource fields
-
-| Field | Type | Default | Description |
+| Field | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `cpu` | `float` | `None` | vCPUs per container (must be greater than `0`). |
-| `memory_mb` | `int` | `None` | Memory per container in MiB (must be greater than `0`). |
-| `gpu` | `str` | `None` | Modal GPU specification, such as `'T4'`, `'L4'`, or `'H100:2'`. |
-| `max_containers` | `int` | `2` | Maximum number of containers for that UDF server (must be greater than `0`). |
-| `timeout_seconds` | `int` | `300` | Maximum seconds a call waits for its response, including queue time behind busy containers (`1` to `300`). |
+| `cpu` | `float` | Modal's | vCPUs per container |
+| `memory_mb` | `int` | Modal's | Memory per container, in MB |
+| `gpu` | `str` | none | Modal GPU spec, such as `'T4'`, `'L4'` or `'H100:2'` |
+| `max_containers` | `int` | `2` | Containers the server runs at most |
+| `timeout_seconds` | `int` | `300` | How long a call waits for its response, including time queued behind busy containers (`1` to `300`) |
 
-Pixeltable sets `pixeltable.udf` at the project level only. Environment variables (`PIXELTABLE_UDF`) and `pxt.init()` overrides are ignored with a warning, and setting `pixeltable.udf` in `~/.pixeltable/config.toml` raises an error.
+Set `pixeltable.udf` only in the project configuration file. Pixeltable ignores `PIXELTABLE_UDF` with a warning, and refuses the setting as a `pxt.init()` override or in `~/.pixeltable/config.toml`.
 
 ## Write the application file
 
-Create `app.py` in the project directory. `Videos` runs FFmpeg operations on CPU containers, and `Frames` runs BLIP captioning, DETR object detection, bounding-box rendering, and CLIP indexing across Modal GPU and CPU containers.
+In this `app.py`, `bboxes_draw()` runs locally on the output of DETR; every other computed column and the embedding index call a UDF listed above.
 
-```python
+```python app.py
 import pixeltable as pxt
 from pixeltable.functions import huggingface, vision
 from pixeltable.functions.video import concat_videos, frame_iterator
@@ -127,35 +89,16 @@ DETECTION_MODEL = 'facebook/detr-resnet-50'
 class Videos(TableModel, name='videos'):
     video_id = pxt.Column(type=pxt.Int, primary_key=True)
     video: pxt.Video
-    duration = video.get_duration()
     excerpt = video.clip(start_time=0.0, duration=2.0)
     segments = video.segment_video(duration=5.0)
 
 
-class Frames(
-    TableModel,
-    name='frames',
-    base=Videos,
-    iterator=frame_iterator(video=Videos.video, fps=1),
-):
-    thumbnail = frame.resize((320, 180))
+class Frames(TableModel, name='frames', base=Videos, iterator=frame_iterator(video=Videos.video, fps=1)):
     rotated = frame.rotate(90)
-    caption = huggingface.image_captioning(
-        frame, model_id=CAPTION_MODEL, model_kwargs={'max_length': 30}
-    )
-    detections = huggingface.detr_for_object_detection(
-        frame, model_id=DETECTION_MODEL, threshold=0.8
-    )
-    annotated = vision.bboxes_draw(
-        frame, detections.boxes, labels=detections.label_text, width=3
-    )
-    __indexes__ = [
-        pxt.EmbeddingIndex(
-            frame,
-            embedding=huggingface.clip.using(model_id=CLIP_MODEL),
-            name='frame_ix',
-        )
-    ]
+    caption = huggingface.image_captioning(frame, model_id=CAPTION_MODEL, model_kwargs={'max_length': 30})
+    detections = huggingface.detr_for_object_detection(frame, model_id=DETECTION_MODEL, threshold=0.8)
+    annotated = vision.bboxes_draw(frame, detections.boxes, labels=detections.label_text, width=3)
+    __indexes__ = [pxt.EmbeddingIndex(frame, embedding=huggingface.clip.using(model_id=CLIP_MODEL), name='frame_ix')]
 
 
 @pxt.query
@@ -163,14 +106,7 @@ def frames(video_id: int) -> pxt.Query:
     return (
         Frames.where(Frames.video_id == video_id)
         .order_by(Frames.pos)
-        .select(
-            Frames.pos,
-            Frames.rotated,
-            Frames.thumbnail,
-            Frames.caption,
-            Frames.detections,
-            Frames.annotated,
-        )
+        .select(Frames.pos, Frames.rotated, Frames.caption, Frames.detections, Frames.annotated)
     )
 
 
@@ -180,21 +116,13 @@ def similar_frames(text: str, limit: int = 3) -> pxt.Query:
     return (
         Frames.order_by(sim, asc=False)
         .limit(limit)
-        .select(
-            Frames.video_id,
-            Frames.pos,
-            Frames.caption,
-            Frames.annotated,
-            sim=sim,
-        )
+        .select(Frames.video_id, Frames.pos, Frames.caption, Frames.annotated, sim=sim)
     )
 
 
 @pxt.query
 def with_excerpt(video_id: int) -> pxt.Query:
-    return Videos.where(Videos.video_id == video_id).select(
-        joined=concat_videos([Videos.video, Videos.excerpt])
-    )
+    return Videos.where(Videos.video_id == video_id).select(joined=concat_videos([Videos.video, Videos.excerpt]))
 
 
 demo = FastAPIRouter(name='demo')
@@ -203,7 +131,7 @@ demo.add_insert_route(
     path='/videos',
     inputs=[Videos.video_id],
     uploadfile_inputs=['video'],
-    outputs=[Videos.video_id, Videos.duration, Videos.excerpt, Videos.segments],
+    outputs=[Videos.video_id, Videos.excerpt, Videos.segments],
 )
 demo.add_query_route(path='/frames', query=frames)
 demo.add_query_route(path='/similar', query=similar_frames)
@@ -213,75 +141,71 @@ demo.add_query_route(path='/with-excerpt', query=with_excerpt)
 ## Deploy and run
 
 <Steps>
-  <Step title="Install dependencies and lock the environment">
-    Create the virtual environment and write `uv.lock`. Pixeltable Cloud uses `uv.lock` to build the container image for your UDF servers, and the local process also uses `torch` and `transformers` to encode text queries for `Frames.frame.similarity(string=...)`.
+  <Step title="Install dependencies">
+    `uv sync` writes `uv.lock`, from which Pixeltable Cloud builds the image. The local process uses `torch` and `transformers` to embed the text of a `/similar` query.
 
     ```bash
     uv sync
     source .venv/bin/activate
     ```
   </Step>
-  <Step title="Sign in and deploy the UDF servers">
-    Run `pxt login`, then run `pxt db update` without a database URI to build the image and deploy one Modal Server per `[tool.pixeltable.udf]` entry for your local database.
+  <Step title="Deploy the UDF servers">
+    Without a database URI, `pxt db update` deploys the servers of your local database. For a hosted database, pass its URI: `pxt db update pxt://org:db`.
 
     ```bash
     pxt login
     pxt db update
     pxt db status
     ```
-
-    The first `pxt db update` builds the container image (longer when `torch` and `transformers` are included) and prints progress until every server is ready. For a hosted database instead of a local database, pass its URI (`pxt db update pxt://org:db`).
   </Step>
-  <Step title="Create the tables and start the HTTP service">
-    `pxt schema update` creates `demo/videos` and `demo/frames`. `pxt service update` starts the local FastAPI service, and `pxt service list` prints its endpoint URL.
-
+  <Step title="Create the tables and start the service">
     ```bash
     pxt schema update app.py demo
     pxt service update app.py demo -f
     URL=$(pxt service list demo --json | jq -r '.[] | select(.name == "demo") | .endpoint')
     ```
   </Step>
-  <Step title="Insert a video and query the service">
-    Upload a video to `POST /videos`. The first insert spins up idle containers and caches Hugging Face weights on first inference; subsequent inserts reuse warm containers until they scale down after 60 seconds of inactivity.
+  <Step title="Insert a video and query it">
+    The first insert starts the containers and downloads the Hugging Face weights. A container stops after 60 seconds without calls.
 
     ```bash
     curl -F video_id=1 -F video=@sample.mp4 "$URL/videos"
     curl -H 'Content-Type: application/json' -d '{"video_id": 1}' "$URL/frames"
-    curl -H 'Content-Type: application/json' -d '{"text": "busy street with traffic", "limit": 3}' "$URL/similar"
+    curl -H 'Content-Type: application/json' -d '{"text": "busy street with traffic"}' "$URL/similar"
     curl -H 'Content-Type: application/json' -d '{"video_id": 1}' "$URL/with-excerpt"
     ```
   </Step>
 </Steps>
 
-## Update UDF settings and secrets
+## Change UDF settings and secrets
 
-When you change `[tool.pixeltable.udf]`, edit project Python files, or update `uv.lock`, deploy the updated servers and restart the local service:
+After you change `[tool.pixeltable.udf]`, a Python file of the project or `uv.lock`, run:
 
 ```bash
 pxt db update
 pxt service update app.py demo -f
 ```
 
-Until `pxt db update` finishes, queries against the changed project fail with an error stating that the UDF servers run another version of the project.
+Until `pxt db update` finishes, a query fails with an error that the UDF servers run another version of the project.
 
-If an offloaded UDF reads a provider key (such as `OPENAI_API_KEY` or `HF_TOKEN`), store it in Pixeltable Cloud with `pxt secret set` and redeploy with `pxt db update`:
+A listed UDF that reads a provider key, such as `OPENAI_API_KEY` or `HF_TOKEN`, gets it from Pixeltable Cloud:
 
 ```bash
 pxt secret set pxt://org OPENAI_API_KEY=sk-...
 pxt db update
 ```
 
-Do not put secrets in `pixeltable.toml` or under `[tool.pixeltable]` in `pyproject.toml`. `pxt db update` rejects project configuration files that contain keys such as `api_key`, `api_secret`, `api_token`, `token`, `storage_account_key`, or `exporter_otlp_headers`. See [Configuration](/platform/configuration#per-database-settings).
+`pxt db update` refuses a project configuration file that holds a secret (`api_key`, `api_secret`, `api_token`, `token`, `storage_account_key` or `exporter_otlp_headers`). See [Configuration](/platform/configuration#per-database-settings).
 
 ## Inspect calls and clean up
 
-With `log_level = "DEBUG"` in `pyproject.toml` or `pixeltable.toml`, Pixeltable logs one line per remote UDF call, including row count, round-trip time, in-container UDF execution time, and Modal container ID:
+With `log_level = "DEBUG"`, the service logs one line per call: the UDF, the row count, the round-trip time, the time inside the UDF and the Modal container:
 
 ```bash
 grep 'Modal call of' "${PIXELTABLE_HOME:-$HOME/.pixeltable}"/logs/*.log
 ```
 
-Stop the local service, delete the deployed UDF servers (keeping your local tables and data intact), and stop the local daemon:
+`pxt db delete` deletes the UDF servers and keeps your local tables:
 
 ```bash
 pxt service stop demo
@@ -289,4 +213,4 @@ pxt db delete
 pxt daemon stop
 ```
 
-Without `pxt db delete`, idle UDF servers run zero containers and incur no compute cost; Pixeltable Cloud deletes the UDF servers of a local database after 30 days without activity.
+An idle UDF server runs no containers. Pixeltable Cloud deletes the UDF servers of a local database unused for 30 days.

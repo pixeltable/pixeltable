@@ -23,9 +23,6 @@ pixeltable = { git = "https://github.com/mkornacker/pixeltable.git", rev = "472a
 # ModalServerClient logs one line per call to a UDF server, at DEBUG
 log_level = "DEBUG"
 
-[tool.pixeltable.udf.'pixeltable.functions.video.get_duration']
-cpu = 1
-
 [tool.pixeltable.udf.'pixeltable.functions.video.clip']
 cpu = 2
 
@@ -35,14 +32,8 @@ cpu = 2
 [tool.pixeltable.udf.'pixeltable.functions.video.concat_videos']
 cpu = 2
 
-[tool.pixeltable.udf.'pixeltable.functions.image.resize']
-cpu = 2
-
 [tool.pixeltable.udf.'pixeltable.functions.image.rotate']
 cpu = 1
-
-[tool.pixeltable.udf.'pixeltable.functions.vision.bboxes_draw']
-cpu = 2
 
 [tool.pixeltable.udf.'pixeltable.functions.huggingface.clip']
 cpu = 2

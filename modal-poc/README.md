@@ -1,34 +1,36 @@
 # Modal UDF demo
 
-Each UDF under `[tool.pixeltable.udf]` in `pyproject.toml` runs on its own Modal Server over HTTP/2, with the CPU,
-memory, and GPU given there. The tables stay in the local database; only the UDF calls leave the machine. `app.py`
-defines:
+Each UDF under `[tool.pixeltable.udf]` in `pyproject.toml` runs on its own Modal Server, with the CPU, memory and GPU
+given there. The tables are in the local database; only the calls to those UDFs leave the machine. `app.py` defines:
 
-- `demo/videos`: uploaded videos, with duration (`get_duration()`), a 2-second excerpt (`clip()`), and 5-second segments
-  (`segment_video()`).
-- `demo/frames`: one frame per second of each video, resized (`resize()`), rotated (`rotate()`), captioned on a T4 GPU
-  (`image_captioning()`), with detected objects (`detr_for_object_detection()`), bounding boxes drawn
-  (`vision.bboxes_draw()`), and a CLIP embedding index (`clip()`).
-- The `demo` service: an insert route, `/videos`, and the query routes `/frames`, `/similar`, and `/with-excerpt`.
+- `demo/videos`: uploaded videos, with a 2-second excerpt (`clip()`) and 5-second segments (`segment_video()`).
+- `demo/frames`: one frame per second of each video, rotated (`rotate()`), captioned on a T4 GPU
+  (`image_captioning()`), with objects detected on a T4 GPU (`detr_for_object_detection()`) and drawn locally
+  (`bboxes_draw()`), and a CLIP embedding index (`clip()`).
+- The `demo` service: an insert route, `/videos`, and the query routes `/frames`, `/similar` and `/with-excerpt`.
   `/with-excerpt` appends a video's excerpt to the video with `concat_videos()`.
 
 TODO: remove the /modal-poc folder once the UDF servers are fully rolled out.
 
 ## Setup
 
-You need [uv](https://docs.astral.sh/uv/) and either a Pixeltable Cloud account (Option A) or a Modal account (Option B).
-Run all commands in this directory.
+You need [uv](https://docs.astral.sh/uv/), and a Pixeltable Cloud account or a Modal account. Run all commands in this
+directory.
 
-### Option A: Managed via Pixeltable Cloud (`pxt db update`)
+1. Point `pixeltable` under `[tool.uv.sources]` in `pyproject.toml` at this checkout:
 
-1. Pin `pixeltable` in `pyproject.toml` to the commit of this checkout, which has to be pushed: Pixeltable Cloud builds
-   the image of the UDF servers from `uv.lock`, and `pxt` refuses a lock with another `pixeltable` than the one it runs.
+   - With Pixeltable Cloud, pin the commit, which has to be pushed: Pixeltable Cloud builds the image of the UDF
+     servers from `uv.lock`, and `pxt` refuses a lock with another `pixeltable` than the one it runs.
 
-   ```bash
-   git rev-parse HEAD  # put this into `rev` under [tool.uv.sources], and the repository's URL into `git`
-   ```
+     ```bash
+     git rev-parse HEAD  # put this into `rev`, and the repository's URL into `git`
+     ```
 
-2. Create the demo's virtual environment:
+   - With your own Modal workspace, use the checkout itself: `pixeltable = { path = "..", editable = true }`.
+     `deploy_modal_servers.py` adds it to the image of the UDF servers.
+
+2. Create the demo's virtual environment. With your own Modal workspace, add `--extra modal-cli --python 3.12` to
+   `uv sync`: the image of the UDF servers runs the local Python version, and Modal supports 3.10 to 3.13.
 
    ```bash
    uv sync
@@ -38,62 +40,46 @@ Run all commands in this directory.
    `uv sync` installs `pixeltable`, and `torch` and `transformers`, which the local process needs to load the CLIP model
    for text search queries. It also writes `uv.lock`.
 
-3. Sign in to Pixeltable Cloud:
-
-   ```bash
-   pxt login
-   ```
-
-4. In each shell you use for the demo, set:
+3. In each shell you use for the demo, set:
 
    ```bash
    export PIXELTABLE_HOME=~/.pixeltable-modal-poc  # the demo's own database, apart from ~/.pixeltable
    export PXT_PORT=22189                           # the demo's own pxt daemon, apart from the default one
    ```
 
-5. Deploy the UDF servers:
+4. Deploy the UDF servers with Pixeltable Cloud:
 
    ```bash
+   pxt login
    pxt db update
    ```
 
    Without a database URI, `pxt db update` acts on the local database: it uploads the project, builds an image from
-   `uv.lock`, and deploys one UDF server per entry of `[tool.pixeltable.udf]`. `pxt db status` shows the result.
+   `uv.lock`, and deploys one UDF server per entry of `[tool.pixeltable.udf]`. `pxt db status` shows the result. The
+   `[[tool.pixeltable.database]]` entry named `local` in `pyproject.toml` adds `ffmpeg` to the image, which the video
+   UDFs need.
 
-   The `[[tool.pixeltable.database]]` entry named `local` in `pyproject.toml` adds `ffmpeg` to the image, which the
-   video UDFs need.
+   Or deploy them to your own Modal workspace:
 
-### Option B: Direct Modal CLI deployment (`deploy_modal_servers.py`)
+   ```bash
+   modal token new  # once
+   python deploy_modal_servers.py
+   source .modal_env.sh
+   ```
 
-If you want to deploy `UdfServer` containers directly into your own Modal workspace (for example, to demo this branch
-against a personal or DevRel Modal account), point `[tool.uv.sources]` at this local checkout (`pixeltable = { path = "..", editable = true }`),
-install the `modal-cli` extra, and run `deploy_modal_servers.py`:
+   `deploy_modal_servers.py` deploys the Modal App `pxt-udf-modal-poc`, and `.modal_env.sh` sets the
+   `PXT_UDF_SERVERS` and `PXT_UDF_SERVERS_HEADERS` that send the UDF calls to it.
 
-```bash
-uv sync --extra modal-cli
-source .venv/bin/activate
-modal token new                        # if not already signed in to Modal
-python deploy_modal_servers.py         # deploys pxt-udf-modal-poc and writes .modal_env.sh / .modal_env.json
-```
+## Run
 
-Then run the automated end-to-end demo (which starts an isolated local database, uploads both test videos, queries all
-routes, exports annotated frames to `output_media/`, prints Modal container timings, and shuts everything down):
+`run_demo.py` runs this section in a database of its own, `.pxt_home`, saves an annotated frame of each video to
+`output_media/`, prints the Modal calls per UDF, and stops the service and the daemon:
 
 ```bash
 python run_demo.py
 ```
 
-Or source `.modal_env.sh` and run the manual `pxt` and `curl` steps below:
-
-```bash
-source .modal_env.sh
-export PIXELTABLE_HOME=~/.pixeltable-modal-poc
-export PXT_PORT=22189
-```
-
-## Run
-
-Create the tables and start the service:
+By hand, create the tables and start the service:
 
 ```bash
 pxt schema update app.py demo
@@ -129,7 +115,7 @@ grep 'Modal call of' $PIXELTABLE_HOME/logs/*.log
 To change a UDF's resources, or to add a UDF, edit `[tool.pixeltable.udf]` in `pyproject.toml` and run:
 
 ```bash
-pxt db update                   # deploys the UDF servers again (or rerun deploy_modal_servers.py)
+pxt db update                   # or: python deploy_modal_servers.py, then source .modal_env.sh
 pxt service update app.py demo  # restarts the service, which reads the new setting
 ```
 
@@ -143,8 +129,7 @@ KEY=value` sets it for the organization, and the next `pxt db update` deploys th
 ## Smoke test
 
 `smoke.py` runs some of the demo's UDFs on their servers, through computed columns and a query, and checks the
-results. It creates its table in the database of `$PIXELTABLE_HOME`, whose UDF servers `pxt db update` (or
-`deploy_modal_servers.py`) deployed:
+results. It creates its table in the database of `$PIXELTABLE_HOME`, whose UDF servers you deployed above:
 
 ```bash
 python smoke.py
@@ -154,9 +139,11 @@ python smoke.py
 
 ```bash
 pxt service stop demo
-pxt db delete   # deletes the UDF servers (or `modal app stop pxt-udf-modal-poc` for Option B); local tables stay
+pxt db delete   # deletes the UDF servers; the local database and its tables stay
 pxt daemon stop
 ```
+
+With your own Modal workspace, `modal app stop pxt-udf-modal-poc` replaces `pxt db delete`.
 
 `pxt daemon stop` leaves the embedded Postgres server of `$PIXELTABLE_HOME` running. This command stops it:
 

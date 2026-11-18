@@ -1,13 +1,8 @@
-"""Deploy PR #1970's UdfServer for each entry in [tool.pixeltable.udf] directly to Modal.
+"""Deploy one Modal Server per entry of [tool.pixeltable.udf] to the active Modal workspace, without Pixeltable Cloud.
 
-Use this script to demo or test against your own Modal workspace (via PXT_UDF_SERVERS and
-PXT_UDF_SERVERS_HEADERS) without waiting for the Pixeltable Cloud control plane.
-
-Usage:
-    uv run --extra modal-cli python deploy_modal_servers.py
+Writes .modal_env.sh, which exports the PXT_UDF_SERVERS and PXT_UDF_SERVERS_HEADERS that ModalEndpoints reads.
+README.md says how to run it.
 """
-
-from __future__ import annotations
 
 import hashlib
 import json
@@ -17,7 +12,6 @@ import shlex
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 
@@ -26,15 +20,14 @@ import modal
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.expr_eval.modal_client import UDF_SECRET_HEADER_NAME
+from pixeltable.serving.modal_server import PORT, UDF_PATH_VAR, UDF_SECRET_VAR
 
 APP_NAME = 'pxt-udf-modal-poc'
-PORT = 8000
-ROUTING_REGION = 'us-east'
-SCALEDOWN_SECONDS = 60
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 
 class PxtUdfServer:
-    """Starts Pixeltable's UdfServer for one UDF inside a Modal Server container."""
+    """ModalServer without the project download: the image already holds this checkout's pixeltable."""
 
     server: Any
 
@@ -42,81 +35,54 @@ class PxtUdfServer:
     def enter(self) -> None:
         from pixeltable.serving.udf_server import UdfServer
 
-        self.server = UdfServer(
-            os.environ['PXT_UDF_PATH'], os.environ.get('MODAL_TASK_ID'), os.environ['PXT_UDF_SECRET']
-        )
+        self.server = UdfServer(os.environ[UDF_PATH_VAR], os.environ.get('MODAL_TASK_ID'), os.environ[UDF_SECRET_VAR])
         self.server.start(PORT)
 
 
-def _server_name(setting_path: str) -> str:
+def server_name(setting_path: str) -> str:
     digest = hashlib.sha256(setting_path.encode()).hexdigest()[:8]
     return f'{setting_path.rsplit(".", 1)[-1]}-{digest}'
 
 
-def _export_requirements(project_root: Path) -> str:
-    result = subprocess.run(
-        [
-            'uv',
-            'export',
-            '--frozen',
-            '--no-hashes',
-            '--no-emit-workspace',
-            '--no-emit-package',
-            'pixeltable',
-            '--no-emit-package',
-            'modal',
-        ],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout
-
-
-def _load_or_create_proxy_token(project_root: Path) -> dict[str, Any]:
-    token_path = project_root / '.modal_proxy_token.json'
-    if token_path.is_file():
-        return json.loads(token_path.read_text(encoding='utf-8'))
-
-    print('Creating a Modal proxy token in the active workspace...')
-    modal_bin = Path(sys.executable).parent / 'modal'
-    cmd = [str(modal_bin if modal_bin.is_file() else 'modal'), 'workspace', 'proxy-tokens', 'create']
-    cmd += ['--name', APP_NAME, '--json']
-    result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True, check=True)
-    token_path.write_text(result.stdout, encoding='utf-8')
-    os.chmod(token_path, 0o600)
-    print(f'Saved proxy token to {token_path.name} (chmod 600).')
-    return json.loads(result.stdout)
+def proxy_token() -> dict[str, str]:
+    """Return the proxy token that calls the Servers, creating it on the first run."""
+    path = PROJECT_ROOT / '.modal_proxy_token.json'
+    if not path.is_file():
+        out = subprocess.run(
+            ['modal', 'workspace', 'proxy-tokens', 'create', '--name', APP_NAME, '--json'],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        path.touch(mode=0o600)
+        path.write_text(out, encoding='utf-8')
+    return json.loads(path.read_text(encoding='utf-8'))
 
 
 def main() -> None:
-    project_root = Path(__file__).resolve().parent
-    Config.init(reinit=True, project_root=project_root)
-
-    proxy_token = _load_or_create_proxy_token(project_root)
+    Config.init(reinit=True, project_root=PROJECT_ROOT)
     udf_configs = Env.get().udf_configs()
     if not udf_configs:
-        sys.exit('No [tool.pixeltable.udf] entries found in pyproject.toml')
-
-    print(f'Discovered {len(udf_configs)} UDFs in [tool.pixeltable.udf]:')
-    for cfg in udf_configs.values():
-        r = cfg.resources
-        print(
-            f'  - {cfg.setting_path}: cpu={r.cpu}, memory_mb={r.memory_mb}, '
-            f'gpu={r.gpu}, max_containers={r.max_containers}'
-        )
-
+        sys.exit('pyproject.toml has no [tool.pixeltable.udf] entries')
+    token = proxy_token()
     udf_secret = secrets.token_urlsafe(32)
-    requirements = _export_requirements(project_root)
 
+    # pixeltable comes from add_local_python_source() below, and modal from Modal's own image setup
+    requirements = subprocess.run(
+        [
+            *('uv', 'export', '--frozen', '--no-hashes', '--no-emit-workspace'),
+            *('--no-emit-package', 'pixeltable', '--no-emit-package', 'modal'),
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     with tempfile.TemporaryDirectory() as tmp_dir:
         req_file = Path(tmp_dir) / 'requirements.txt'
         req_file.write_text(requirements, encoding='utf-8')
-
-        py_ver = f'{sys.version_info.major}.{sys.version_info.minor}'
         image = (
-            modal.Image.debian_slim(python_version=py_ver)
+            modal.Image.debian_slim(python_version=f'{sys.version_info.major}.{sys.version_info.minor}')
             .apt_install('ffmpeg', 'git')
             .uv_pip_install(requirements=[str(req_file)], extra_options='--no-deps')
             .env({'HF_HOME': '/cache/hf'})
@@ -128,63 +94,43 @@ def main() -> None:
         servers: dict[str, modal.Server] = {}
         for cfg in udf_configs.values():
             r = cfg.resources
-            # Keep compute_region unset so GPU containers schedule across available US regions
-            # instead of waiting on a single zone's GPU queue.
             servers[cfg.setting_path] = app.server(
-                name=_server_name(cfg.setting_path),
+                name=server_name(cfg.setting_path),
                 image=image,
                 serialized=True,
                 volumes={'/cache': hf_cache},
-                env={'PXT_UDF_PATH': cfg.setting_path, 'PXT_UDF_SECRET': udf_secret},
+                env={UDF_PATH_VAR: cfg.setting_path, UDF_SECRET_VAR: udf_secret},
                 port=PORT,
                 h2_enabled=True,
-                routing_region=ROUTING_REGION,
+                # Modal counts physical cores, each 2 vCPUs
                 cpu=None if r.cpu is None else r.cpu / 2,
                 memory=r.memory_mb,
                 gpu=r.gpu,
                 target_concurrency=1,
                 max_containers=r.max_containers,
-                scaledown_window=SCALEDOWN_SECONDS,
+                scaledown_window=60,
                 exit_grace_period=r.timeout_seconds,
                 startup_timeout=60,
             )(PxtUdfServer)
-
-        print(f'\nDeploying Modal App {APP_NAME!r} (Python {py_ver})...')
-        start = time.monotonic()
         with modal.enable_output():
             app.deploy(name=APP_NAME, strategy='recreate')
-        elapsed = time.monotonic() - start
-        print(f'\nDeployed {APP_NAME!r} in {elapsed:.1f}s')
 
-    server_urls = {path: url for path, srv in servers.items() if (url := srv.get_url()) is not None}
+    urls = {path: url for path, server in servers.items() if (url := server.get_url()) is not None}
     headers = {
-        'Modal-Key': proxy_token['Modal-Key'],
-        'Modal-Secret': proxy_token['Modal-Secret'],
+        'Modal-Key': token['Modal-Key'],
+        'Modal-Secret': token['Modal-Secret'],
         UDF_SECRET_HEADER_NAME: udf_secret,
     }
-
-    env_payload = {
-        'app_name': APP_NAME,
-        'deployed_seconds': round(elapsed, 2),
-        'PXT_UDF_SERVERS': server_urls,
-        'PXT_UDF_SERVERS_HEADERS': headers,
-    }
-    env_json_path = project_root / '.modal_env.json'
-    env_json_path.write_text(json.dumps(env_payload, indent=2) + '\n', encoding='utf-8')
-    os.chmod(env_json_path, 0o600)
-
-    env_sh_path = project_root / '.modal_env.sh'
-    env_sh_path.write_text(
-        f'export PXT_UDF_SERVERS={shlex.quote(json.dumps(server_urls))}\n'
+    env_file = PROJECT_ROOT / '.modal_env.sh'
+    env_file.touch(mode=0o600)
+    env_file.write_text(
+        f'export PXT_UDF_SERVERS={shlex.quote(json.dumps(urls))}\n'
         f'export PXT_UDF_SERVERS_HEADERS={shlex.quote(json.dumps(headers))}\n',
         encoding='utf-8',
     )
-    os.chmod(env_sh_path, 0o600)
-
-    print('\nServer URLs:')
-    for path, url in server_urls.items():
-        print(f'  {path} -> {url}')
-    print(f'\nWrote {env_json_path.name} and {env_sh_path.name} (chmod 600).')
+    for path, url in urls.items():
+        print(f'{path} -> {url}')
+    print(f'Wrote {env_file.name}; run: source {env_file.name}')
 
 
 if __name__ == '__main__':
