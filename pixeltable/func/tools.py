@@ -5,6 +5,7 @@ import pydantic
 
 from pixeltable import exceptions as excs, type_system as ts
 
+from .aggregate_function import AggregateFunction
 from .function import Function
 from .signature import Parameter
 from .udf import udf
@@ -31,6 +32,29 @@ class Tool(pydantic.BaseModel):
     fn: Function
     name: str | None = None
     description: str | None = None
+
+    @pydantic.model_validator(mode='after')
+    def _validate_fn(self) -> 'Tool':
+        if isinstance(self.fn, AggregateFunction):
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
+        tool_name = self.name or self.fn.name
+        if self.fn.is_polymorphic:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Tool {tool_name!r}: a function with overloads cannot be a tool'
+            )
+        for param in self.parameters.values():
+            if param.col_type is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Tool {tool_name!r}: variadic parameter {param.name!r} is not supported',
+                )
+            if _tool_arg_extractor(param.col_type) is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Tool {tool_name!r}: parameter {param.name!r} has unsupported type `{param.col_type}`; '
+                    'supported types are String, Int, Float, Bool, UUID and Json',
+                )
+        return self
 
     @property
     def parameters(self) -> dict[str, Parameter]:

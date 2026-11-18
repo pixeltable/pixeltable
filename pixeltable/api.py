@@ -1263,21 +1263,6 @@ def tool(fn: func.Function, name: str | None = None, description: str | None = N
     Returns:
         A `Tool` instance that can be passed to an LLM tool-calling API.
     """
-    if isinstance(fn, func.AggregateFunction):
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
-    tool_name = name or fn.name
-    if fn.is_polymorphic:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Tool {tool_name!r}: a function with overloads cannot be a tool'
-        )
-    for param in fn.signature.parameters.values():
-        if param.col_type is None or func.tools._tool_arg_extractor(param.col_type) is None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Tool {tool_name!r}: parameter {param.name!r} has unsupported type `{param.col_type}`; '
-                'supported types are String, Int, Float, Bool, UUID and Json',
-            )
-
     return func.tools.Tool(fn=fn, name=name, description=description)
 
 
