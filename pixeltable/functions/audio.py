@@ -140,7 +140,7 @@ def encode_audio(
         return output_path
 
 
-@pxt.udf(is_method=True, run_in_thread=True)
+@pxt.udf(is_method=True)
 def multiply_volume(
     audio: pxt.Audio, *, factor: float, start_time: float | None = None, end_time: float | None = None
 ) -> pxt.Audio:
@@ -205,7 +205,7 @@ def multiply_volume(
     return av_utils.run_ffmpeg_cmdline(cmd, output_path)
 
 
-@pxt.udf(is_method=True, run_in_thread=True)
+@pxt.udf(is_method=True)
 def fade_in(audio: pxt.Audio, *, duration: float) -> pxt.Audio:
     """
     Apply a linear fade-in over the first `duration` seconds of an audio clip using ffmpeg's afade filter.
@@ -250,7 +250,7 @@ def fade_in(audio: pxt.Audio, *, duration: float) -> pxt.Audio:
     return av_utils.run_ffmpeg_cmdline(cmd, output_path)
 
 
-@pxt.udf(is_method=True, run_in_thread=True)
+@pxt.udf(is_method=True)
 def fade_out(audio: pxt.Audio, *, duration: float) -> pxt.Audio:
     """
     Apply a linear fade-out over the last `duration` seconds of an audio clip using ffmpeg's afade filter.
@@ -295,7 +295,7 @@ def fade_out(audio: pxt.Audio, *, duration: float) -> pxt.Audio:
     return av_utils.run_ffmpeg_cmdline(cmd, output_path)
 
 
-@pxt.udf(is_method=True, run_in_thread=True)
+@pxt.udf(is_method=True)
 def normalize(audio: pxt.Audio) -> pxt.Audio:
     """
     Peak-normalize an audio clip so its loudest sample reaches full scale (0 dBFS) using ffmpeg's volume filter.

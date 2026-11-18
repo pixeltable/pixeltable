@@ -659,7 +659,7 @@ class stitch_tiles(pxt.Aggregator):
         return self.canvas
 
 
-@pxt.udf(is_method=True, run_in_thread=True)
+@pxt.udf(is_method=True)
 def to_video(
     image: pxt.Image,
     *,
