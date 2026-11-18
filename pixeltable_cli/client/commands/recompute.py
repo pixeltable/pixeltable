@@ -4,7 +4,15 @@ import sys
 from pixeltable_cli import models
 
 from ..parser import Parser
-from ..utils import EXIT_ERROR, RequestFailedError, confirm_or_exit, get_request, plural, post_request, validate_path_arg
+from ..utils import (
+    EXIT_ERROR,
+    RequestFailedError,
+    confirm_or_exit,
+    get_request,
+    plural,
+    post_request,
+    validate_path_arg,
+)
 
 EPILOG = """\
 Examples:
@@ -42,20 +50,25 @@ def run(argv: list[str]) -> None:
     path = validate_path_arg(args.path)
     columns = ', '.join(args.columns)
     if args.dry_run:
-        all_cols = models.ColumnsResponse.model_validate(
-            get_request('/api/columns', params={'path': path})
-        )
-        col_by_name = {e.column: e for e in all_cols.entries if e.table == path}
-        for col in args.columns:
-            if col not in col_by_name:
-                rfe = RequestFailedError(f"404 Column '{col}' not found in '{path}'", status=404, error_code='COLUMN_NOT_FOUND')
-                rfe.report()
-                sys.exit(EXIT_ERROR)
-            if not col_by_name[col].is_computed:
-                rfe = RequestFailedError(f"400 Column '{col}' is not a computed column", status=400, error_code='UNSUPPORTED_OPERATION')
-                rfe.report()
-                sys.exit(EXIT_ERROR)
+        # TODO: compute the total number of affected rows across all transitive views as well, possibly even the
+        # exact columns that would be recomputed
+        # the count also rejects a path that is not a table, so the columns below are this table's
         table_rows = models.CountResponse.model_validate(get_request('/api/tables/count', params={'path': path})).count
+        entries = models.ColumnsResponse.model_validate(get_request('/api/columns', params={'path': path})).entries
+        # column names are case-insensitive
+        is_computed = {e.column.lower(): e.is_computed for e in entries}
+        for col in args.columns:
+            if col.lower() not in is_computed:
+                err = RequestFailedError(
+                    f'404 Unknown column: {col}', 404, error_code='COLUMN_NOT_FOUND', detail=f'Unknown column: {col}'
+                )
+            elif not is_computed[col.lower()]:
+                msg = f'Column {col.lower()!r} is not a computed column'
+                err = RequestFailedError(f'400 {msg}', 400, error_code='UNSUPPORTED_OPERATION', detail=msg)
+            else:
+                continue
+            err.report()
+            sys.exit(EXIT_ERROR)
         if args.as_json:
             plan = {
                 'path': path,

@@ -1519,15 +1519,14 @@ class TestRecompute:
         assert r.returncode != 0
         assert 'Unknown column' in r.stderr, r.stderr
 
-        # dry-run also validates: unknown column is rejected before printing the plan
+        # a dry run fails with the same errors as the real run
         r = cli('recompute', p('cli_rc_err/t'), 'nosuch', '-n', check=False)
-        assert r.returncode != 0
-        assert 'nosuch' in r.stderr and 'would recompute' not in r.stdout, r.stderr
-
-        # dry-run also rejects a non-computed column
+        assert r.returncode == 1 and r.stdout == '', r.stdout
+        assert 'pxt: 404 Unknown column: nosuch [COLUMN_NOT_FOUND]' in r.stderr, r.stderr
         r = cli('recompute', p('cli_rc_err/t'), 'a', '-n', check=False)
-        assert r.returncode != 0
-        assert 'not a computed column' in r.stderr, r.stderr
+        assert r.returncode == 1 and r.stdout == '', r.stdout
+        assert "pxt: 400 Column 'a' is not a computed column [UNSUPPORTED_OPERATION]" in r.stderr, r.stderr
+        assert 'would recompute' in cli('recompute', p('cli_rc_err/t'), 'DOUBLED', '-n').stdout
 
         # a stored, non-computed column has nothing to recompute
         r = cli('recompute', p('cli_rc_err/t'), 'a', '-f', check=False)
