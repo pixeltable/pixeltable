@@ -130,3 +130,23 @@ class TestUUIDType:
         assert res['data'] == ['test1', 'test2', 'test3']
 
         reload_tester.run_reload_test()
+
+    def test_compare_with_str(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_uuid_str_cmp'), {'id': pxt.UUID, 'v': pxt.Int}, primary_key='id')
+        u1, u2 = uuid.uuid4(), uuid.uuid4()
+        t.insert([{'id': u1, 'v': 1}, {'id': u2, 'v': 2}])
+
+        # a str that parses as a UUID is converted, in either operand order
+        assert t.where(t.id == str(u1)).select(t.v).collect()['v'] == [1]
+        assert t.where(str(u1) == t.id).select(t.v).collect()['v'] == [1]
+        assert t.where(t.id != str(u1)).select(t.v).collect()['v'] == [2]
+        assert t.where(t.id == str(u1).upper()).select(t.v).collect()['v'] == [1]
+        assert sorted(t.where(t.id.isin([str(u1), u2, 'not-a-uuid'])).select(t.v).collect()['v']) == [1, 2]
+
+        # the filter is SQL-expressible, so update() accepts it
+        validate_update_status(t.update({'v': 10}, where=t.id == str(u1)), expected_rows=1)
+        assert t.where(t.id == u1).select(t.v).collect()['v'] == [10]
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="Cannot compare UUID id with 'not-a-uuid'"):
+            _ = t.id == 'not-a-uuid'

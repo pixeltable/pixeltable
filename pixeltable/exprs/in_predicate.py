@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any, Iterable
 
 import sqlalchemy as sql
@@ -61,7 +62,13 @@ class InPredicate(Expr):
 
         # ignore elements of the wrong type
         result = []
-        for val in value_list:
+        for raw_val in value_list:
+            val = raw_val
+            if isinstance(raw_val, str) and self._lhs.col_type.is_uuid_type():
+                try:
+                    val = uuid.UUID(raw_val)
+                except ValueError:
+                    continue
             try:
                 self._lhs.col_type.validate_literal(val)
                 result.append(val)
