@@ -7,6 +7,7 @@ import gc
 import json
 import logging
 import math
+import operator
 import os
 import re
 import uuid
@@ -576,21 +577,121 @@ class TestExprs:
             with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
                 _ = make_expr()
 
-    def test_int_mod_negative_operands(self, db_root: DatabaseRoot) -> None:
-        """Int % evaluated in SQL must match Python's %, including for negative operands."""
-        t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int, 'b': pxt.Int})
-        # computed columns are evaluated in Python on insert
-        t.add_computed_column(py_mod=t.a % t.b)
-        t.add_computed_column(py_floordiv=t.a // t.b)
-        t.insert({'a': a, 'b': b} for a in (-7, -6, 0, 6, 7) for b in (-3, 3))
-        res = t.select(t.a, t.b, t.py_mod, t.py_floordiv, sql_mod=t.a % t.b, sql_floordiv=t.a // t.b).collect()
+    @pytest.mark.parametrize('backfill', [True, False], ids=['backfill', 'insert'])
+    def test_int_mod(self, db_root: DatabaseRoot, backfill: bool) -> None:
+        """Int % matches Python for signed 64-bit boundaries, signs, and nulls in SQL and on insert."""
+        t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int | None, 'b': pxt.Int | None})
+        # PostgreSQL's BIGINT limits (signed 64-bit integers).
+        int_min, int_max = -(2**63), 2**63 - 1
+        # (dividend, divisor)
+        # Zero divisors are excluded because SQL and Python error handling differs (PXT-1833).
+        operands = [
+            (int_min, int_min),
+            (int_min, -3),
+            (int_min, -1),
+            (int_min, 1),
+            (int_min, 3),
+            (int_min, int_max),
+            (int_min, None),
+            (int_min + 1, int_min),
+            (int_min + 1, -3),
+            (int_min + 1, -1),
+            (int_min + 1, 1),
+            (int_min + 1, 3),
+            (int_min + 1, int_max),
+            (int_min + 1, None),
+            (-7, int_min),
+            (-7, -3),
+            (-7, -1),
+            (-7, 1),
+            (-7, 3),
+            (-7, int_max),
+            (-7, None),
+            (-6, int_min),
+            (-6, -3),
+            (-6, -1),
+            (-6, 1),
+            (-6, 3),
+            (-6, int_max),
+            (-6, None),
+            (-1, int_min),
+            (-1, -3),
+            (-1, -1),
+            (-1, 1),
+            (-1, 3),
+            (-1, int_max),
+            (-1, None),
+            (0, int_min),
+            (0, -3),
+            (0, -1),
+            (0, 1),
+            (0, 3),
+            (0, int_max),
+            (0, None),
+            (1, int_min),
+            (1, -3),
+            (1, -1),
+            (1, 1),
+            (1, 3),
+            (1, int_max),
+            (1, None),
+            (6, int_min),
+            (6, -3),
+            (6, -1),
+            (6, 1),
+            (6, 3),
+            (6, int_max),
+            (6, None),
+            (7, int_min),
+            (7, -3),
+            (7, -1),
+            (7, 1),
+            (7, 3),
+            (7, int_max),
+            (7, None),
+            (int_max, int_min),
+            (int_max, -3),
+            (int_max, -1),
+            (int_max, 1),
+            (int_max, 3),
+            (int_max, int_max),
+            (int_max, None),
+            (None, int_min),
+            (None, -3),
+            (None, -1),
+            (None, 1),
+            (None, 3),
+            (None, int_max),
+            (None, None),
+        ]
+        rows = [{'a': a, 'b': b} for a, b in operands]
+        # Defining the column before insert exercises Python; adding it afterward exercises SQL backfill.
+        if not backfill:
+            validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=0)
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        if backfill:
+            validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=len(rows))
+
+        res = t.select(t.a, t.b, t.stored_mod, sql_mod=t.a % t.b).collect()
+        assert len(res) == len(rows)
         for row in res:
-            assert row['py_mod'] == row['a'] % row['b']
-            assert row['sql_mod'] == row['py_mod'], f'{row["a"]} % {row["b"]}'
-            assert row['sql_floordiv'] == row['py_floordiv'], f'{row["a"]} // {row["b"]}'
-            assert row['a'] == (row['sql_floordiv'] * row['b']) + row['sql_mod']
-        assert t.where(t.a % t.b == t.py_mod).count() == t.count()
-        assert t.where(t.a % 3 == 2).select(t.a).order_by(t.a).collect()['a'] == [-7, -7]
+            a, b = row['a'], row['b']
+            expected = None if a is None or b is None else a % b
+            assert row['stored_mod'] == expected, row
+            assert row['sql_mod'] == expected, row
+        non_null_results = sum(row['a'] is not None and row['b'] is not None for row in rows)
+        assert t.where(t.a % t.b == t.stored_mod).count() == non_null_results
+        assert t.where(t.a % t.b == None).count() == len(rows) - non_null_results
+
+        res = (
+            t.where(t.a.isin([-7, -6, 0, 6, 7]) & t.b.isin([-3, 3]))
+            .select(t.a, t.b, sql_floordiv=t.a // t.b, sql_mod=t.a % t.b)
+            .collect()
+        )
+        assert len(res) == 10
+        for row in res:
+            assert row['sql_floordiv'] == row['a'] // row['b'], row
+            assert row['a'] == row['sql_floordiv'] * row['b'] + row['sql_mod'], row
 
     def test_pow(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -660,6 +761,67 @@ class TestExprs:
                 assert results['le'] == [a <= b for a, b in zip(a_results, b_results)], f'{a_expr} <= {b_expr}'
                 assert results['gt'] == [a > b for a, b in zip(a_results, b_results)], f'{a_expr} > {b_expr}'
                 assert results['ge'] == [a >= b for a, b in zip(a_results, b_results)], f'{a_expr} >= {b_expr}'
+
+    def test_computed_col_comparison(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """Comparisons on computed columns give the same results as Python comparisons on the column values."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('cmp_tbl'),
+            {'k': pxt.Int, 'n': pxt.Int, 's': pxt.String},
+            primary_key='k',
+            _is_data_versioned=is_data_versioned,
+        )
+        t.add_computed_column(n2=t.n * 2, stored=False)
+        t.add_computed_column(up=t.s.upper(), stored=False)
+        t.add_computed_column(big=t.n > 2, stored=False)
+        t.add_computed_column(low=t.n < 3)
+        validate_update_status(t.insert({'k': i, 'n': i, 's': 'abcde'[i]} for i in range(5)), expected_rows=5)
+
+        # where() on an unstored column, with the constant on either side
+        ops = (operator.eq, operator.ne, operator.lt, operator.le, operator.gt, operator.ge)
+        for col, const in ((t.n2, 4), (t.up, 'C'), (t.big, True)):
+            vals = t.select(t.k, v=col).order_by(t.k).collect()
+            for op in ops:
+                res = t.where(op(col, const)).select(t.k).order_by(t.k).collect()
+                assert res['k'] == [k for k, v in zip(vals['k'], vals['v']) if op(v, const)], (
+                    f'{col} {op.__name__} {const}'
+                )
+                res = t.where(op(const, col)).select(t.k).order_by(t.k).collect()
+                assert res['k'] == [k for k, v in zip(vals['k'], vals['v']) if op(const, v)], (
+                    f'{const} {op.__name__} {col}'
+                )
+
+        # where() with a query parameter
+        @pxt.query
+        def n2_above(x: int) -> pxt.Query:
+            return t.where(t.n2 > x).select(t.k).order_by(t.k)
+
+        assert pxt.eval_udf(n2_above, 4) == [3, 4]
+
+        # where() of a join
+        # TODO: remove t.n2 from select() [PXT-1733]
+        other = pxt.create_table(p('cmp_other'), {'k': pxt.Int}, _is_data_versioned=is_data_versioned)
+        validate_update_status(other.insert({'k': i} for i in range(3)), expected_rows=3)
+        res = t.join(other, on=t.k == other.k).where(t.n2 > 2).select(t.k, t.n2).order_by(t.k).collect()
+        assert res['k'] == [2]
+        assert res['n2'] == [4]
+
+        # update() of the input of a stored comparison column
+        validate_update_status(t.where(t.k == 0).update({'n': 7}), expected_rows=1)
+        validate_update_status(t.update({'n': t.n - 1}), expected_rows=5)
+        res = t.select(t.n, t.low).order_by(t.k).collect()
+        assert res['n'] == [6, 0, 1, 2, 3]
+        assert res['low'] == [n < 3 for n in res['n']]
+
+        if is_data_versioned:
+            # insert() into the base of a view with a comparison on a view column
+            # TODO: run for operational tables [PXT-1101]
+            v = pxt.create_view(p('cmp_view'), t, additional_columns={'n3': t.n * 3})
+            v.add_computed_column(big3=v.n3 > 6)
+            validate_update_status(t.insert([{'k': 5, 'n': 5, 's': 'f'}]), expected_rows=2)
+            res = v.select(v.n3, v.big3).order_by(v.k).collect()
+            assert res['n3'] == [18, 0, 3, 6, 9, 15]
+            assert res['big3'] == [n3 > 6 for n3 in res['n3']]
 
     def test_inline_dict(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -1572,6 +1734,22 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
+        # Float to Int requires to_int()
+        match = r'Use to_int\(\) to truncate toward zero'
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.astype(pxt.Int)
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.astype(pxt.Int | None)
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.floor().astype(pxt.Int)
+        res = t.select(out=t.c3.floor().to_int()).order_by(t.c2).collect()['out']
+        assert res == list(range(t.count()))
+        assert all(type(val) is int for val in res)
+
+        # Convert a Json field to Int
+        res = t.select(out=t.c6.f2.astype(pxt.Int)).order_by(t.c2).collect()['out']
+        assert res == list(range(t.count()))
+
     def test_astype_bool(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         assert t.c4.astype(pxt.Int).col_type == ts.IntType(nullable=False)
@@ -2172,6 +2350,24 @@ class TestExprs:
         )
         pd_result = df.groupby('c_int', dropna=True).agg(out=('c_int', 'sum')).reset_index().sort_values('c_int')
         assert pxt_sql_result['out'] == series_to_list(pd_result['out'])
+
+    def test_agg_multiple_batches(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        num_rows, num_groups = 2600, 1300
+        t = pxt.create_table(p('src'), {'id': pxt.Int, 'grp': pxt.Int})
+        t.insert({'id': i, 'grp': i % num_groups} for i in range(num_rows))
+
+        status = t.insert(t.order_by(t.id).select(t.id, t.grp))
+        assert status.num_rows == num_rows
+        expected = sorted([(i, i % num_groups) for i in range(num_rows)] * 2)
+        assert sorted(tuple(row.values()) for row in t.select(t.id, t.grp).collect()) == expected
+
+        agg = pxt.create_table(p('agg'), {'grp': pxt.Int, 'n': pxt.Int})
+        status = agg.insert(t.group_by(t.grp).select(t.grp, n=pxtf.count(t.id)))
+        assert status.num_rows == num_groups
+        assert sorted(tuple(row.values()) for row in agg.select(agg.grp, agg.n).collect()) == [
+            (grp, 4) for grp in range(num_groups)
+        ]
 
     def test_agg_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

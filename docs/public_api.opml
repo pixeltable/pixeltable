@@ -249,6 +249,7 @@
           <outline text="udf|pixeltable.functions.math.ceil" />
           <outline text="udf|pixeltable.functions.math.floor" />
           <outline text="udf|pixeltable.functions.math.round" />
+          <outline text="udf|pixeltable.functions.math.to_int" />
           <outline text="udf|pixeltable.functions.math.pow" />
           <outline text="udf|pixeltable.functions.math.bitwise_and" />
           <outline text="udf|pixeltable.functions.math.bitwise_or" />

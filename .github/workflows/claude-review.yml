@@ -5,7 +5,7 @@ name: Claude review
 # the PR. They use this file from the default branch with the repository's secrets, so fork PRs get reviewed too.
 # Nothing from the PR runs. The review job receives only GITHUB_TOKEN, which cannot push.
 #
-# When a scheduled tests, stress-tests, or nightly run on the default branch fails, a separate ci-fix job
+# When a scheduled tests, stress-tests, or pip-install-tests run on the default branch fails, a separate ci-fix job
 # investigates with Opus and may open a fix PR from a branch the plan computes. That job omits github_token so the
 # Claude GitHub App can push; a GITHUB_TOKEN PR would not start checks. The review job still cannot push, and nothing
 # addresses its findings: a person does. The erosion job, currently
@@ -14,7 +14,7 @@ on:
   issue_comment:
     types: [created]
   workflow_run:
-    workflows: [tests, stress-tests, nightly]
+    workflows: [tests, stress-tests, pip-install-tests]
     types: [completed]
 
 jobs:
@@ -47,7 +47,7 @@ jobs:
           ACTOR: ${{ github.actor }}
         run: python3 .github/scripts/plan_claude_review.py
 
-  # A scheduled tests, stress-tests, or nightly run on the default branch that failed. plan_claude_ci_fix.py
+  # A scheduled tests, stress-tests, or pip-install-tests run on the default branch that failed. plan_claude_ci_fix.py
   # ignores pull_request runs, successful runs, stale runs, a run a person already took over or closed, and a workflow
   # that already has an open CI-fix PR.
   plan-ci-fix:

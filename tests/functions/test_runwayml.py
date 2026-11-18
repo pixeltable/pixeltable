@@ -91,7 +91,6 @@ class TestRunwayML:
         # Required + optional parameters
         t.add_computed_column(output_optional=video_to_video(t.video_url, t.prompt, 'aleph2', '1280:720', seed=42))
 
-    @pytest.mark.remote_api
     @pytest.mark.very_expensive
     def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
@@ -108,8 +107,8 @@ class TestRunwayML:
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
-    @pytest.mark.remote_api
-    @pytest.mark.very_expensive
+    @pytest.mark.expensive
+    @pytest.mark.skip_merge_queue
     def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
@@ -123,7 +122,6 @@ class TestRunwayML:
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
-    @pytest.mark.remote_api
     @pytest.mark.very_expensive
     def test_text_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
@@ -137,7 +135,6 @@ class TestRunwayML:
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
-    @pytest.mark.remote_api
     @pytest.mark.very_expensive
     def test_video_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')

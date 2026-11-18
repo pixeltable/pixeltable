@@ -32,7 +32,6 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 _logger = logging.getLogger('pixeltable_test')
 
 
-@pytest.mark.remote_api
 @rerun_on_network_error()
 class TestOpenai:
     @pytest.mark.expensive
@@ -513,7 +512,6 @@ class TestOpenai:
         t.add_computed_column(flagged=t.moderation.results[0].flagged)
         assert t.get_metadata()['columns']['flagged']['type_'] == 'Bool | None'
 
-    @pytest.mark.very_expensive
     def test_decisions(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
