@@ -2576,6 +2576,19 @@ class TestTable:
         assert Path(res[0]['video']).exists()
         assert Path(res[0]['clip']).exists()
 
+    def test_temp_dir_file_in_two_rows(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'img': pxt.Image})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            img_file = get_image_files()[0]
+            img_path = Path(tmp_dir) / Path(img_file).name
+            shutil.copy(img_file, img_path)
+            validate_update_status(t.insert([{'id': 0, 'img': str(img_path)}, {'id': 1, 'img': str(img_path)}]), 2)
+
+        res = t.select(img=t.img.localpath).collect()
+        assert len(res) == 2
+        assert all(Path(row['img']).exists() for row in res)
+
     @pytest.mark.skipif(
         'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,
         reason='Specifying a default media destination disrupts the file cache counts',
