@@ -32,29 +32,6 @@ class Tool(pydantic.BaseModel):
     name: str | None = None
     description: str | None = None
 
-    @pydantic.model_validator(mode='after')
-    def _check_param_types(self) -> 'Tool':
-        tool_name = self.name or self.fn.name
-        if self.fn.is_polymorphic:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Tool {tool_name!r}: a function with overloads cannot be used as a tool',
-            )
-        for param in self.parameters.values():
-            if param.col_type is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Tool {tool_name!r}: parameter {param.name!r} has no type; '
-                    f'supported types are {_TOOL_PARAM_TYPES}',
-                )
-            if _tool_arg_extractor(param.col_type) is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Tool {tool_name!r}: parameter {param.name!r} has type `{param.col_type}`, '
-                    f'which a tool cannot take; supported types are {_TOOL_PARAM_TYPES}',
-                )
-        return self
-
     @property
     def parameters(self) -> dict[str, Parameter]:
         return self.fn.signature.parameters
@@ -88,9 +65,6 @@ class Tool(pydantic.BaseModel):
         extractor = _tool_arg_extractor(param.col_type)
         assert extractor is not None, param.col_type
         return extractor(kwargs, param_name=param.name)
-
-
-_TOOL_PARAM_TYPES = 'String, Int, Float, Bool, UUID and Json'
 
 
 def _tool_arg_extractor(col_type: ts.ColumnType) -> Function | None:

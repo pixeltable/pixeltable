@@ -2307,7 +2307,7 @@ class TestFunction:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
-        msg = r"Tool 'day_of': parameter 'when' has type `Timestamp`, which a tool cannot take"
+        msg = r"Tool 'day_of': parameter 'when' has unsupported type `Timestamp`; supported types are String, Int"
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
             pxt.tool(day_of)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
@@ -2315,13 +2315,14 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'weekday': parameter 'when'"):
             pxt.tool(day_of, name='weekday')
 
-        msg = "Tool 'overloaded_udf': a function with overloads cannot be used as a tool"
+        msg = "Tool 'overloaded_udf': a function with overloads cannot be a tool"
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
             pxt.tool(TestFunction.overloaded_udf)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'describe': a function with overloads"):
             pxt.tools(describe)
         with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'udf_variadic_kw': parameter 'kwargs' has no type"
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Tool 'udf_variadic_kw': parameter 'kwargs' has unsupported type `None`",
         ):
             pxt.tool(TestFunction.udf_variadic_kw)
 
