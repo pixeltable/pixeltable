@@ -28,8 +28,8 @@ That class and the table's versioning, data-versioned or operational, determine 
 | Operation class | Operational table | Data-versioned table | Wait policy |
 | --- | --- | --- | --- |
 | `MD_READ`: catalog metadata | No lock | No lock | N/A |
-| `DATA_READ`: query rows | `ACCESS SHARE` | `ACCESS SHARE` | Wait if any locked table is data-versioned |
-| `DATA_WRITE`: insert/update/delete | `ROW EXCLUSIVE` | `EXCLUSIVE` | Wait if any locked table is data-versioned |
+| `DATA_READ`: query rows | `ACCESS SHARE` | `ACCESS SHARE` | Fail fast unless any locked table is data-versioned |
+| `DATA_WRITE`: insert/update/delete | `ROW EXCLUSIVE` | `EXCLUSIVE` | Fail fast unless any locked table is data-versioned |
 | `MD_WRITE`: metadata changes and DDL | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | Always wait |
 | `FINALIZE`: complete pending operations | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | Always wait |
 
@@ -45,11 +45,11 @@ Lock modes apply per table. For example, a schema change can lock its target wit
 its bases with `ACCESS SHARE`.
 
 The wait policy applies to the whole transaction. If a data read or write locks only operational tables,
-it waits at most 100 ms (`lock_timeout`) for each table lock. A timeout reports `SCHEMA_CHANGE_IN_PROGRESS`.
-If any locked table is data-versioned, the transaction waits for every required table lock. Schema changes and
-finalization always wait, regardless of versioning.
+it fails fast: it waits at most 100 ms (`lock_timeout`) for each table lock, and a timeout reports
+`SCHEMA_CHANGE_IN_PROGRESS`. If any locked table is data-versioned, the transaction waits for every required table
+lock. Schema changes and finalization always wait, regardless of versioning.
 
-The short wait, rather than `NOWAIT`, accommodates momentary locks that Postgres takes on its own. VACUUM, including
+The short wait, rather than failing immediately with `NOWAIT`, accommodates momentary locks that Postgres takes on its own. VACUUM, including
 autovacuum, takes `ACCESS EXCLUSIVE` to truncate empty pages at the end of a table, for example after all rows were
 deleted. While it holds that lock, it checks for queued lock requests every 20 ms and releases the lock if it finds
 one. A `NOWAIT` request never enters the queue, so it would fail instead.

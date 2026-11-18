@@ -92,19 +92,19 @@ class TblOpClass(enum.Enum):
         assert self in (TblOpClass.MD_WRITE, TblOpClass.FINALIZE)
         return TblLockMode.ACCESS_EXCLUSIVE
 
-    def should_wait(self, any_data_versioned: bool) -> bool:
-        """Return whether to wait for locks without a time limit, instead of failing after a short timeout.
+    def fails_fast(self, any_data_versioned: bool) -> bool:
+        """Return whether to fail when locks are held by others, instead of waiting for them to be released.
 
-        Data reads and writes wait only if `any_data_versioned` is True. Schema changes and pending-op finalization
-        always wait.
+        Data reads and writes fail fast only if `any_data_versioned` is False. Schema changes and pending-op
+        finalization always wait.
         """
         if self in (TblOpClass.MD_WRITE, TblOpClass.FINALIZE):
-            return True
+            return False
         if self is TblOpClass.MD_READ:
             # MD_READ takes no locks, so the return value has no effect.
-            return False
+            return True
         assert self in (TblOpClass.DATA_READ, TblOpClass.DATA_WRITE)
-        return any_data_versioned
+        return not any_data_versioned
 
 
 class TblLockMode(enum.Enum):
@@ -402,11 +402,11 @@ class XactLocks:
         assert not self._is_acquired
         self._dirs.setdefault(dir_id, path)
 
-    # whether to wait for locks without a time limit; if False, wait at most LOCK_TIMEOUT_MS per lock and then
-    # raise LockNotAvailableError. Applies to every lock in the set: True if any table requires waiting.
+    # whether to raise LockNotAvailableError for locks held by others instead of waiting for them to be released.
+    # Applies to every lock in the set: False if any table requires waiting.
     @property
-    def wait(self) -> bool:
-        return self.request.op_class.should_wait(self._any_data_versioned)
+    def fail_fast(self) -> bool:
+        return self.request.op_class.fails_fast(self._any_data_versioned)
 
     @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
     def acquire(self) -> None:
@@ -416,9 +416,9 @@ class XactLocks:
         acquisition ensures no deadlocks. LOCK TABLE leaves the transaction's snapshot unset. The first directory
         UPDATE establishes it, so directory locks must come after all store table locks.
 
-        When the lock set does not wait, each lock waits at most LOCK_TIMEOUT_MS instead of failing immediately
-        (NOWAIT): a queued request makes VACUUM release the ACCESS EXCLUSIVE lock it takes to truncate a table, while
-        a NOWAIT request is invisible to it.
+        To fail fast, each lock waits at most LOCK_TIMEOUT_MS instead of failing immediately (NOWAIT): a queued
+        request makes VACUUM release the ACCESS EXCLUSIVE lock it takes to truncate a table, while a NOWAIT request
+        is invisible to it.
 
         Raises:
             LockNotAvailableError: a lock could not be acquired within LOCK_TIMEOUT_MS.
@@ -433,14 +433,14 @@ class XactLocks:
             fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
             # Send the LOCK TABLE statements in one request, separated by semicolons. psycopg executes them in order.
             stmt = '; '.join(t.lock_stmt() for t in targets)
-            if not self.wait:
+            if self.fail_fast:
                 stmt = f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT_MS}ms'; {stmt}; SET LOCAL lock_timeout = DEFAULT"
             try:
                 get_runtime().conn.exec_driver_sql(stmt)
             except sql_exc.DBAPIError as e:
                 _logger.debug(f'{stmt} failed: {e}')
                 if isinstance(e.orig, psycopg.errors.LockNotAvailable):
-                    assert not self.wait
+                    assert self.fail_fast
                     raise LockNotAvailableError from e
                 if isinstance(e.orig, psycopg.errors.UndefinedTable):
                     # A missing store table means the lock set is stale.
