@@ -1,9 +1,10 @@
 import json
+import sys
 
 from pixeltable_cli import models
 
 from ..parser import Parser
-from ..utils import confirm_or_exit, get_request, plural, post_request, validate_path_arg
+from ..utils import EXIT_ERROR, RequestFailedError, confirm_or_exit, get_request, plural, post_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -41,8 +42,19 @@ def run(argv: list[str]) -> None:
     path = validate_path_arg(args.path)
     columns = ', '.join(args.columns)
     if args.dry_run:
-        # TODO: compute the total number of affected rows across all transitive views as well, possibly even the
-        # exact columns that would be recomputed
+        all_cols = models.ColumnsResponse.model_validate(
+            get_request('/api/columns', params={'path': path})
+        )
+        col_by_name = {e.column: e for e in all_cols.entries if e.table == path}
+        for col in args.columns:
+            if col not in col_by_name:
+                rfe = RequestFailedError(f"404 Column '{col}' not found in '{path}'", status=404, error_code='COLUMN_NOT_FOUND')
+                rfe.report()
+                sys.exit(EXIT_ERROR)
+            if not col_by_name[col].is_computed:
+                rfe = RequestFailedError(f"400 Column '{col}' is not a computed column", status=400, error_code='UNSUPPORTED_OPERATION')
+                rfe.report()
+                sys.exit(EXIT_ERROR)
         table_rows = models.CountResponse.model_validate(get_request('/api/tables/count', params={'path': path})).count
         if args.as_json:
             plan = {

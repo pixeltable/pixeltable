@@ -1519,6 +1519,16 @@ class TestRecompute:
         assert r.returncode != 0
         assert 'Unknown column' in r.stderr, r.stderr
 
+        # dry-run also validates: unknown column is rejected before printing the plan
+        r = cli('recompute', p('cli_rc_err/t'), 'nosuch', '-n', check=False)
+        assert r.returncode != 0
+        assert 'nosuch' in r.stderr and 'would recompute' not in r.stdout, r.stderr
+
+        # dry-run also rejects a non-computed column
+        r = cli('recompute', p('cli_rc_err/t'), 'a', '-n', check=False)
+        assert r.returncode != 0
+        assert 'not a computed column' in r.stderr, r.stderr
+
         # a stored, non-computed column has nothing to recompute
         r = cli('recompute', p('cli_rc_err/t'), 'a', '-f', check=False)
         assert r.returncode != 0
