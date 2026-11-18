@@ -53,7 +53,7 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.service import management_client, proxy_daemon
 from pixeltable.telemetry import SubscriberRegistry
 from pixeltable.types import ColumnSpec
-from pixeltable.utils import sha256sum
+from pixeltable.utils import av as av_utils, sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
@@ -148,6 +148,17 @@ def free_port() -> int:
                 continue
         return port
     raise RuntimeError(f'No free port in {first}-{first + slice_len - 1}')
+
+
+@contextmanager
+def bystander_process() -> Iterator[subprocess.Popen[bytes]]:
+    """A process unrelated to Pixeltable, alive until the block exits."""
+    proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], stdin=subprocess.DEVNULL)
+    try:
+        yield proc
+    finally:
+        proc.kill()
+        proc.wait()
 
 
 LocalDbKind = Literal['embedded', 'external']
@@ -593,7 +604,7 @@ def generate_test_video(
     pix_fmt: str = 'yuv420p',
 ) -> str:
     """Create test video with specific properties using ffmpeg and return its path"""
-    cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
+    cmd = ['-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
     if has_audio:
         cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
     if Env.get().default_video_encoder is not None:
@@ -603,7 +614,7 @@ def generate_test_video(
         cmd.extend(['-c:a', 'aac'])
     output_path = tmp_path / f'{uuid4()}.mp4'
     cmd.extend(['-y', str(output_path)])
-    subprocess.run(cmd, capture_output=True, check=True)
+    av_utils.run_ffmpeg(cmd)
     return str(output_path)
 
 
@@ -616,7 +627,7 @@ def generate_color_video(
     Each segment is a (color, fps) pair; segments with different fps produce a variable frame rate video. The first
     frame is at start_time.
     """
-    cmd = ['ffmpeg']
+    cmd: list[str] = []
     for color, fps in segments:
         cmd.extend(['-f', 'lavfi', '-i', f'color=c={color}:s=64x64:r={fps}:d=1'])
     inputs = ''.join(f'[{i}]' for i in range(len(segments)))
@@ -624,7 +635,7 @@ def generate_color_video(
     cmd.extend(['-output_ts_offset', str(start_time), '-c:v', 'libx264', '-pix_fmt', 'yuv420p'])
     output_path = tmp_path / f'{uuid4()}.{extension}'
     cmd.extend(['-y', str(output_path)])
-    subprocess.run(cmd, capture_output=True, check=True)
+    av_utils.run_ffmpeg(cmd)
     return str(output_path)
 
 
@@ -632,9 +643,9 @@ def generate_tone_audio(tmp_path: Path, extension: str, start_time: float = 0.0)
     """Create a 2-second 440 Hz tone whose first sample is at start_time and return its path."""
     codec = 'libopus' if extension == 'webm' else 'flac'
     output_path = tmp_path / f'{uuid4()}.{extension}'
-    cmd = ['ffmpeg', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2']
+    cmd = ['-f', 'lavfi', '-i', 'sine=frequency=440:duration=2']
     cmd.extend(['-output_ts_offset', str(start_time), '-c:a', codec, '-y', str(output_path)])
-    subprocess.run(cmd, capture_output=True, check=True)
+    av_utils.run_ffmpeg(cmd)
     return str(output_path)
 
 

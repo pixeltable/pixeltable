@@ -12,7 +12,6 @@ import logging
 import math
 import os
 import shutil
-import subprocess
 import threading
 import types
 import typing
@@ -901,6 +900,8 @@ class Env:
         - the user might prefer a hardware-accelerated encoder (eg, h264_nvenc or h264_videotoolbox)
         - allow user override via a config option 'video_encoder'
         """
+        from pixeltable.utils.av import run_ffmpeg
+
         # look for available encoders, in this order
         candidates = [
             'libx264',  # GPL, best quality
@@ -909,7 +910,7 @@ class Env:
 
         try:
             # Get list of available encoders
-            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+            result = run_ffmpeg(['-encoders'], timeout=10)
 
             if result.returncode == 0:
                 available_encoders = result.stdout

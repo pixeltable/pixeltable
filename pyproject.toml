@@ -344,10 +344,10 @@ addopts = '-v -m "not skip_merge_queue and not expensive and not very_expensive 
 # Keep this above the slowest test's runtime: a dump during a still-running test can hang the worker
 faulthandler_timeout = 1800
 markers = [
-    "skip_merge_queue: calls a live service not reliable enough for the merge queue, downloads a model or dataset, or uses an external object store; runs in the scheduled unit test configurations, not on PRs or in the merge queue",
-    "expensive: too costly to run on every CI configuration, e.g. a remote API at a high dollar cost; runs only on the standard+ and standard++ configurations (with skip_merge_queue, not in the merge queue)",
-    "very_expensive: calls a remote API at a very high dollar cost; runs only on the standard++ CI configuration",
-    "resource_intensive: needs more memory or disk than a standard GitHub-hosted runner, or runs for tens of minutes on its CPU; runs only on the large runner",
+    "skip_merge_queue: calls a live service not reliable enough for the merge queue, downloads a model or dataset, or uses an external object store; runs in the scheduled unit test and notebook configurations, not on PRs or in the merge queue",
+    "expensive: too costly to run on every CI configuration, e.g. a remote API at a high dollar cost; runs only on standard+ and notebooks+ (merge queue and daily) and standard++ and notebooks++ (weekly)",
+    "very_expensive: calls a remote API at a very high dollar cost; runs only on the standard++ and notebooks++ CI configurations",
+    "resource_intensive: needs more memory or disk than a standard GitHub-hosted runner, or runs for tens of minutes on its CPU; runs only on a large runner in scheduled runs, never on PRs or in the merge queue",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "db_roots: test runs only against specified database roots, e.g. @pytest.mark.db_roots('local', reason='...')",
     "otel: marks tests as requiring the otel extra (run on the otel CI leg)",

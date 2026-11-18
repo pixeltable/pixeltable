@@ -8,7 +8,7 @@ from typing import Callable, NoReturn
 import psutil
 import pytest
 
-from pixeltable.utils import process
+from pixeltable_cli import process
 
 
 class TestProcess:

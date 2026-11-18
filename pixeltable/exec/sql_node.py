@@ -2,12 +2,13 @@ import logging
 import random
 import warnings
 from decimal import Decimal
-from typing import TYPE_CHECKING, AsyncGenerator, Iterable, NamedTuple, Sequence
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, NamedTuple
 from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
 from pgvector import HalfVector
+from sqlalchemy.sql import visitors
 
 from pixeltable import catalog, exprs, telemetry
 from pixeltable.metadata import schema
@@ -88,6 +89,7 @@ class SqlNode(ExecNode):
     columns: list[catalog.Column]  # columns copied unchanged into the output rows, via DataRow.cell_vals/cell_md
     cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
+    stream_results: bool
     num_pk_cols: int
     cte: sql.CTE | None
     sql_elements: exprs.SqlElementCache
@@ -158,6 +160,7 @@ class SqlNode(ExecNode):
 
         assert self.sql_elements.contains_all(self.select_list)
         self.set_pk = set_pk
+        self.stream_results = False
         self.num_pk_cols = 0
         if set_pk:
             # we also need to retrieve the pk columns
@@ -433,6 +436,9 @@ class SqlNode(ExecNode):
     def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
+    def set_stream_results(self, stream_results: bool) -> None:
+        self.stream_results = stream_results
+
     def _check_catalog_locks(self) -> None:
         """Check that Catalog holds read locks for the tables used by this query."""
         for input in self._cte_inputs:
@@ -478,8 +484,10 @@ class SqlNode(ExecNode):
                 self._log_explain(stmt)
 
             conn = get_runtime().conn
+            execution_options = {'stream_results': True} if self.stream_results else {}
             with telemetry.span('pixeltable.sa.select'):
-                result_cursor = conn.execute(stmt, self.bound_args)
+                result_cursor = conn.execute(stmt, self.bound_args, execution_options=execution_options)
+            self.result_cursor = result_cursor
             for _ in w:
                 pass
 
@@ -715,60 +723,93 @@ class SqlAggregationNode(SqlNode):
 
 class SqlJoinNode(SqlNode):
     """
-    Materializes data from the store via a Select ... From ... that contains joins
+    Materializes data from the store via a Select ... From ... that contains joins.
+
+    Each table is a CTE that selects the store table columns referenced by the stmt.
     """
 
-    input_ctes: list[sql.CTE]
+    tbls: list[catalog.TableVersionPath]
     join_clauses: list[JoinClause]
-    _cte_inputs: list[SqlNode]
 
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
-        inputs: Sequence[SqlNode],
+        tbls: list[catalog.TableVersionPath],
         join_clauses: list[JoinClause],
         select_list: Iterable[exprs.Expr],
+        cell_md_col_refs: list[exprs.ColumnRef] | None = None,
     ):
-        assert len(inputs) > 1
-        assert len(inputs) == len(join_clauses) + 1
-        self.input_ctes = []
+        assert len(tbls) > 1
+        assert len(tbls) == len(join_clauses) + 1
+        self.tbls = tbls
         self.join_clauses = join_clauses
-        sql_elements = exprs.SqlElementCache()
-        for input_node in inputs:
-            input_cte, input_col_map = input_node.to_cte()
-            self.input_ctes.append(input_cte)
-            sql_elements.extend(input_col_map)
-        cell_md_col_refs = [cell_md_ref.col_ref for input in inputs for cell_md_ref in input.cell_md_refs]
         super().__init__(
-            None, row_builder, select_list, columns=[], sql_elements=sql_elements, cell_md_col_refs=cell_md_col_refs
+            None,
+            row_builder,
+            select_list,
+            columns=[],
+            sql_elements=exprs.SqlElementCache(),
+            cell_md_col_refs=cell_md_col_refs,
         )
-        self._cte_inputs = list(inputs)
+
+    def _join_predicates(self) -> list[exprs.Expr]:
+        return [
+            clause.join_predicate
+            for clause in self.join_clauses
+            if clause.join_type != JoinType.CROSS and clause.join_predicate is not None
+        ]
 
     def _create_stmt(self) -> sql.Select:
+        # stmt and on_clauses reference store table columns
         stmt = super()._create_stmt()
-        stmt = stmt.select_from(self.input_ctes[0])
-        for i in range(len(self.join_clauses)):
-            join_clause = self.join_clauses[i]
-            on_clause = (
-                self.sql_elements.get(join_clause.join_predicate)
-                if join_clause.join_type != JoinType.CROSS
-                else sql.sql.expression.literal(True)
-            )
-            is_outer = join_clause.join_type in (JoinType.LEFT, JoinType.FULL_OUTER)
-            stmt = stmt.join(
-                self.input_ctes[i + 1],
-                onclause=on_clause,
-                isouter=is_outer,
+        on_clauses = [
+            self.sql_elements.get(join_clause.join_predicate)
+            if join_clause.join_type != JoinType.CROSS
+            else sql.sql.expression.literal(True)
+            for join_clause in self.join_clauses
+        ]
+        refd_cols = dict.fromkeys(
+            el for clause in (stmt, *on_clauses) for el in visitors.iterate(clause) if isinstance(el, sql.Column)
+        )
+
+        ctes: list[sql.CTE] = []
+        cte_cols: dict[sql.Column, sql.ColumnElement] = {}  # store table column -> its column in ctes
+        for tbl in self.tbls:
+            store_tbl_ids = {tvh.get().store_tbl.sa_tbl: tvh.id for tvh in tbl.get_tbl_versions()}
+            # the referenced cols for tbl
+            tbl_cols = [col for col in refd_cols if col.table in store_tbl_ids]
+            # SELECT 1 avoids SELECT FROM ...
+            tbl_stmt = sql.select(*tbl_cols) if len(tbl_cols) > 0 else sql.select(sql.literal(1))
+            cte = self.create_from_clause(tbl, tbl_stmt, {store_tbl_ids[col.table] for col in tbl_cols}).cte()
+            ctes.append(cte)
+            cte_cols.update(zip(tbl_cols, cte.c))
+        assert len(cte_cols) == len(refd_cols)  # every column belongs to one of tbls
+
+        def cte_col(element: Any, **kw: Any) -> sql.ColumnElement | None:
+            return cte_cols.get(element)
+
+        # make sure we only reference the CTE outputs
+        cte_stmt = visitors.replacement_traverse(stmt, {}, cte_col)
+        assert isinstance(cte_stmt, sql.Select)
+        cte_stmt = cte_stmt.select_from(ctes[0])
+        for cte, join_clause, on_clause in zip(ctes[1:], self.join_clauses, on_clauses):
+            cte_stmt = cte_stmt.join(
+                cte,
+                onclause=visitors.replacement_traverse(on_clause, {}, cte_col),
+                isouter=join_clause.join_type in (JoinType.LEFT, JoinType.FULL_OUTER),
                 full=join_clause.join_type == JoinType.FULL_OUTER,
             )
-        return stmt
+        return cte_stmt
+
+    def _check_catalog_locks(self) -> None:
+        # SqlNode._check_catalog_locks() checks SqlNode.tbl and _cte_inputs, which are None and empty for a join
+        cat = get_runtime().catalog
+        for tbl in self.tbls:
+            for handle in tbl.get_tbl_versions():
+                cat.check_rows_read_locked(handle.get())
 
     def init_bindings(self) -> None:
-        from pixeltable.query_clauses import JoinType
-
-        for clause in self.join_clauses:
-            if clause.join_type != JoinType.CROSS and clause.join_predicate is not None:
-                self.bind_sources.append(clause.join_predicate)
+        self.bind_sources.extend(self._join_predicates())
         super().init_bindings()
 
 

@@ -26,6 +26,7 @@ BASIC_PLATFORMS = ('macos-15', 'windows-2025')
 ALL_PLATFORMS = (MAIN_PLATFORM, *BASIC_PLATFORMS)
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
+LARGE_PLATFORM = 'ubuntu-large'  # A paid runner, for the resource_intensive tests and notebooks only
 
 # The GitHub event names that pytest.yml is triggered on
 TRIGGERS = ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch')
@@ -111,25 +112,33 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             configs.append(
                 MatrixConfig('standard++', 'py', MAIN_PLATFORM, '3.11', pytest_markers=VERY_EXPENSIVE_MARKERS)
             )
-            configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
+            configs.append(
+                MatrixConfig('notebooks++', 'ipynb', MAIN_PLATFORM, '3.11', pytest_markers=VERY_EXPENSIVE_MARKERS)
+            )
             configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
         else:
             configs.append(MatrixConfig('standard+', 'py', MAIN_PLATFORM, '3.11', pytest_markers=EXPENSIVE_MARKERS))
+            configs.append(MatrixConfig('notebooks+', 'ipynb', MAIN_PLATFORM, '3.11', pytest_markers=EXPENSIVE_MARKERS))
 
-        if trigger == 'merge_group':
-            # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
-            # weekly run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
-            configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
-        else:
+        if trigger != 'merge_group':
             configs.append(
                 MatrixConfig(
                     'resource-intensive',
                     'py',
-                    'ubuntu-large',
+                    LARGE_PLATFORM,
                     '3.11',
                     pytest_markers=RESOURCE_INTENSIVE_MARKERS,
                     xdist_workers=LARGE_RUNNER_XDIST_WORKERS,
                     pre_test_cmd='./scripts/log-memory.sh 15 &',
+                )
+            )
+            configs.append(
+                MatrixConfig(
+                    'resource-intensive-notebooks',
+                    'ipynb',
+                    LARGE_PLATFORM,
+                    '3.11',
+                    pytest_markers=RESOURCE_INTENSIVE_MARKERS,
                 )
             )
 
