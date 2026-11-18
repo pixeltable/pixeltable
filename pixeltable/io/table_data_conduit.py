@@ -84,6 +84,8 @@ class TableDataConduit:
         assert source_format is None or TableDataConduitFormat.is_valid(source_format), (
             f'Invalid source_format {source_format}'
         )
+        if source_format is not None:
+            source_format = source_format.lower()
         if isinstance(source, Sequence) and len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
             return PydanticTableDataConduit(source)
 
