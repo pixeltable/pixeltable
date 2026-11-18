@@ -265,6 +265,9 @@ class Column:
         else:
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {type(spec)}')
 
+        if value_expr is not None:
+            # validate before the constructor serializes value_expr, which fails internally for a query over a model
+            value_expr.validate_storable(f'Computed column {name!r}')
         stores_cellmd = cls.should_store_cellmd(col_type=col_type, is_stored=stored, is_computed=value_expr is not None)
         column = cls(
             name,
