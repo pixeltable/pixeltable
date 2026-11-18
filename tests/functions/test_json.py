@@ -203,9 +203,36 @@ class TestJson:
         with pytest.raises(Exception, match='scalar'):
             tnum.select(tnum.scalar, n=tnum.scalar.len()).collect()
 
-        # TODO: selecting a pushed-down json function without also selecting the source column fails, because the
-        # column's slot is never materialized (cell-reconstruction bug); re-enable once fixed.
-        # assert [r['n'] for r in t.order_by(t.id).select(n=t.j.len()).collect()] == [3, 0, 2, 0, 5, 0, None]
+        assert [r['n'] for r in t.order_by(t.id).select(n=t.j.len()).collect()] == [3, 0, 2, 0, 5, 0, None]
+
+    def test_sql_fn_without_source_col(self, uses_db: None) -> None:
+        """A json function computed in SQL works without the source column in the select list."""
+        t = pxt.create_table('json_sql_fn', {'id': pxt.Int, 'j': pxt.Json | None})
+        t.insert([{'id': 1, 'j': [1, 2]}, {'id': 2, 'j': [3.5]}, {'id': 3, 'j': None}])
+
+        def col(expr: pxt.exprs.Expr) -> list:
+            return [r['o'] for r in t.order_by(t.id).select(o=expr).collect()]
+
+        assert col(t.j.len()) == [2, 1, None]
+        assert col(t.j.is_empty()) == [False, False, True]
+        assert col(t.j.sum()) == [3.0, 3.5, None]
+        assert col(t.j.min()) == [1.0, 3.5, None]
+        assert col(t.j.max()) == [2.0, 3.5, None]
+        assert col(t.j.mean()) == [1.5, 3.5, None]
+        assert col(pxtf.json.dumps(t.j)) == ['[1, 2]', '[3.5]', None]
+        rs = t.order_by(t.id).select(t.j, n=t.j.len()).collect()
+        assert [(r['j'], r['n']) for r in rs] == [([1, 2], 2), ([3.5], 1), (None, None)]
+
+        # add_computed_column() fills the existing rows
+        validate_update_status(t.add_computed_column(n=t.j.len()), expected_rows=3)
+        t.add_computed_column(s=pxtf.json.dumps(t.j))
+        assert col(t.n) == [2, 1, None]
+        assert col(t.s) == ['[1, 2]', '[3.5]', None]
+
+        t.update({'j': [4, 5, 6]}, where=t.id == 1, cascade=False)
+        validate_update_status(t.recompute_columns('s', 'n'), expected_rows=3)
+        assert col(t.n) == [3, 1, None]
+        assert col(t.s) == ['[4, 5, 6]', '[3.5]', None]
 
     def test_contains(self, uses_db: None) -> None:
         t = pxt.create_table('json_contains', {'id': pxt.Int | None, 'j': pxt.Json | None})
