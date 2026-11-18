@@ -35,14 +35,16 @@ class TestGlobals:
             c3min=pxtf.min(t.c3),
             c4min=pxtf.min(t.c4),
             c5min=pxtf.min(t.c5),
+            c6min=pxtf.min(t.c5.date()),
             c1max=pxtf.max(t.c1),
             c2max=pxtf.max(t.c2),
             c3max=pxtf.max(t.c3),
             c4max=pxtf.max(t.c4),
             c5max=pxtf.max(t.c5),
+            c6max=pxtf.max(t.c5.date()),
         ).collect()
-        res_direct = t.select(t.c1, t.c2, t.c3, t.c4, t.c5).collect()
-        assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in range(1, 6) for op in [min, max]}
+        res_direct = t.select(t.c1, t.c2, t.c3, t.c4, t.c5, c6=t.c5.date()).collect()
+        assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in range(1, 7) for op in [min, max]}
 
         # sum() and mean()
         res = t.select(
