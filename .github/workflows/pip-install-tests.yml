@@ -77,7 +77,7 @@ jobs:
             os: ubuntu-24.04
           # The only job on a large runner, and it runs only the resource_intensive tests
           - python-version: "3.11"
-            package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy imagehash"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy"
             os: ubuntu-large
             resource-intensive: true
           # Test the basic pixeltable installation on other platforms.
@@ -151,7 +151,7 @@ jobs:
           # Retried, since a new release can take a few minutes to reach every PyPI mirror
           ./scripts/retry.sh 3 60 python -m pip install "$PXT" ${{ matrix.package-configs }}
           # PXT-1714: lift this pin when pytest-benchmark supports pytest 9.2.
-          python -m pip install filelock 'pytest>=9.0.3,<9.2' pytest-xdist pytest-rerunfailures pytest-benchmark
+          python -m pip install filelock 'pytest>=9.0.3,<9.2' pytest-xdist pytest-rerunfailures pytest-benchmark imagehash
       - name: Delete source tree
         run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
       - name: Install spaCy model
