@@ -110,7 +110,8 @@ def import_sql(
             names; values accept any Pixeltable type spec recognized by `pxt.create_table` (eg, `pxt.Image`,
             `pxt.String | None`).
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
-            table. Only applies when a new table is created; ignored when appending to an existing table.
+            table. These columns are imported as non-nullable, even if they are nullable in the source. Only
+            applies when a new table is created; ignored when appending to an existing table.
         comment: An optional comment; its meaning is user-defined. Only applies when a new table is created;
             ignored when appending to an existing table.
         custom_metadata: Optional user-defined metadata to associate with the table. Must be a valid
@@ -167,6 +168,9 @@ def import_sql(
         seen_cols.add(col_name)
         source_names.append(col_name)
 
+    pk_names = {
+        catalog.fold_identifier(name) for name in ([primary_key] if isinstance(primary_key, str) else primary_key or [])
+    }
     schema: dict[str, Any] = {}
     for sa_col, col_name in zip(sa_cols, source_names, strict=True):
         # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
@@ -176,7 +180,9 @@ def import_sql(
         if col_name in schema_overrides:
             pxt_type = schema_overrides[col_name]
         else:
-            pxt_type = ts.ColumnType.from_sa_type(sa_col.type, nullable=nullable)
+            pxt_type = ts.ColumnType.from_sa_type(
+                sa_col.type, nullable=nullable and catalog.fold_identifier(col_name) not in pk_names
+            )
 
         if pxt_type is None:
             raise excs.RequestError(
@@ -208,22 +214,6 @@ def import_sql(
             _validate_append_compatibility(existing, tbl_name, schema)
             existing._insert_sql_source(sql_data_source, on_error=on_error, send_connect_url=send_connect_url)
             return existing
-
-        pk_names = [primary_key] if isinstance(primary_key, str) else primary_key or []
-        src_names = {catalog.fold_identifier(name): name for name in schema}
-        for pk_name in pk_names:
-            src_name = src_names.get(catalog.fold_identifier(pk_name))
-            if src_name is None:
-                continue
-            pk_type = schema[src_name]
-            if not isinstance(pk_type, ts.ColumnType):
-                pk_type = ts.ColumnType.from_python_type(pk_type)
-            if pk_type is not None and pk_type.nullable:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Primary key column {src_name!r} is nullable. Make it non-nullable with '
-                    f'`schema_overrides={{{src_name!r}: pxt.{pk_type._to_base_str()}}}`',
-                )
 
         tbl = pxt.create_table(
             tbl_name,
