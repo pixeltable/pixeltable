@@ -366,14 +366,17 @@ def _defining_base(md: TableMetadata, column: str) -> tuple[str | None, bool]:
     """(the path of the base that defines a column a view inherits, or None for the table's own column; whether the
     column's cells can be recomputed there, which a snapshot's cannot).
 
-    The owner is found by table id, not by `defined_in`: a view and its base can share a name, and a query view's own
-    column can shadow a base column of the same name.
+    The defining base is the furthest one up whose column has the same `defined_in`: a query view's own column can
+    shadow a base column of the same name.
     """
-    owner_id = pxt.get_table(md['path'])[column].col_md.qcolid.tbl_id
+    owner = md['columns'][column]['defined_in']
     path = None
-    while md['id'] != owner_id:
-        assert md['base'] is not None
-        path, md = md['base'], pxt.get_table(md['base']).get_metadata()
+    while md['base'] is not None:
+        base_md = pxt.get_table(md['base']).get_metadata()
+        base_col = base_md['columns'].get(column)
+        if base_col is None or base_col['defined_in'] != owner:
+            break
+        path, md = md['base'], base_md
     # a snapshot's base is a versioned path, such as 'dir/t:5'
     in_snapshot = md['is_snapshot'] or (
         path is not None and Path.parse(path, allow_versioned_path=True).version is not None
@@ -403,7 +406,8 @@ def recompute(req: Request) -> models.RecomputeResponse | models.RecomputePlanRe
     path = req.resolve_path(body.path)
     t = pxt.get_table(path)
     if body.dry_run:
-        return _recompute_plan(t, path, body)
+        columns = t._check_recompute(*body.columns, errors_only=body.errors_only)
+        return models.RecomputePlanResponse(path=path, columns=columns, table_rows=t.count())
     status = t.recompute_columns(*body.columns, errors_only=body.errors_only, cascade=body.cascade)
     return models.RecomputeResponse(
         path=path,
@@ -412,38 +416,6 @@ def recompute(req: Request) -> models.RecomputeResponse | models.RecomputePlanRe
         num_excs=status.num_excs,
         cols_with_excs=status.cols_with_excs,
     )
-
-
-def _recompute_plan(t: pxt.Table, path: str, body: models.RecomputeBody) -> models.RecomputePlanResponse:
-    """Validate a recompute without running it.
-
-    Mirrors the checks of LocalTable.recompute_columns(), in the same order and with the same errors, so that a dry
-    run fails exactly where the real run would; test_smoke.py compares the two.
-    """
-    t._check_mutable('recompute columns of')
-    if len(body.columns) == 0:
-        raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'At least one column must be specified to recompute')
-    if body.errors_only and len(body.columns) > 1:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use errors_only=True with multiple columns'
-        )
-    md = t.get_metadata()
-    col_names: list[str] = []
-    for column in body.columns:
-        col_name = fold_identifier(column)
-        col_md = md['columns'].get(col_name)
-        if col_md is None:
-            raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
-        if not col_md['is_computed']:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is not a computed column'
-            )
-        if _defining_base(md, col_name)[0] is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {col_name}'
-            )
-        col_names.append(col_name)
-    return models.RecomputePlanResponse(path=path, columns=col_names, table_rows=t.count())
 
 
 @router.post('/api/tables/revert')

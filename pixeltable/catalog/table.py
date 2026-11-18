@@ -1249,6 +1249,10 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
+    def _check_recompute(self, *columns: str | ColumnRef, errors_only: bool = False) -> list[str]:
+        """Run the checks of recompute_columns() without recomputing; returns the names of the columns."""
+
+    @abc.abstractmethod
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.
 

@@ -1258,41 +1258,7 @@ class LocalTable(Table):
         cat = get_runtime().catalog
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         with cat.begin_data_write_xact(tvps=[self._tbl_version_path]):
-            self._check_mutable('recompute columns of')
-            if len(columns) == 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.MISSING_REQUIRED, 'At least one column must be specified to recompute'
-                )
-            if errors_only and len(columns) > 1:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use errors_only=True with multiple columns'
-                )
-
-            col_names: list[str] = []
-            for column in columns:
-                col_name: str
-                col: Column
-                if isinstance(column, str):
-                    col = self._tbl_version_path.get_column(column)
-                    if col is None:
-                        raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
-                    col_name = col.name
-                else:
-                    assert isinstance(column, ColumnRef)
-                    col = column.col
-                    if not self._tbl_version_path.has_column(col.qid):
-                        raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col.name}')
-                    col_name = col.name
-                if not col.is_computed:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is not a computed column'
-                    )
-                if col.get_tbl().id != self._tbl_version_path.tbl_id:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {col_name}'
-                    )
-                col_names.append(col_name)
-
+            col_names = self._recompute_col_names(columns, errors_only)
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -1305,6 +1271,48 @@ class LocalTable(Table):
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()
             return result
+
+    def _check_recompute(self, *columns: str | ColumnRef, errors_only: bool = False) -> list[str]:
+        with get_runtime().catalog.begin_data_read_xact(tvps=[self._tbl_version_path]):
+            return self._recompute_col_names(columns, errors_only)
+
+    def _recompute_col_names(self, columns: Sequence[str | ColumnRef], errors_only: bool) -> list[str]:
+        """Validate the arguments of recompute_columns() and return the names of the columns to recompute."""
+        self._check_mutable('recompute columns of')
+        if len(columns) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, 'At least one column must be specified to recompute'
+            )
+        if errors_only and len(columns) > 1:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use errors_only=True with multiple columns'
+            )
+
+        col_names: list[str] = []
+        for column in columns:
+            col_name: str
+            col: Column
+            if isinstance(column, str):
+                col = self._tbl_version_path.get_column(column)
+                if col is None:
+                    raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
+                col_name = col.name
+            else:
+                assert isinstance(column, ColumnRef)
+                col = column.col
+                if not self._tbl_version_path.has_column(col.qid):
+                    raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col.name}')
+                col_name = col.name
+            if not col.is_computed:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is not a computed column'
+                )
+            if col.get_tbl().id != self._tbl_version_path.tbl_id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {col_name}'
+                )
+            col_names.append(col_name)
+        return col_names
 
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         raise NotImplementedError
