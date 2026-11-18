@@ -1,3 +1,4 @@
+import datetime
 import numpy as np
 
 import pixeltable as pxt
@@ -43,6 +44,15 @@ class TestGlobals:
         ).collect()
         res_direct = t.select(t.c1, t.c2, t.c3, t.c4, t.c5).collect()
         assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in range(1, 6) for op in [min, max]}
+
+        # min() and max() with Date (PXT-1810)
+        dates_tbl = pxt.create_table(
+            'test_min_max_date', {'day': pxt.Date}, if_exists='replace'
+        )
+        d1, d2 = datetime.date(2026, 1, 1), datetime.date(2026, 1, 2)
+        dates_tbl.insert([{'day': d1}, {'day': d2}])
+        res = dates_tbl.select(first=pxtf.min(dates_tbl.day), latest=pxtf.max(dates_tbl.day)).collect()
+        assert res[0] == {'first': d1, 'latest': d2}
 
         # sum() and mean()
         res = t.select(
