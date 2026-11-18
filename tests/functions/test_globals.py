@@ -45,7 +45,7 @@ class TestGlobals:
         res_direct = t.select(t.c1, t.c2, t.c3, t.c4, t.c5).collect()
         assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in range(1, 6) for op in [min, max]}
 
-        # min() and max() with Date (str/int/float/bool/Timestamp already covered via c1-c5 above)
+        # min() and max() with Date
         dates_tbl = pxt.create_table(
             'test_min_max_date', {'day': pxt.Date}, if_exists='replace'
         )
