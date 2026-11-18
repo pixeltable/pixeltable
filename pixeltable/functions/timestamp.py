@@ -423,7 +423,8 @@ def add_seconds(self: datetime.datetime, seconds: float) -> datetime.datetime:
         ...     t.created_at > pxtf.timestamp.now() - datetime.timedelta(days=7)
         ... ).collect()
     """
-    # an aware datetime adds a timedelta to its wall-clock time
+    # Postgres adds an interval's seconds to a timestamptz as elapsed time;
+    # in Python, adding in UTC gives the same result across a DST change
     result = _to_utc(self) + datetime.timedelta(seconds=seconds)
     if self.tzinfo is None:
         return result.astimezone(Env.get().default_time_zone).replace(tzinfo=None)
@@ -432,16 +433,12 @@ def add_seconds(self: datetime.datetime, seconds: float) -> datetime.datetime:
 
 @add_seconds.to_sql
 def _(self: sql.ColumnElement, seconds: sql.ColumnElement) -> sql.ColumnElement:
-    # make_interval(years, months, weeks, days, hours, mins, secs); an interval's days are wall-clock days
-    # make_interval() rounds secs as a whole; timedelta(seconds=) rounds only its fraction
+    # same rounding as timedelta(seconds=): whole seconds stay exact, the rest is rounded to microseconds
     secs = seconds.cast(sql.Float)
     whole_secs = sql.func.trunc(secs)
     microsecs = sql.func.round((secs - whole_secs) * 1e6)
-    return (
-        self
-        + sql.func.make_interval(0, 0, 0, 0, 0, 0, whole_secs)
-        + sql.func.make_interval(0, 0, 0, 0, 0, 0, microsecs / 1e6)
-    )
+    # make_interval(years, months, weeks, days, hours, mins, secs) adds secs as elapsed time
+    return self + sql.func.make_interval(0, 0, 0, 0, 0, 0, whole_secs + microsecs / 1e6)
 
 
 @pxt.udf(is_method=True)
@@ -461,7 +458,8 @@ def seconds_since(self: datetime.datetime, start: datetime.datetime) -> float:
 
         >>> t.select(hours=t.resolved_at.seconds_since(t.created_at) / 3600).collect()
     """
-    # subtraction of two datetimes with the same tzinfo compares their wall-clock times
+    # Postgres returns the difference of two epochs, which is elapsed time;
+    # in Python, subtracting in UTC gives the same result across a DST change
     return (_to_utc(self) - _to_utc(start)).total_seconds()
 
 

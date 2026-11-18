@@ -927,14 +927,14 @@ class Expr(abc.ABC):
 
     def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | exprs.FunctionCall:
         if isinstance(other, datetime.timedelta):
-            return self._add_timedelta(other, sign=1)
+            return self._add_timedelta(other)
         if self.col_type.is_string_type():
             return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __sub__(self, other: object) -> exprs.ArithmeticExpr | exprs.FunctionCall:
         if isinstance(other, datetime.timedelta):
-            return self._add_timedelta(other, sign=-1)
+            return self._add_timedelta(-other)
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
     def __mul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
@@ -972,7 +972,7 @@ class Expr(abc.ABC):
 
     def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | exprs.FunctionCall:
         if isinstance(other, datetime.timedelta):
-            return self._add_timedelta(other, sign=1)
+            return self._add_timedelta(other)
         if self.col_type.is_string_type():
             return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
@@ -998,20 +998,19 @@ class Expr(abc.ABC):
     def __rfloordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def _add_timedelta(self, td: datetime.timedelta, sign: int) -> exprs.FunctionCall:
-        """Add sign * td to a Timestamp or Date expression."""
+    def _add_timedelta(self, td: datetime.timedelta) -> exprs.FunctionCall:
+        """Add td to a Timestamp or Date expression."""
         from pixeltable.functions import date as date_fns, timestamp as timestamp_fns
 
         if self.col_type.is_timestamp_type():
-            return timestamp_fns.add_seconds(self, sign * td.total_seconds())
+            return timestamp_fns.add_seconds(self, td.total_seconds())
         if self.col_type.is_date_type():
             if td.seconds != 0 or td.microseconds != 0:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
-                    f'{self!s}: a timedelta added to or subtracted from a Date needs to be a whole number of days, '
-                    f'but got {td!r}',
+                    f'{self!s}: a timedelta added to or subtracted from a Date needs to be a whole number of days',
                 )
-            return date_fns.add_days(self, sign * td.days)
+            return date_fns.add_days(self, td.days)
         hint = '; convert it with `astype(pxt.Timestamp)` first' if self.col_type.is_json_type() else ''
         raise excs.RequestError(
             excs.ErrorCode.TYPE_MISMATCH,
