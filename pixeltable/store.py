@@ -653,9 +653,7 @@ class StoreBase:
                 if m and len(pk_cols) > 0:
                     raw_vals = m.group(1)
                     vals = (
-                        [raw_vals]
-                        if len(pk_cols) == 1
-                        else [v.strip() for v in raw_vals.split(', ', len(pk_cols) - 1)]
+                        [raw_vals] if len(pk_cols) == 1 else [v.strip() for v in raw_vals.split(', ', len(pk_cols) - 1)]
                     )
                     if len(vals) == len(pk_cols):
                         detail = ', '.join(
