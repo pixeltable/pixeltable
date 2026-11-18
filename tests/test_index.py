@@ -1004,6 +1004,11 @@ class TestIndex:
         ):
             test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0), precision='fp16')
 
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0))
+        assert 'local_embedding' in str(exc_info.value), str(exc_info.value)
+        assert 'None' not in str(exc_info.value), str(exc_info.value)
+
     def run_btree_test(
         self, p: Callable[[str], str], data: list, data_type: type, is_data_versioned: bool
     ) -> pxt.Table:
