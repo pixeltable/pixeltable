@@ -1494,6 +1494,14 @@ class Catalog(CatalogBase):
         move_fn()
 
     def _move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
+        if path == new_path:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
+            )
+        if path.is_ancestor(new_path):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'
+            )
         dest_obj, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,

@@ -3,7 +3,9 @@ from typing import Callable
 import pytest
 
 import pixeltable as pxt
+from pixeltable import catalog
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 
 from .utils import DatabaseRoot, create_table_data, make_tbl, pxt_raises, reload_catalog
 
@@ -294,6 +296,20 @@ class TestDirs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='into its own subdirectory'):
             pxt.create_dir(p('dir2/sub1/subsub1'))
             pxt.move(p('dir2/sub1'), p('dir2/sub1/subsub1'))
+
+        # the catalog enforces the same rules for callers that bypass pxt.move(), such as proxy clients
+        src = catalog.Path.parse(p('dir2/sub1'))
+        cat = get_runtime().get_catalog(src)
+        for dest in ('dir2/sub1', 'dir2/sub1/x', 'dir2/sub1/subsub1/x'):
+            match = 'cannot be identical' if dest == 'dir2/sub1' else 'into its own subdirectory'
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+                cat.move(src, catalog.Path.parse(p(dest)), catalog.IfExistsParam.ERROR, catalog.IfNotExistsParam.ERROR)
+        assert sorted(pxt.list_dirs(p('dir2'), recursive=True)) == [
+            p('dir2/dir1'),
+            p('dir2/dir1/sub1'),
+            p('dir2/sub1'),
+            p('dir2/sub1/subsub1'),
+        ]
 
         # new client: force loading from store
         reload_catalog()
