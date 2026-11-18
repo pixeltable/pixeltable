@@ -1,5 +1,3 @@
-import datetime
-
 import numpy as np
 
 import pixeltable as pxt
@@ -37,14 +35,16 @@ class TestGlobals:
             c3min=pxtf.min(t.c3),
             c4min=pxtf.min(t.c4),
             c5min=pxtf.min(t.c5),
+            c6min=pxtf.min(t.c5.date()),
             c1max=pxtf.max(t.c1),
             c2max=pxtf.max(t.c2),
             c3max=pxtf.max(t.c3),
             c4max=pxtf.max(t.c4),
             c5max=pxtf.max(t.c5),
+            c6max=pxtf.max(t.c5.date()),
         ).collect()
-        res_direct = t.select(t.c1, t.c2, t.c3, t.c4, t.c5).collect()
-        assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in range(1, 6) for op in [min, max]}
+        res_direct = t.select(t.c1, t.c2, t.c3, t.c4, t.c5, c6=t.c5.date()).collect()
+        assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in range(1, 7) for op in [min, max]}
 
         # sum() and mean()
         res = t.select(
@@ -52,13 +52,6 @@ class TestGlobals:
         ).collect()
         res_direct = t.select(t.c2, t.c3).collect()
         assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in (2, 3) for op in (sum, np.mean)}
-
-    def test_min_max_date(self, db_root: DatabaseRoot) -> None:
-        t = pxt.create_table(db_root.make_catalog_path('test_min_max_date'), {'day': pxt.Date})
-        d1, d2 = datetime.date(2026, 1, 1), datetime.date(2026, 1, 2)
-        t.insert([{'day': d1}, {'day': d2}])
-        res = t.select(first=pxtf.min(t.day), latest=pxtf.max(t.day)).collect()
-        assert res[0] == {'first': d1, 'latest': d2}
 
     def test_coalesce(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
