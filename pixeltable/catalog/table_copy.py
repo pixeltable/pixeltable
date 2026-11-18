@@ -374,18 +374,25 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool) -> _
     return export
 
 
+def _existing_table(dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam) -> Table | None:
+    """Return the table at dest_path, or None. With 'ignore', a view at dest_path is an error, because the new table
+    is a base table."""
+    existing = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
+    if existing is not None and if_exists == IfExistsParam.IGNORE and existing._tbl_path.is_view():
+        raise excs.AlreadyExistsError(
+            excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists and is not a table'
+        )
+    return existing
+
+
 def copy_table(
     tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam
 ) -> tuple[Table, bool]:
     """Copy the local base table tbl to dest_path in dest_catalog, the catalog of the same database or a hosted one."""
     # 'error' and 'ignore' are decided before the export, so that no rows are copied for nothing.
     # import_table() does the 'replace'.
-    existing = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
+    existing = _existing_table(dest_catalog, dest_path, if_exists)
     if existing is not None and if_exists == IfExistsParam.IGNORE:
-        if existing._tbl_path.is_view():
-            raise excs.AlreadyExistsError(
-                excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists and is not a table'
-            )
         return existing, False
     if existing is not None and if_exists == IfExistsParam.ERROR:
         raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists.')
@@ -422,6 +429,10 @@ def create_table_like(
 ) -> tuple[Table, bool]:
     """Create an empty table at dest_path in dest_catalog with the columns, indexes and settings of the local base table
     tbl, as CREATE TABLE ... LIKE does in SQL."""
+    # create_from_model() returns any table at dest_path for 'ignore', a view included
+    existing = _existing_table(dest_catalog, dest_path, if_exists)
+    if existing is not None and if_exists == IfExistsParam.IGNORE:
+        return existing, False
     tv = tbl._tbl_version.get()
     is_other_db = dest_path.catalog_uri != tbl._path().catalog_uri
     if is_other_db:

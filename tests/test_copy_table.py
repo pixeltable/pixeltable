@@ -18,7 +18,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps, StorageTarget
 
 from .fault_injection import ExceptionFault
-from .utils import DatabaseRoot, assert_resultset_eq, get_image_files, pxt_raises
+from .utils import DatabaseRoot, assert_resultset_eq, get_image_files, pxt_raises, skip_test_if_not_installed
 
 # Defined only in this process, so that a hosted database (and the local proxy daemon) cannot load it; see
 # test_cloud_errors.py.
@@ -35,6 +35,7 @@ if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOU
 
 class TestCopyTable:
     def test_copy_table(self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function) -> None:
+        skip_test_if_not_installed('imagehash')
         p = db_root.make_catalog_path
         img_files = get_image_files()[:6]
         rng = np.random.default_rng(0)
@@ -133,6 +134,7 @@ class TestCopyTable:
             assert not rows_only.get_metadata()['columns']['upper']['is_computed']
 
     def test_copy_table_media(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('imagehash')
         p = db_root.make_catalog_path
         img_files = get_image_files()[:2]
 

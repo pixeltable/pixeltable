@@ -1726,6 +1726,10 @@ class Catalog(CatalogBase):
     ) -> tuple[LocalTable, bool]:
         import pixeltable.metadata.schema
 
+        # If a table id is passed in advance, we guarantee that the returned table will be created with that id.
+        # Therefore IfExistsParam.IGNORE is incompatible with explicit_tbl_id.
+        assert explicit_tbl_id is None or if_exists != IfExistsParam.IGNORE
+
         if additional_idxs is None:
             additional_idxs = []
 
@@ -1906,6 +1910,8 @@ class Catalog(CatalogBase):
         additional_idxs: list[IndexSpec] | None = None,
         explicit_tbl_id: UUID | None = None,
     ) -> tuple[LocalTable, bool]:
+        assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
+
         if additional_idxs is None:
             additional_idxs = []
 
@@ -2012,11 +2018,19 @@ class Catalog(CatalogBase):
             tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
+        # 'ignore' returns the table at path even when its base differs, so that a model binds to its view after a
+        # concurrent move of the base. _handle_path_collision() refuses such a view.
+        if if_exists == IfExistsParam.IGNORE:
+            existing = self.get_table(path, IfNotExistsParam.IGNORE)
+            if existing is not None:
+                return existing, False
+        create_if_exists = IfExistsParam.ERROR if if_exists == IfExistsParam.IGNORE else if_exists
+
         if base is None:
             return self._create_table(
                 path=path,
                 columns=additional_cols,
-                if_exists=if_exists,
+                if_exists=create_if_exists,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -2041,7 +2055,7 @@ class Catalog(CatalogBase):
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                if_exists=if_exists,
+                if_exists=create_if_exists,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
