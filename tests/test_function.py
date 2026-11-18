@@ -2310,6 +2310,16 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'weekday': parameter 'when'"):
             pxt.tool(day_of, name='weekday')
 
+        msg = "Tool 'overloaded_udf': a function with overloads cannot be used as a tool"
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tool(TestFunction.overloaded_udf)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'describe': a function with overloads"):
+            pxt.tools(describe)
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'udf_variadic_kw': parameter 'kwargs' has no type"
+        ):
+            pxt.tool(TestFunction.udf_variadic_kw)
+
     @pytest.mark.db_roots('local', reason='builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:
         t = pxt.create_table('customers', {'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None})
