@@ -34,7 +34,7 @@ class TestTableModel2:
                 comment='This is a column with special properties',
             )
             # the type comes from the annotation
-            annotated_with_props: pxt.Image | None = Column(media_validation='on_write', comment='annotated')
+            annotated_with_props: pxt.Image | None = Column(media_validation='on_write', comment='annotated')  # type: ignore[assignment]
             computed_with_special_props = pxt.Column(value=(value / 3), stored=False)
             computed_with_special_props_2 = pxt.Column(value=img.rotate(90))
 

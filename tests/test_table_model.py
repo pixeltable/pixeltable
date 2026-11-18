@@ -680,7 +680,7 @@ class TestTableModel:
 
         # the annotation gives the column type when Column() has no `type`
         class NotesV2(TableModelV2, name='notes', _is_data_versioned=is_data_versioned):
-            note_id: pxt.Int = Column(primary_key=True)
+            note_id: pxt.Int = Column(primary_key=True)  # type: ignore[assignment]
             val: pxt.Int | None
             extra: pxt.String | None
             doubled = note_id * 2
