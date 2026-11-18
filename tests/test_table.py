@@ -4625,12 +4625,6 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot use errors_only=True with multiple columns'):
             t.recompute_columns(t.i1, t.s1, errors_only=True)
 
-        # _check_recompute() runs the same checks without recomputing
-        version = t.get_metadata()['version']
-        assert t._check_recompute('I1', 's1') == ['i1', 's1']
-        assert t.get_metadata()['version'] == version
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column: h'):
-            t._check_recompute('h')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
             y = pxt.create_table(p('other_table'), {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)

@@ -44,9 +44,9 @@ def run(argv: list[str]) -> None:
     if args.dry_run:
         # TODO: compute the total number of affected rows across all transitive views as well, possibly even the
         # exact columns that would be recomputed
-        table_rows = models.RecomputePlanResponse.model_validate(
+        table_rows = models.RecomputeResponse.model_validate(
             post_request('/api/tables/recompute', {**body, 'dry_run': True})
-        ).table_rows
+        ).num_rows
         if args.as_json:
             plan = {
                 'path': path,
@@ -70,5 +70,5 @@ def run(argv: list[str]) -> None:
         print(resp.model_dump_json(indent=2))
         return
     print(f'recomputed {", ".join(resp.columns)} on {resp.path}: {plural(resp.num_rows, "row")} updated')
-    if resp.num_excs > 0:
-        print(f'{plural(resp.num_excs, "error")} in {", ".join(resp.cols_with_excs)}')
+    if resp.num_excs:
+        print(f'{plural(resp.num_excs, "error")} in {", ".join(resp.cols_with_excs or [])}')

@@ -401,13 +401,13 @@ def drop_table(req: Request) -> models.DropResponse:
 
 
 @router.post('/api/tables/recompute')
-def recompute(req: Request) -> models.RecomputeResponse | models.RecomputePlanResponse:
+def recompute(req: Request) -> models.RecomputeResponse:
     body = req.body(models.RecomputeBody)
     path = req.resolve_path(body.path)
     t = pxt.get_table(path)
     if body.dry_run:
         columns = t._check_recompute(*body.columns, errors_only=body.errors_only)
-        return models.RecomputePlanResponse(path=path, columns=columns, table_rows=t.count())
+        return models.RecomputeResponse(path=path, columns=columns, num_rows=t.count(), dry_run=True)
     status = t.recompute_columns(*body.columns, errors_only=body.errors_only, cascade=body.cascade)
     return models.RecomputeResponse(
         path=path,

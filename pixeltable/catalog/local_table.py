@@ -1290,28 +1290,25 @@ class LocalTable(Table):
 
         col_names: list[str] = []
         for column in columns:
-            col_name: str
-            col: Column
+            resolved_column: Column
             if isinstance(column, str):
-                col = self._tbl_version_path.get_column(column)
-                if col is None:
+                resolved_column = self._tbl_version_path.get_column(column)
+                if resolved_column is None:
                     raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
-                col_name = col.name
             else:
                 assert isinstance(column, ColumnRef)
-                col = column.col
-                if not self._tbl_version_path.has_column(col.qid):
-                    raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col.name}')
-                col_name = col.name
-            if not col.is_computed:
+                resolved_column = column.col
+                if not self._tbl_version_path.has_column(resolved_column.qid):
+                    raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {resolved_column.name}')
+            if not resolved_column.is_computed:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is not a computed column'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {resolved_column.name!r} is not a computed column'
                 )
-            if col.get_tbl().id != self._tbl_version_path.tbl_id:
+            if resolved_column.get_tbl().id != self._tbl_version_path.tbl_id:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {col_name}'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {resolved_column.name}'
                 )
-            col_names.append(col_name)
+            col_names.append(resolved_column.name)
         return col_names
 
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
