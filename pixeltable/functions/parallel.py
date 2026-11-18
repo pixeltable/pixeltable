@@ -162,16 +162,6 @@ class _SessionTerminatedError(Exception):
     """The server no longer knows the session a call was made on, which one reconnect recovers from."""
 
 
-async def _await_ended(connection: asyncio.Task[None]) -> None:
-    """Wait for a connection task to end, cancelled or not.
-
-    `Runtime.close()` cancels its loop's pending tasks, this one included, before it closes clients, and from anyio
-    4.16 the task then ends in cancellation. Unlike `await connection`, `asyncio.wait()` raises only on the caller's
-    own cancellation.
-    """
-    await asyncio.wait([connection])
-
-
 class _ParallelMcpClient(_ParallelClient):
     """Calls Parallel's free MCP endpoint, which needs no account and serves searches in Fast mode."""
 
@@ -228,7 +218,8 @@ class _ParallelMcpClient(_ParallelClient):
             assert self._disconnect is not None
             self._disconnect.set()
         if connection is not None:
-            await _await_ended(connection)
+            # as in close()
+            await asyncio.wait([connection])
 
     async def close(self) -> None:
         async with self._lock:
@@ -236,7 +227,10 @@ class _ParallelMcpClient(_ParallelClient):
             if self._disconnect is not None:
                 self._disconnect.set()
         if connection is not None:
-            await _await_ended(connection)
+            # Runtime.close() cancels the connection task before it closes clients, and from anyio 4.16 the task then
+            # ends in cancellation; unlike `await connection`, asyncio.wait() raises only on this call's own
+            # cancellation
+            await asyncio.wait([connection])
 
     async def _call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         session = await self._get_session()
