@@ -4,12 +4,15 @@ Contains the encoding of a call's request and response, the Servers' URLs, and t
 its Server.
 """
 
+from __future__ import annotations
+
 import asyncio
 import dataclasses
 import json
 import logging
 import os
 import pickle
+import threading
 import time
 from typing import Any, ClassVar
 
@@ -21,7 +24,6 @@ from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
 from pixeltable.service import db, proxy_protocol
 
-from ..exec_context import ExecContext
 from .interfaces import FnCallArgs
 
 _logger = logging.getLogger('pixeltable')
@@ -150,6 +152,8 @@ class ModalEndpoints:
 
     SERVERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS'
     HEADERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_HEADERS'
+    # serializes the calls of _load()
+    _load_lock: ClassVar[threading.Lock] = threading.Lock()
 
     # keyed by the UDF's path in the pixeltable.udf setting
     server_urls: dict[str, str]
@@ -157,8 +161,21 @@ class ModalEndpoints:
     headers: dict[str, str] = dataclasses.field(repr=False)
 
     @classmethod
-    def load(cls) -> Self:
-        """Read the endpoints from the environment, or get the local database's endpoints from the control plane."""
+    def get(cls) -> ModalEndpoints:
+        """Return the process's endpoints, looked up if Env has none."""
+        env = Env.get()
+        endpoints = env.udf_endpoints
+        if endpoints is None:
+            with cls._load_lock:
+                endpoints = env.udf_endpoints
+                if endpoints is None:
+                    endpoints = cls._load()
+                    env.udf_endpoints = endpoints
+        return endpoints
+
+    @classmethod
+    def _load(cls) -> Self:
+        """Return the endpoints in the environment, or the local database's endpoints from local_db_udf_servers()."""
         if os.environ.get(cls.SERVERS_VAR, '') != '':
             return cls(cls._env_object(cls.SERVERS_VAR), cls._env_object(cls.HEADERS_VAR))
         hosted_db = Env.get().hosted_db()
@@ -246,17 +263,14 @@ class ModalServerClient:
         self.num_active_calls = 0
         self.monitor = None
 
-    async def connect(self, ctx: ExecContext) -> None:
-        """Look up the Server's URL and headers in ctx.udf_endpoints, starting that lookup at the execution's first
-        connect()."""
+    async def connect(self) -> None:
+        """Look up the Server's URL and the headers."""
         if self.url is not None:
             return
-        # no lock: every connect() of the execution runs on its event loop, and no await may come between this check
-        # and the assignment
-        if ctx.udf_endpoints is None:
-            # a local database's lookup fingerprints the project, and can call the control plane
-            ctx.udf_endpoints = asyncio.create_task(asyncio.to_thread(ModalEndpoints.load))
-        endpoints = await ctx.udf_endpoints
+        endpoints = Env.get().udf_endpoints
+        if endpoints is None:
+            # a local database's lookup fingerprints the project and calls the control plane
+            endpoints = await asyncio.to_thread(ModalEndpoints.get)
         url = endpoints.server_urls.get(self.setting_path)
         if url is None:
             raise excs.RequestError(
@@ -304,6 +318,9 @@ class ModalServerClient:
                 self.monitor.cancel()
                 self.monitor = None
 
+        if response.status_code != 200:
+            # endpoints from before a redeploy get 401 (another release's secret) or an error of the stopped servers
+            Env.drop_udf_endpoints()
         if response.status_code == 401:
             # Modal's proxy answers 401 for a proxy token that it doesn't accept, and UdfServer.handle() for a wrong
             # secret; both are in ModalEndpoints.headers

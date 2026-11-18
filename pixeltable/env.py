@@ -51,6 +51,7 @@ from pixeltable.utils.sql import add_option_to_db_url, redact_db_url
 if TYPE_CHECKING:
     # aliased to avoid clashing with pathlib.Path above; env<->catalog is circular, so this stays type-only
     from pixeltable.catalog.path import Path as CatalogPath
+    from pixeltable.exec.expr_eval.modal_client import ModalEndpoints
 
 _logger = logging.getLogger(__name__)
 
@@ -176,6 +177,9 @@ class Env:
     _resource_pool_lock: threading.Lock
     # the last result of udf_configs(), with the config setting that produced it
     _udf_configs_cache: tuple[dict[str, Any], dict[str, UdfConfig]] | None
+    # the endpoints of the UDF servers; valid until this process changes the local database's deployment, re-imports
+    # project code or gets a failed call, each of which drops them
+    _udf_endpoints: ModalEndpoints | None
     _dbms: Dbms | None
     _db_lock: threading.Lock  # serializes ensure_connected()
     _db_connected: bool
@@ -241,6 +245,7 @@ class Env:
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
         self._udf_configs_cache = None
+        self._udf_endpoints = None
         self._dbms = None
         self._db_lock = threading.Lock()
         self._db_connected = False
@@ -1091,6 +1096,21 @@ class Env:
                 info = make_pool_info()
                 self._resource_pool_info[pool_id] = info
             return info
+
+    @property
+    def udf_endpoints(self) -> ModalEndpoints | None:
+        return self._udf_endpoints
+
+    @udf_endpoints.setter
+    def udf_endpoints(self, endpoints: ModalEndpoints | None) -> None:
+        self._udf_endpoints = endpoints
+
+    @classmethod
+    def drop_udf_endpoints(cls) -> None:
+        """Make the next ModalEndpoints.get() look up the endpoints of the UDF servers again."""
+        # not Env.get(): it would create an Env, which has no endpoints to drop
+        if cls._instance is not None:
+            cls._instance._udf_endpoints = None
 
     def udf_configs(self) -> dict[str, UdfConfig]:
         """Return the entries of the pixeltable.udf setting, keyed by each UDF's self_path."""

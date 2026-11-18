@@ -575,6 +575,14 @@ def create_image_context(project_dir: Path | None = None) -> Path:
     return package_image_context(project_dir).path
 
 
+def _parse_lockfile(lock: Path) -> dict[str, Any]:
+    try:
+        with lock.open('rb') as f:
+            return tomllib.load(f)
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{lock.name} is not valid TOML: {exc}') from exc
+
+
 def _lock_source_files(parsed: dict[str, Any], project_dir: Path) -> list[Path]:
     """Files under project_dir belonging to a package uv.lock installs from a path source.
 
@@ -615,11 +623,7 @@ def _lock_sources(project_dir: Path) -> list[Path]:
     lock = project_dir / 'uv.lock'
     if not lock.is_file():
         return []
-    try:
-        parsed = toml.load(lock)
-    except toml.TomlDecodeError as exc:
-        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{lock.name} is not valid TOML: {exc}') from exc
-    return _lock_source_files(parsed, project_dir)
+    return _lock_source_files(_parse_lockfile(lock), project_dir)
 
 
 def _installed_from_project(project_dir: Path) -> list[Path]:
@@ -644,7 +648,7 @@ def _locked_pixeltable(project_dir: Path) -> tuple[str, str] | None:
     or ('project', '') when the project is pixeltable itself; None when nothing pins it."""
     lock = project_dir / 'uv.lock'
     if lock.is_file():
-        entries = [p for p in toml.load(lock).get('package', []) if p.get('name') == 'pixeltable']
+        entries = [p for p in _parse_lockfile(lock).get('package', []) if p.get('name') == 'pixeltable']
         sources = [p.get('source') or {} for p in entries]
         if any('.' in source.values() for source in sources):
             return 'project', ''

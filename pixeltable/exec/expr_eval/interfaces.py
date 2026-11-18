@@ -10,8 +10,6 @@ import numpy as np
 
 from pixeltable import exprs, func
 
-from ..exec_context import ExecContext
-
 
 @dataclass
 class FnCallArgs:
@@ -93,7 +91,6 @@ class Dispatcher(Protocol):
     """
 
     row_builder: exprs.RowBuilder
-    ctx: ExecContext | None
     exc_event: asyncio.Event
     schedulers: dict[str, Scheduler]  # key: resource pool id
 

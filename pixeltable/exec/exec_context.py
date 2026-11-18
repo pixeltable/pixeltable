@@ -1,9 +1,5 @@
-from __future__ import annotations
-
-import asyncio
 import importlib.util
 import random
-from typing import TYPE_CHECKING
 
 import sqlalchemy as sql
 from rich.progress import Column, Progress, TextColumn
@@ -14,10 +10,6 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
 from pixeltable.utils.system import is_interactive_env
-
-if TYPE_CHECKING:
-    # modal_client imports this module
-    from .expr_eval.modal_client import ModalEndpoints
 
 
 class ExecContext:
@@ -35,9 +27,6 @@ class ExecContext:
     ignore_errors: bool
     random_seed: int  # general-purpose source of randomness with execution scope
     num_skipped_rows: int  # input rows dropped by AntiJoinNode
-    # the lookup of the UDF servers, started by the execution's first call to one of them; set and read only on the
-    # execution's event loop
-    udf_endpoints: asyncio.Task[ModalEndpoints] | None
 
     def __init__(
         self,
@@ -71,7 +60,6 @@ class ExecContext:
         self.ignore_errors = ignore_errors
         self.random_seed = random.getrandbits(63)
         self.num_skipped_rows = 0
-        self.udf_endpoints = None
 
     def reset(self) -> None:
         """Clear per-execution state so a cached plan can be re-executed without leaking
@@ -80,7 +68,6 @@ class ExecContext:
         self.progress_reporters = {}
         self.profile = exprs.ExecProfile(self.row_builder)
         self.num_skipped_rows = 0
-        self.udf_endpoints = None
 
     def add_progress_reporter(self, desc: str, unit_1: str, unit_2: str | None = None) -> ProgressReporter | None:
         """Records new ProgressReporter for the given desc/units, or returns the existing one."""

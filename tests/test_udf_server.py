@@ -13,6 +13,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.exec.expr_eval.modal_client import UDF_SECRET_HEADER_NAME
 from pixeltable.functions.image import resize, rotate
 from pixeltable.functions.string import format
@@ -86,7 +87,10 @@ def udf_servers(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
         with pytest.MonkeyPatch.context() as mp:
             mp.setenv('PXT_UDF_SERVERS', json.dumps(urls))
             mp.setenv('PXT_UDF_SERVERS_HEADERS', json.dumps({UDF_SECRET_HEADER_NAME: _UDF_SECRET}))
+            # Env keeps the endpoints of the first lookup in the process, from the variables as they were then
+            Env.drop_udf_endpoints()
             yield
+        Env.drop_udf_endpoints()
     finally:
         for server in servers:
             server.terminate()
@@ -234,21 +238,12 @@ class TestUdfServer:
         assert httpx.post(url, content=b'').status_code == 401
         assert httpx.post(url, content=b'', headers={UDF_SECRET_HEADER_NAME: 'other'}).status_code == 401
 
-        # each operation reads the Servers' endpoints when it starts: with another secret, a query and an insert are
-        # refused, and the operations after them succeed
+        # a query of a process with another secret fails
         _set_udf_setting(udf_setting, ['pixeltable.functions.string.format'])
-        t.add_computed_column(label=format('{0}', t.width))
-        query = t.select(out=format('<{0}>', t.width))
-        refused = r'refused the credentials of this process \(HTTP 401\)'
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setenv('PXT_UDF_SERVERS_HEADERS', json.dumps({UDF_SECRET_HEADER_NAME: 'other'}))
-            with pxt_raises(excs.ErrorCode.PROVIDER_AUTH_ERROR, match=refused):
-                query.collect()
-            with pxt_raises(excs.ErrorCode.PROVIDER_AUTH_ERROR, match=refused):
-                t.insert([{'boxes': [[0, 0, 2, 2]], 'width': 4}])
-        assert sorted(query.collect()['out']) == ['<-1>', '<4>']
-        t.insert([{'boxes': [[0, 0, 2, 2]], 'width': 4}])
-        assert t.where(t.label != None).count() == 3
+        env = {**os.environ, 'PXT_UDF_SERVERS_HEADERS': json.dumps({UDF_SECRET_HEADER_NAME: 'other'})}
+        query = _run_width_query(env, udf_setting)
+        assert query.returncode != 0
+        assert 'refused the credentials of this process (HTTP 401)' in query.stderr
 
         # a query fails in a pod of a hosted database deployed without UDF servers
         env = {**os.environ, 'PXTCLOUD_ORG': 'myorg', 'PXTCLOUD_DB': 'mydb'}

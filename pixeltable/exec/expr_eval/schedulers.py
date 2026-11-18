@@ -525,8 +525,7 @@ class ModalScheduler(Scheduler):
         item = await self.queue.get()
         # an exception in connect() fails the plan's execution, while _exec() turns the exception of a call into
         # errors of that call's rows
-        assert self.dispatcher.ctx is not None
-        await self.client.connect(self.dispatcher.ctx)
+        await self.client.connect()
         while True:
             # with all of the Server's containers busy, Modal queues a call, and the time in the queue counts against
             # the call's timeout

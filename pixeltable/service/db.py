@@ -355,10 +355,15 @@ def report_instance_fingerprint(
 
 
 def _settle(db_path: catalog.Path, accepted: list[GenerationReceipt], *, wait: bool) -> list[GenerationReceipt]:
-    if not wait:
-        receipts.raise_if_unsuccessful(db_path, accepted)
-        return accepted
-    return receipts.await_receipts(db_path, accepted)
+    try:
+        if not wait:
+            receipts.raise_if_unsuccessful(db_path, accepted)
+            return accepted
+        return receipts.await_receipts(db_path, accepted)
+    finally:
+        if _is_local_db(db_path):
+            # the accepted changes can replace the local database's UDF servers
+            Env.drop_udf_endpoints()
 
 
 def _plan(db_path: catalog.Path, target: DatabaseTarget) -> tuple[DbPlan, PrepareUpdateResponse]:
