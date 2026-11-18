@@ -16,6 +16,7 @@ import pixeltable as pxt
 from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
+from .conftest import SampleFileServer
 from .utils import (
     DatabaseRoot,
     ReloadTester,
@@ -643,6 +644,19 @@ class TestQuery:
         def value(self) -> int:
             return 0
 
+    @pxt.uda
+    class py_sum(pxt.Aggregator):
+        total: int
+
+        def __init__(self) -> None:
+            self.total = 0
+
+        def update(self, val: int) -> None:
+            self.total += val
+
+        def value(self) -> int:
+            return self.total
+
     def test_limit_0(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
 
@@ -777,6 +791,203 @@ class TestQuery:
         # Should return the number of distinct c1 values in filtered rows
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
+
+    def test_group_by_python_exprs(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """group_by() and distinct() return one row per key when part of the query is evaluated in Python."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test_group_by'),
+            {'acct': pxt.String, 'v': pxt.Int, 'info': pxt.Json},
+            _is_data_versioned=is_data_versioned,
+        )
+        # consecutive rows have different keys
+        validate_update_status(
+            t.insert({'acct': f'a{i % 2}', 'v': i, 'info': {'v': i}} for i in range(6)), expected_rows=6
+        )
+        t2 = pxt.create_table(
+            p('test_group_by_2'), {'acct': pxt.String, 'w': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
+        validate_update_status(t2.insert({'acct': f'a{i % 2}', 'w': i} for i in range(4)), expected_rows=4)
+        t3 = pxt.create_table(
+            p('test_group_by_3'),
+            {'a': pxt.String | None, 'b': pxt.Int, 'v': pxt.Int},
+            _is_data_versioned=is_data_versioned,
+        )
+        validate_update_status(
+            t3.insert({'a': None if i % 2 == 0 else 'x', 'b': (i // 2) % 2, 'v': i} for i in range(8)), expected_rows=8
+        )
+
+        @pxt.udf(_force_stored=True)
+        def is_small(x: int) -> bool:
+            return x < 5
+
+        @pxt.udf(_force_stored=True)
+        def tag(x: int) -> str:
+            return f'<{x}>'
+
+        @pxt.udf(_force_stored=True)
+        def upper(s: str) -> str:
+            return s.upper()
+
+        count = pxt.functions.count
+
+        def rows(query: pxt.Query) -> list[tuple]:
+            # key=repr: None is not comparable to str
+            return sorted((tuple(row.values()) for row in query.collect()), key=repr)
+
+        # where() in SQL
+        assert rows(t.where(t.v < 5).group_by(t.acct).select(t.acct, n=count(t.v), s=pxt.functions.sum(t.v))) == [
+            ('a0', 3, 6),
+            ('a1', 2, 4),
+        ]
+        # where() in Python, alone and with a conjunct in SQL
+        assert rows(t.where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t.v), s=pxt.functions.sum(t.v))) == [
+            ('a0', 3, 6),
+            ('a1', 2, 4),
+        ]
+        assert rows(t.where(is_small(t.v) & (t.v > 0)).group_by(t.acct).select(t.acct, n=count(t.v))) == [
+            ('a0', 2),
+            ('a1', 2),
+        ]
+        assert rows(t.where(is_small(t.v)).select(n=count(t.v))) == [(5,)]
+        assert rows(t.where(is_small(t.v)).select(t.acct).distinct()) == [('a0',), ('a1',)]
+
+        # select list in Python, over an aggregate and over a grouping expr
+        assert rows(t.group_by(t.acct).select(t.acct, n=tag(count(t.v)))) == [('a0', '<3>'), ('a1', '<3>')]
+        assert rows(t.group_by(t.acct).select(a=upper(t.acct), n=count(t.v))) == [('A0', 3), ('A1', 3)]
+
+        # user-defined aggregate
+        assert rows(t.where(is_small(t.v)).group_by(t.acct).select(t.acct, s=self.py_sum(t.v))) == [
+            ('a0', 6),
+            ('a1', 4),
+        ]
+
+        # grouping expr other than a column
+        assert rows(t.where(is_small(t.v)).group_by(t.v % 2).select(k=t.v % 2, n=count(t.v))) == [(0, 3), (1, 2)]
+
+        # several grouping exprs, one with nulls
+        assert rows(t3.where(is_small(t3.v)).group_by(t3.a, t3.b).select(t3.a, t3.b, n=count(t3.v))) == [
+            ('x', 0, 1),
+            ('x', 1, 1),
+            (None, 0, 2),
+            (None, 1, 1),
+        ]
+        assert rows(t3.where(is_small(t3.v)).group_by(t3.a).select(t3.a, n=count(t3.v))) == [('x', 2), (None, 3)]
+        assert rows(t3.where(is_small(t3.v)).select(t3.a, t3.b).distinct()) == [
+            ('x', 0),
+            ('x', 1),
+            (None, 0),
+            (None, 1),
+        ]
+
+        # aggregate over a Json column
+        assert rows(t.group_by(t.acct).select(t.acct, n=count(t.info))) == [('a0', 3), ('a1', 3)]
+
+        query = t.join(t2, on=t.acct == t2.acct).where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t2.w))
+        assert rows(query) == [('a0', 6), ('a1', 4)]
+
+        # order_by() on the grouping expr, with limit()
+        query = t.where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t.v)).order_by(t.acct, asc=False)
+        assert [tuple(row.values()) for row in query.collect()] == [('a1', 2), ('a0', 3)]
+        assert rows(query.limit(1)) == [('a1', 2)]
+
+        # order_by() on the grouping exprs in another order, also followed by another expr
+        expected = [('x', 0, 1), (None, 0, 2), ('x', 1, 1), (None, 1, 1)]
+        query = t3.where(is_small(t3.v)).group_by(t3.a, t3.b).select(t3.a, t3.b, n=count(t3.v))
+        for ordering in ([t3.b, t3.a], [t3.b], [t3.b, t3.a, t3.v]):
+            assert [tuple(row.values()) for row in query.order_by(*ordering).collect()] == expected
+        res = t3.where(is_small(t3.v)).select(t3.a, t3.b).distinct().order_by(t3.b, t3.a).collect()
+        assert [tuple(row.values()) for row in res] == [row[:2] for row in expected]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'limited to the grouping expressions \(a, b\)'):
+            _ = query.order_by(t3.b, t3.v).collect()
+
+        # order_by() on anything else conflicts with the ordering on the grouping exprs
+        for ordering, ordering_text in ((t.v, '(v, asc=True)'), (count(t.v), '(globals.count(v), asc=True)')):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=r'order_by\(\) is limited to the grouping expressions \(acct\) when part of an aggregate query '
+                r'cannot run in SQL',
+            ) as exc_info:
+                _ = t.where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t.v)).order_by(ordering).collect()
+            message = str(exc_info.value)
+            assert ordering_text in message
+            assert 'sort the collected rows' in message
+
+    def test_order_by_python_exprs(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """order_by() on an expression without a SQL translation raises an error."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test_order_by'), {'id': pxt.Int, 'x': pxt.Int, 'info': pxt.Json}, _is_data_versioned=is_data_versioned
+        )
+        validate_update_status(
+            t.insert({'id': i, 'x': x, 'info': {'k': x}} for i, x in enumerate([3, 1, 4, 2])), expected_rows=4
+        )
+        validate_update_status(t.add_computed_column(live=t.info.k.astype(pxt.Int), stored=False), expected_rows=4)
+
+        @pxt.udf(_force_stored=True)
+        def double(x: int) -> int:
+            return x * 2
+
+        @pxt.query
+        def ranked(offset: int) -> pxt.Query:
+            return t.order_by(double(t.x + offset)).select(t.id)
+
+        store = 'add the value as a stored computed column'
+        sort = 'sort the collected rows'
+        count = pxt.functions.count
+        # (query, order_by() expr, its part without a SQL translation, workaround)
+        queries: list[tuple[Callable[[], Any], str, str, str]] = [
+            (t.order_by(double(t.x)).select(t.id).collect, 'double(x)', 'double(x)', store),
+            (t.order_by(double(t.x), asc=False).select(t.id).collect, 'double(x)', 'double(x)', store),
+            (
+                t.order_by(double(t.x) + double(t.x) + t.x).select(t.id).collect,
+                '(double(x) + double(x)) + x',
+                'double(x)',
+                store,
+            ),
+            (t.order_by(t.live).select(t.id).collect, 'live', 'info.k', store),
+            (t.order_by(t.live, asc=False).select(t.id).collect, 'live', 'info.k', store),
+            (t.order_by(t.info.k).select(t.id).collect, 'info.k', 'info.k', store),
+            (t.order_by(t.info.k, asc=False).select(t.id).collect, 'info.k', 'info.k', store),
+            (t.order_by(t.info.k.astype(pxt.Int)).select(t.id).collect, 'info.k.astype(Int)', 'info.k', store),
+            # with other clauses
+            (t.order_by(t.x).order_by(double(t.x)).select(t.id).collect, 'double(x)', 'double(x)', store),
+            (t.where(t.x > 1).order_by(double(t.x)).select(t.id).limit(2).collect, 'double(x)', 'double(x)', store),
+            (t.where(double(t.x) > 2).order_by(double(t.x)).select(t.id).collect, 'double(x)', 'double(x)', store),
+            # an aggregate cannot be stored in a computed column
+            (
+                t.group_by(t.x).select(t.x, n=count(t.id)).order_by(double(count(t.id))).collect,
+                'double(globals.count(id))',
+                'double(globals.count(id))',
+                sort,
+            ),
+            # in a @pxt.query, with a parameter
+            (lambda: pxt.eval_udf(ranked, 1), 'double(x + offset)', 'double(x + offset)', store),
+        ]
+        for run_query, expr_text, no_sql_text, workaround in queries:
+            message = f'SQL: {expr_text}. No SQL translation: {no_sql_text}. As a workaround, you can {workaround}'
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=re.escape(message)):
+                _ = run_query()
+
+        # a where() in Python does not affect an order_by() in SQL
+        res = t.where(double(t.x) > 2).order_by(t.x, asc=False).select(t.x).collect()
+        assert res['x'] == [4, 3, 2]
+
+        # order_by() on a stored computed column with the same value
+        validate_update_status(t.add_computed_column(k=t.info.k.astype(pxt.Int)), expected_rows=4)
+        assert t.order_by(t.k).select(t.id).collect()['id'] == [1, 3, 0, 2]
+        assert t.order_by(t.k, asc=False).select(t.id).collect()['id'] == [2, 0, 3, 1]
+
+    def test_order_by_read_validated_media(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """order_by() on a media column with media_validation='on_read' orders by the stored file url."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_order_by_media'), {'id': pxt.Int, 'img': pxt.Image}, media_validation='on_read')
+        urls = sorted((sample_file_server.url(f, db_root) for f in get_image_files()[:4]), reverse=True)
+        validate_update_status(t.insert({'id': i, 'img': url} for i, url in enumerate(urls)), expected_rows=4)
+
+        assert t.order_by(t.img).select(t.id).collect()['id'] == [3, 2, 1, 0]
+        assert t.order_by(t.img, asc=False).select(t.id).collect()['id'] == [0, 1, 2, 3]
+        assert t.order_by(t.img).select(t.id, t.img.width).collect()['id'] == [3, 2, 1, 0]
 
     def test_count_join(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Tests for join...count queries"""
@@ -1286,7 +1497,7 @@ class TestQuery:
             with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='needs to be expressible in SQL') as exc_info:
                 _ = query.collect()
             message = str(exc_info.value)
-            assert expr_text in message
+            assert f'No SQL translation: {expr_text}.' in message
             assert 'computed column' in message
 
         # JSON path, cast JSON path, and a stored column mixed with a JSON path.

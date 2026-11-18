@@ -848,6 +848,12 @@ class QueryBase(ABC):
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> Self:
         """Add an order-by clause to this Query.
 
+        A current limitation is that each expression must have a SQL translation, which means that ordering by calls
+        to user-defined `@pxt.udf` functions or JSON paths (or by unstored computed columns that include those) is
+        currently not supported.
+        As a workaround, consider adding the ordering expression as a stored computed column of a scalar type and
+        ordering by that column instead.
+
         Args:
             expr_list: expressions to order by
             asc: whether to order in ascending order (True) or descending order (False).

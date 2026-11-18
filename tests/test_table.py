@@ -1101,8 +1101,13 @@ class TestTable:
     def test_validate_on_read_with_computed_col(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
-        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        schema: dict[str, Any] = {'media': pxt.Video | None, 'is_bad_media': pxt.Bool | None, 'stage': pxt.Int}
+        rows = [{'id': i, 'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for i, f in enumerate(files)]
+        schema: dict[str, Any] = {
+            'id': pxt.Int,
+            'media': pxt.Video | None,
+            'is_bad_media': pxt.Bool | None,
+            'stage': pxt.Int,
+        }
 
         # we are testing a nonsensical scenario: a computed column that references a read-validated media column,
         # which forces validation
@@ -1118,7 +1123,7 @@ class TestTable:
             on_read_tbl.select(
                 on_read_tbl.media, *path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media, on_read_tbl.md
             )
-            .order_by(on_read_tbl.media)
+            .order_by(on_read_tbl.id)
             .collect()
         )
 
@@ -1132,7 +1137,7 @@ class TestTable:
             .select(
                 on_read_tbl.media, *path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media, on_read_tbl.md
             )
-            .order_by(on_read_tbl.media)
+            .order_by(on_read_tbl.id)
             .collect()
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
