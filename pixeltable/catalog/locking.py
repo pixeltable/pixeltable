@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+LOCK_TIMEOUT_MS = 100
+
 
 def finalized_view_base_id(tbl_md: schema.TableMd) -> UUID | None:
     """Return the mutable base whose view_sn must advance when this view's metadata is deleted, or None."""
@@ -91,7 +93,7 @@ class TblOpClass(enum.Enum):
         return TblLockMode.ACCESS_EXCLUSIVE
 
     def should_wait(self, any_data_versioned: bool) -> bool:
-        """Return whether to wait for locks that are not immediately available, instead of failing.
+        """Return whether to wait for locks without a time limit, instead of failing after a short timeout.
 
         Data reads and writes wait only if `any_data_versioned` is True. Schema changes and pending-op finalization
         always wait.
@@ -143,10 +145,9 @@ class LockTarget:
     store_tbl_name: str
     mode: TblLockMode
 
-    def lock_stmt(self, *, wait: bool) -> str:
+    def lock_stmt(self) -> str:
         """Return the LOCK TABLE statement that acquires this target's lock."""
-        nowait_clause = '' if wait else ' NOWAIT'
-        return f'LOCK TABLE {self.store_tbl_name} IN {self.mode.sql_name} MODE{nowait_clause}'
+        return f'LOCK TABLE {self.store_tbl_name} IN {self.mode.sql_name} MODE'
 
 
 class LockRequest:
@@ -401,8 +402,8 @@ class XactLocks:
         assert not self._is_acquired
         self._dirs.setdefault(dir_id, path)
 
-    # whether to wait for locks that are not immediately available; if False, raise LockNotAvailableError.
-    # Applies to every lock in the set: True if any table requires waiting.
+    # whether to wait for locks without a time limit; if False, wait at most LOCK_TIMEOUT_MS per lock and then
+    # raise LockNotAvailableError. Applies to every lock in the set: True if any table requires waiting.
     @property
     def wait(self) -> bool:
         return self.request.op_class.should_wait(self._any_data_versioned)
@@ -415,8 +416,12 @@ class XactLocks:
         acquisition ensures no deadlocks. LOCK TABLE leaves the transaction's snapshot unset. The first directory
         UPDATE establishes it, so directory locks must come after all store table locks.
 
+        When the lock set does not wait, each lock waits at most LOCK_TIMEOUT_MS instead of failing immediately
+        (NOWAIT): a queued request makes VACUUM release the ACCESS EXCLUSIVE lock it takes to truncate a table, while
+        a NOWAIT request is invisible to it.
+
         Raises:
-            LockNotAvailableError: a NOWAIT lock could not be acquired.
+            LockNotAvailableError: a lock could not be acquired within LOCK_TIMEOUT_MS.
             StaleLockSetError: a named store table no longer exists.
         """
         assert get_runtime().in_xact
@@ -427,7 +432,9 @@ class XactLocks:
         if len(targets) > 0:
             fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
             # Send the LOCK TABLE statements in one request, separated by semicolons. psycopg executes them in order.
-            stmt = '; '.join(t.lock_stmt(wait=self.wait) for t in targets)
+            stmt = '; '.join(t.lock_stmt() for t in targets)
+            if not self.wait:
+                stmt = f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT_MS}ms'; {stmt}; SET LOCAL lock_timeout = DEFAULT"
             try:
                 get_runtime().conn.exec_driver_sql(stmt)
             except sql_exc.DBAPIError as e:

@@ -1,6 +1,8 @@
 import enum
 import logging
 import pathlib
+import threading
+import time
 from typing import Any, Callable
 
 import psycopg
@@ -939,3 +941,112 @@ class TestLocking:
         )
         assert telemetry_recorder.counter_total(telemetry_schemas.lock_set_restarts) == 1
         assert pxt.list_tables() == []
+
+
+@pytest.mark.db_roots('local', reason='PXT-1806 repro: needs direct access to the local Postgres server')
+# TODO delete
+class TestPxt1806Repro:
+    """Temporary repro for PXT-1806; remove before merging.
+
+    Data reads and writes on an operational table used to lock the store table with NOWAIT and fail with
+    SCHEMA_CHANGE_IN_PROGRESS when anything else held a conflicting lock, e.g. autovacuum's truncation phase.
+    """
+
+    @staticmethod
+    def store_tbl_name(t: pxt.Table) -> str:
+        return get_store_tbl_name(t._id, is_view=False)
+
+    @staticmethod
+    def run_op(op: str, t: pxt.Table) -> None:
+        if op == 'insert':
+            t.insert([{'a': 2}])
+        else:
+            assert t.count() == 1
+
+    @pytest.mark.parametrize('op', ['insert', 'count'])
+    def test_holder_that_yields_to_waiters(self, op: str, uses_db: None) -> None:
+        """An ACCESS EXCLUSIVE holder that releases its lock once a request is queued, as VACUUM truncation does,
+        must not fail a read or write."""
+        t = pxt.create_table('tbl', {'a': pxt.Int | None}, _is_data_versioned=False)
+        t.insert([{'a': 1}])
+
+        holder = Env.get().engine.connect()
+        holder_xact = holder.begin()
+        holder.exec_driver_sql(f'LOCK TABLE {self.store_tbl_name(t)} IN ACCESS EXCLUSIVE MODE')
+        saw_waiter = threading.Event()
+
+        def yield_to_waiter() -> None:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if TestLocking.is_blocked_on_tbl_lock(t):
+                    saw_waiter.set()
+                    break
+                time.sleep(0.005)
+            holder_xact.commit()
+            holder.close()
+
+        holder_thread = threading.Thread(target=yield_to_waiter, daemon=True)
+        holder_thread.start()
+        try:
+            self.run_op(op, t)
+        finally:
+            holder_thread.join()
+        assert saw_waiter.is_set()
+        assert t.count() == (2 if op == 'insert' else 1)
+
+    @pytest.mark.parametrize('op', ['insert', 'count'])
+    def test_holder_that_does_not_yield(self, op: str, uses_db: None) -> None:
+        """A conflicting lock held past the short lock timeout still fails fast with SCHEMA_CHANGE_IN_PROGRESS."""
+        t = pxt.create_table('tbl', {'a': pxt.Int | None}, _is_data_versioned=False)
+        t.insert([{'a': 1}])
+
+        with Env.get().engine.connect() as holder, holder.begin():
+            holder.exec_driver_sql(f'LOCK TABLE {self.store_tbl_name(t)} IN ACCESS EXCLUSIVE MODE')
+            start = time.monotonic()
+            with pxt_raises(excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS):
+                self.run_op(op, t)
+            elapsed = time.monotonic() - start
+        assert elapsed < 2, elapsed
+        assert t.count() == 1
+
+    def test_concurrent_vacuum_truncation(self, uses_db: None) -> None:
+        """VACUUM's truncation phase on an emptied store table must not fail concurrent reads and writes.
+
+        Runs real VACUUM in a loop on a separate connection while the table is repeatedly filled and emptied, so
+        each VACUUM has trailing empty pages to truncate. Timing-dependent.
+        """
+        t = pxt.create_table('tbl', {'a': pxt.Int | None, 's': pxt.String | None}, _is_data_versioned=False)
+        rows = [{'a': i, 's': 'x' * 100} for i in range(20_000)]
+        store_tbl_name = self.store_tbl_name(t)
+        stop = threading.Event()
+        num_vacuums = 0
+        vacuum_errors: list[Exception] = []
+
+        def vacuum_loop() -> None:
+            nonlocal num_vacuums
+            try:
+                with Env.get().engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+                    while not stop.is_set():
+                        conn.exec_driver_sql(f'VACUUM (TRUNCATE true) {store_tbl_name}')
+                        num_vacuums += 1
+            except Exception as e:
+                vacuum_errors.append(e)
+
+        vacuum_thread = threading.Thread(target=vacuum_loop, daemon=True)
+        vacuum_thread.start()
+        num_iterations = 0
+        deadline = time.monotonic() + 30
+        try:
+            while time.monotonic() < deadline:
+                t.insert(rows)
+                t.delete()
+                for _ in range(20):
+                    assert t.count() == 0
+                    t.insert([{'a': -1}])
+                    t.where(t.a == -1).delete()
+                num_iterations += 1
+        finally:
+            stop.set()
+            vacuum_thread.join()
+            _logger.info(f'PXT-1806 repro: {num_iterations} iterations, {num_vacuums} vacuums')
+        assert not vacuum_errors, vacuum_errors
