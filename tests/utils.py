@@ -150,6 +150,17 @@ def free_port() -> int:
     raise RuntimeError(f'No free port in {first}-{first + slice_len - 1}')
 
 
+@contextmanager
+def bystander_process() -> Iterator[subprocess.Popen[bytes]]:
+    """A process unrelated to Pixeltable, alive until the block exits."""
+    proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], stdin=subprocess.DEVNULL)
+    try:
+        yield proc
+    finally:
+        proc.kill()
+        proc.wait()
+
+
 LocalDbKind = Literal['embedded', 'external']
 
 

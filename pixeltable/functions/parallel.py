@@ -218,7 +218,8 @@ class _ParallelMcpClient(_ParallelClient):
             assert self._disconnect is not None
             self._disconnect.set()
         if connection is not None:
-            await connection
+            # as in close()
+            await asyncio.wait([connection])
 
     async def close(self) -> None:
         async with self._lock:
@@ -226,7 +227,10 @@ class _ParallelMcpClient(_ParallelClient):
             if self._disconnect is not None:
                 self._disconnect.set()
         if connection is not None:
-            await connection
+            # Runtime.close() cancels the connection task before it closes clients, and from anyio 4.16 the task then
+            # ends in cancellation; unlike `await connection`, asyncio.wait() raises only on this call's own
+            # cancellation
+            await asyncio.wait([connection])
 
     async def _call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         session = await self._get_session()

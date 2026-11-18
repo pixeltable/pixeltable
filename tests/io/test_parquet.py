@@ -3,11 +3,14 @@ import pathlib
 
 import numpy as np
 import pandas as pd
+import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pa_parquet
 import pytest
+from PIL.Image import Transpose
 
 import pixeltable as pxt
+from pixeltable.catalog import RowCountStats
 from pixeltable.utils.arrow import to_pydict
 
 from ..conftest import SampleFileServer
@@ -209,6 +212,69 @@ class TestParquet:
         assert len1 == 10  # 5 rows in each of the two subdirectory files
         tab.insert(str(parquet_dir), source_format='parquet')
         assert tab.count() == len1 * 2
+
+    def test_insert_row_groups_single_version(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        """An insert from a Parquet file with several row groups creates one version of the table and of each view."""
+        p = db_root.make_catalog_path
+        parquet_path = tmp_path / 'batches.parquet'
+        pa_parquet.write_table(pa.table({'n': list(range(6))}), str(parquet_path), row_group_size=2)
+        assert pa_parquet.ParquetFile(str(parquet_path)).num_row_groups == 3
+
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t.insert([{'n': 100}])
+        v = pxt.create_view(p('v'), t, additional_columns={'n2': t.n * 2})
+        fv = pxt.create_view(p('fv'), v.where(v.n % 2 == 0))
+        assert t.get_metadata()['version'] == 1
+        assert v.get_metadata()['version'] == 0
+        assert fv.get_metadata()['version'] == 0
+
+        validate_update_status(
+            t.insert(str(parquet_path), source_format='parquet'),
+            expected_row_counts=RowCountStats(inserted_rows=6),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=9),
+        )
+        assert t.get_metadata()['version'] == 2
+        assert v.get_metadata()['version'] == 1
+        assert fv.get_metadata()['version'] == 1
+        assert v.select(v.n, v.n2).order_by(v.n).collect()['n2'] == [0, 2, 4, 6, 8, 10, 200]
+        assert fv.select(fv.n).order_by(fv.n).collect()['n'] == [0, 2, 4, 100]
+
+        t.revert()
+        assert t.select(t.n).collect()['n'] == [100]
+        assert v.select(v.n2).collect()['n2'] == [200]
+        assert fv.select(fv.n).collect()['n'] == [100]
+
+    @pytest.mark.db_roots('local', reason='Parquet source references local media files')
+    def test_insert_media_row_groups(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        """A multi-row-group media insert populates its computed image view and creates one version of each table."""
+        image_path = get_image_files()[0]
+        with PIL.Image.open(image_path) as image:
+            width, height = image.size
+        row_group_size = 1000
+        num_rows = 3 * row_group_size + 1
+        parquet_path = tmp_path / 'media.parquet'
+        pa_parquet.write_table(
+            pa.table({'n': list(range(num_rows)), 'img': [str(image_path)] * num_rows}),
+            parquet_path,
+            row_group_size=row_group_size,
+        )
+        t = pxt.create_table(db_root.make_catalog_path('media'), {'n': pxt.Int, 'img': pxt.Image})
+        v = pxt.create_view(
+            db_root.make_catalog_path('rotated'), t, additional_columns={'rot': t.img.transpose(Transpose.ROTATE_90)}
+        )
+
+        validate_update_status(
+            t.insert(str(parquet_path), source_format='parquet'),
+            expected_row_counts=RowCountStats(inserted_rows=num_rows),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=num_rows),
+        )
+        assert t.get_metadata()['version'] == 1
+        assert v.get_metadata()['version'] == 1
+        assert t.select(t.n).order_by(t.n).collect()['n'] == list(range(num_rows))
+        result = v.select(v.n, width=v.rot.width, height=v.rot.height).order_by(v.n).collect()
+        assert result['n'] == list(range(num_rows))
+        assert result['width'] == [height] * num_rows
+        assert result['height'] == [width] * num_rows
 
     def test_insert_empty_dir(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         if db_root.id != 'proxy':

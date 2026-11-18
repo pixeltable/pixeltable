@@ -27,9 +27,12 @@ from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
+from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.filecache import FileCache
 
 from .conftest import SampleFileServer
+from .fault_injection import ExceptionFault
 from .utils import (
     TESTS_DIR,
     DatabaseRoot,
@@ -1231,7 +1234,9 @@ class TestTable:
         expected = [{'n': 0, 's': 'str_0'}, {'n': 10, 's': 'str_1'}, {'n': 20, 's': 'str_2'}]
         assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == expected
 
-        t3.insert(src_query)
+        status = t3.insert(src_query, return_rows=True)
+        assert status.rows is not None
+        assert sorted(status.rows, key=lambda row: row['n']) == expected
         assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == [row for row in expected for _ in range(2)]
 
     def test_component_view_query_as_source(self, db_root: DatabaseRoot) -> None:
@@ -2571,6 +2576,23 @@ class TestTable:
         assert Path(res[0]['video']).exists()
         assert Path(res[0]['clip']).exists()
 
+    def test_temp_dir_file_in_two_rows(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'img': pxt.Image})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            img_file = get_image_files()[0]
+            img_path = Path(tmp_dir) / Path(img_file).name
+            shutil.copy(img_file, img_path)
+            validate_update_status(t.insert([{'id': 0, 'img': str(img_path)}, {'id': 1, 'img': str(img_path)}]), 2)
+
+        res = t.select(img=t.img.localpath).collect()
+        assert len(res) == 2
+        paths = [Path(row['img']) for row in res]
+        assert all(path.read_bytes() == Path(img_file).read_bytes() for path in paths)
+        # locally both rows wait on one save; through the proxy, the client sends each row's file separately
+        if db_root.id == 'local':
+            assert paths[0] == paths[1]
+
     @pytest.mark.skipif(
         'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,
         reason='Specifying a default media destination disrupts the file cache counts',
@@ -2745,7 +2767,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+    def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool, fault_injection: None) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String,
@@ -2830,6 +2852,20 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
+
+        # The insert source validation should happen before the (potentially expensive) plan is executed.
+        bad_rows = [{'c1': f'row {i}'} for i in range(2500)]
+        del bad_rows[1500]['c1']
+        row_count = t.count()
+        if db_root.id == 'local':
+            fault = ExceptionFault(RuntimeError('Insert plan ran before source validation'))
+            get_runtime().fault_manager.inject_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ, fault)
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c1\) in row \{\}'):
+            t.insert(bad_rows)
+        assert t.count() == row_count
+        if db_root.id == 'local':
+            fault.assert_count(0)
+            get_runtime().fault_manager.remove_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ)
 
         # wrong array shape
         pxt.drop_table(tbl_name, if_not_exists='ignore')
