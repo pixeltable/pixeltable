@@ -16,7 +16,7 @@ if typing.TYPE_CHECKING:
 
 def export_parquet(
     table_or_query: pxt.Table | pxt.Query,
-    parquet_path: Path,
+    parquet_path: str | Path,
     partition_size_bytes: int = 100_000_000,
     inline_images: bool = False,
     _write_md: bool = False,
@@ -81,7 +81,7 @@ def export_parquet(
             )
 
     # store the changes atomically
-    with transactional_directory(parquet_path) as temp_path:
+    with transactional_directory(Path(parquet_path)) as temp_path:
         if _write_md:
             json.dump(query.as_dict(), (temp_path / '.pixeltable.json').open('w'))
             type_dict = {k: v.as_dict() for k, v in schema.items()}

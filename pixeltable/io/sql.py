@@ -209,6 +209,16 @@ def import_sql(
             existing._insert_sql_source(sql_data_source, on_error=on_error, send_connect_url=send_connect_url)
             return existing
 
+        pk_names = [primary_key] if isinstance(primary_key, str) else primary_key or []
+        for pk_name in pk_names:
+            pk_type = schema.get(pk_name)
+            if pk_name not in schema_overrides and isinstance(pk_type, ts.ColumnType) and pk_type.nullable:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Primary key column {pk_name!r} is nullable in the SQL source. Make it non-nullable with '
+                    f'`schema_overrides={{{pk_name!r}: pxt.{pk_type._to_base_str()}}}`',
+                )
+
         tbl = pxt.create_table(
             tbl_name,
             schema=schema,

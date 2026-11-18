@@ -338,7 +338,8 @@ class TestParquet:
         assert pa.array(pq2.column('c2'), type='str').equals(pa.array(['row1', 'row2']))
 
         export_file3 = tmp_path / 'test3.pq'
-        pxt.io.export_parquet(t.where(t.c1 == 1), export_file3)
+        # a str path works as well as a Path
+        pxt.io.export_parquet(t.where(t.c1 == 1), str(export_file3))
         assert export_file3.exists()
         pq3 = parquet.read_table(str(export_file3))
         assert pq3.num_rows == 1

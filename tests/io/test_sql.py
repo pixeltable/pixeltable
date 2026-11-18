@@ -647,6 +647,21 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='nonexistent'):
             import_sql(ok_src, engine, p('never1'), schema_overrides={'nonexistent': pxt.Int | None})
 
+        # a primary key that is nullable in the source points to schema_overrides, which then works
+        pk_src = _seed_source(
+            engine, 'pk_src', [sql.Column('review_id', sql.Text, nullable=True)], [{'review_id': 'r1'}]
+        )
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Primary key column 'review_id' is nullable in the SQL source\. Make it non-nullable with "
+            r"`schema_overrides=\{'review_id': pxt\.String\}`",
+        ):
+            import_sql(pk_src, engine, p('pk_dest'), primary_key='review_id')
+        pk_tbl = import_sql(
+            pk_src, engine, p('pk_dest'), primary_key='review_id', schema_overrides={'review_id': pxt.String}
+        )
+        assert pk_tbl.collect()['review_id'] == ['r1']
+
         # Two expressions aliased to the same name -> import_sql rejects up-front.
         dup_stmt = sql.select(ok_src.c.c_int.label('c_int'), (ok_src.c.c_int + 1).label('c_int'))
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='duplicate output column'):
