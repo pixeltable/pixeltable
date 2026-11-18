@@ -172,6 +172,8 @@ jobs:
               MARKERS='not resource_intensive'
             fi
           fi
+          # -m replaces pyproject.toml's addopts selection, and with it the exclusion of the benchmarks
+          MARKERS="$MARKERS and not benchmark"
           DESELECT='--deselect=tests/functions/test_bedrock.py::TestBedrock'
           if [[ '${{ matrix.bedrock }}' == 'true' ]]; then
             DESELECT=''
