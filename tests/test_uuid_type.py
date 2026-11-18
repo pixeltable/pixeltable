@@ -139,7 +139,7 @@ class TestUUIDType:
 
         # a str that parses as a UUID is converted, in either operand order
         assert t.where(t.id == str(u1)).select(t.v).collect()['v'] == [1]
-        assert t.where(str(u1) == t.id).select(t.v).collect()['v'] == [1]
+        assert t.where(str(u1) == t.id).select(t.v).collect()['v'] == [1]  # type: ignore[arg-type]
         assert t.where(t.id != str(u1)).select(t.v).collect()['v'] == [2]
         assert t.where(t.id == str(u1).upper()).select(t.v).collect()['v'] == [1]
         assert sorted(t.where(t.id.isin([str(u1), u2, 'not-a-uuid'])).select(t.v).collect()['v']) == [1, 2]
