@@ -87,7 +87,7 @@ class ObjectStoreSaveNode(ExecNode):
     class RowState:
         row: exprs.DataRow
         idx: int | None  # position in input stream; None if we don't retain input order
-        num_missing: int  # number of references to media files in this row
+        num_missing: int  # pending saves this row waits on, its own and those that earlier rows started
         delete_destinations: list[Path]  # paths to delete after all copies are complete
 
     def __init__(self, file_col_info: list[exprs.ColumnSlotIdx], input: ExecNode, retain_input_order: bool = True):
