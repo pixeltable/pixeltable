@@ -684,7 +684,11 @@ class QueryBase(ABC):
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        from pixeltable.catalog.model import TableModelMeta
+
         assert len(self._from_clause.tbls) > 0
+        if isinstance(other, TableModelMeta):
+            other = other.table
         # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
         if self._from_clause.tbls[0].is_data_versioned() != other._is_data_versioned():
             raise excs.RequestError(
