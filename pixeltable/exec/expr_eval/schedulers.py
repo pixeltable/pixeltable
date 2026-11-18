@@ -523,9 +523,10 @@ class ModalScheduler(Scheduler):
     async def _main_loop(self) -> None:
         # connect() looks up the Server's URL at the first call, do that only once we have something to work on
         item = await self.queue.get()
-        # an exception in connect() fails the query, while _exec() turns the exception of a call into errors of that
-        # call's rows
-        await self.client.connect()
+        # an exception in connect() fails the plan's execution, while _exec() turns the exception of a call into
+        # errors of that call's rows
+        assert self.dispatcher.ctx is not None
+        await self.client.connect(self.dispatcher.ctx)
         while True:
             # with all of the Server's containers busy, Modal queues a call, and the time in the queue counts against
             # the call's timeout

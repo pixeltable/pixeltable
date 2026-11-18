@@ -65,11 +65,13 @@ def _pxt(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], *args: str
     )
 
 
-def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], pid: int) -> int:
-    """Run `pxt health`, check that a new daemon replaced the one with pid, and return the new daemon's pid."""
-    daemon = psutil.Process(pid)
+def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], daemon: psutil.Process) -> int:
+    """Run `pxt health`, check that a new daemon replaced `daemon`, and return the new daemon's pid.
+
+    daemon: taken before the command that replaces it; psutil.Process() raises for an exited process
+    """
     health = _pxt_health(port, cwd=cwd, env_overrides=env_overrides)
-    assert health['pid'] != pid
+    assert health['pid'] != daemon.pid
     assert psutil.pid_exists(health['pid'])
     # unlike pid_exists(), is_running() compares creation times, so a reused pid reads as gone
     assert not daemon.is_running()
@@ -174,32 +176,32 @@ class TestDaemon:
         pid = _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid']
 
         _install_metadata(v1)
-        pid = _replacement_pid(daemon_port, project, user_env, pid)
+        pid = _replacement_pid(daemon_port, project, user_env, psutil.Process(pid))
 
         # reinstall at the same version
         shutil.rmtree(v1)
         _install_metadata(v1)
-        pid = _replacement_pid(daemon_port, project, user_env, pid)
+        pid = _replacement_pid(daemon_port, project, user_env, psutil.Process(pid))
 
         # upgrade
         shutil.rmtree(v1)
         _install_metadata(v2)
-        pid = _replacement_pid(daemon_port, project, user_env, pid)
+        pid = _replacement_pid(daemon_port, project, user_env, psutil.Process(pid))
 
         # uninstall
         shutil.rmtree(v2)
-        pid = _replacement_pid(daemon_port, project, user_env, pid)
+        pid = _replacement_pid(daemon_port, project, user_env, psutil.Process(pid))
 
         # a setup.py install, which writes .egg-info
         _install_metadata(user_site / 'legacypkg-1.0.egg-info')
-        pid = _replacement_pid(daemon_port, project, user_env, pid)
+        pid = _replacement_pid(daemon_port, project, user_env, psutil.Process(pid))
 
         if sys.platform != 'win32':  # creating a symlink on Windows needs a privilege
             # a dangling metadata symlink does not restart the daemon, and does not hide an install beside it
             (user_site / 'brokenpkg-1.0.dist-info').symlink_to(tmp_path / 'gone', target_is_directory=True)
             assert _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid'] == pid
             _install_metadata(user_site / 'fakepkg-3.0.dist-info')
-            pid = _replacement_pid(daemon_port, project, user_env, pid)
+            pid = _replacement_pid(daemon_port, project, user_env, psutil.Process(pid))
 
         assert _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid'] == pid
 
@@ -222,7 +224,7 @@ class TestDaemon:
             assert 'pixeltable_env' not in error['message']
             assert daemon.is_running()
 
-        _replacement_pid(daemon_port, project, drift_env, pid)
+        _replacement_pid(daemon_port, project, drift_env, daemon)
 
     def test_replace_daemon_after_config_change(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """A command after an edit of the project's config file replaces an idle daemon and runs with the new
@@ -238,9 +240,10 @@ class TestDaemon:
         assert _pxt_health(daemon_port, cwd=project)['pid'] == pid
 
         config_file.write_text("[pixeltable]\ntime_zone = 'America/Anchorage'\n", encoding='utf-8')
+        daemon = psutil.Process(pid)
         r = _pxt(daemon_port, project, {}, *check)
         assert r.returncode == 0, r.stderr
-        pid = _replacement_pid(daemon_port, project, {}, pid)
+        pid = _replacement_pid(daemon_port, project, {}, daemon)
         r = _pxt(daemon_port, project, {}, 'config', '--json')
         assert r.returncode == 0, r.stderr
         assert 'America/Anchorage' in r.stdout
@@ -261,8 +264,9 @@ class TestDaemon:
             assert str(config_file) in error['message']
             assert psutil.pid_exists(pid)
 
+        daemon = psutil.Process(pid)
         assert _pxt(daemon_port, project, {}, *check).returncode == 0
-        pid = _replacement_pid(daemon_port, project, {}, pid)
+        pid = _replacement_pid(daemon_port, project, {}, daemon)
 
         # the same for a caller whose environment differs from the daemon's
         with _busy_daemon(daemon_port, project, {}):
@@ -276,8 +280,9 @@ class TestDaemon:
 
         # an edit of pixeltable.udf replaces the daemon too
         config_file.write_text("[pixeltable.udf.'pixeltable.functions.string.format']\n", encoding='utf-8')
+        daemon = psutil.Process(pid)
         assert _pxt(daemon_port, project, {}, *check).returncode == 0
-        _replacement_pid(daemon_port, project, {}, pid)
+        _replacement_pid(daemon_port, project, {}, daemon)
 
     def test_service_without_fastapi(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """Without fastapi, pxt schema update succeeds, and pxt service update prints the install command."""
@@ -315,7 +320,7 @@ class TestDaemon:
         assert r.returncode == 0, r.stderr
         pid = _pxt_health(daemon_port, cwd=project)['pid']
 
-        _replacement_pid(daemon_port, project, drift_env, pid)
+        _replacement_pid(daemon_port, project, drift_env, psutil.Process(pid))
         assert 'restart_wd' in _pxt(daemon_port, project, drift_env, 'pwd').stdout
 
         assert _pxt(daemon_port, project, drift_env, 'daemon', 'restart').returncode == 0

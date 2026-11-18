@@ -195,8 +195,8 @@ class TestUdfServer:
         assert len(res['segments'][0]) > 1
 
     def test_errors(self, uses_db: None, udf_setting: Path) -> None:
-        """An exception of the UDF fails its row with the UDF's error, a UDF without a Server fails the query, and a
-        call without the Server's secret is refused."""
+        """An exception of the UDF fails its row with the UDF's error, a UDF without a Server fails the operation, and
+        a call without the Server's secret is refused."""
         t = pxt.create_table('err_tbl', {'boxes': pxt.Json, 'width': pxt.Int})
         t.add_computed_column(resized=bboxes_resize(t.boxes, 'xyxy', width=t.width))
         status = t.insert(
@@ -222,7 +222,7 @@ class TestUdfServer:
             r'no UDF server for it',
         ):
             img_t.select(resize(img_t.img, (32, 16))).collect()
-        # a query without rows makes no lookup, and the first insert fails the query
+        # a query without rows makes no lookup, and the first insert fails
         empty_t = pxt.create_table('empty_tbl', {'img': pxt.Image})
         assert len(empty_t.select(resize(empty_t.img, (32, 16))).collect()) == 0
         empty_t.add_computed_column(small=resize(empty_t.img, (32, 16)))
@@ -234,12 +234,21 @@ class TestUdfServer:
         assert httpx.post(url, content=b'').status_code == 401
         assert httpx.post(url, content=b'', headers={UDF_SECRET_HEADER_NAME: 'other'}).status_code == 401
 
-        # a query of a process with another secret fails
+        # each operation reads the Servers' endpoints when it starts: with another secret, a query and an insert are
+        # refused, and the operations after them succeed
         _set_udf_setting(udf_setting, ['pixeltable.functions.string.format'])
-        env = {**os.environ, 'PXT_UDF_SERVERS_HEADERS': json.dumps({UDF_SECRET_HEADER_NAME: 'other'})}
-        query = _run_width_query(env, udf_setting)
-        assert query.returncode != 0
-        assert 'refused the credentials of this process (HTTP 401)' in query.stderr
+        t.add_computed_column(label=format('{0}', t.width))
+        query = t.select(out=format('<{0}>', t.width))
+        refused = r'refused the credentials of this process \(HTTP 401\)'
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv('PXT_UDF_SERVERS_HEADERS', json.dumps({UDF_SECRET_HEADER_NAME: 'other'}))
+            with pxt_raises(excs.ErrorCode.PROVIDER_AUTH_ERROR, match=refused):
+                query.collect()
+            with pxt_raises(excs.ErrorCode.PROVIDER_AUTH_ERROR, match=refused):
+                t.insert([{'boxes': [[0, 0, 2, 2]], 'width': 4}])
+        assert sorted(query.collect()['out']) == ['<-1>', '<4>']
+        t.insert([{'boxes': [[0, 0, 2, 2]], 'width': 4}])
+        assert t.where(t.label != None).count() == 3
 
         # a query fails in a pod of a hosted database deployed without UDF servers
         env = {**os.environ, 'PXTCLOUD_ORG': 'myorg', 'PXTCLOUD_DB': 'mydb'}

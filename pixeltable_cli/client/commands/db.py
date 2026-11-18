@@ -30,6 +30,7 @@ from ..utils import (
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
     confirm_or_exit,
+    flush_stdout,
     get_request,
     post_request,
     print_json,
@@ -230,10 +231,13 @@ def _status(args: argparse.Namespace) -> None:
     resp = get_request('/api/db', params)
     report = resp.get('report', resp) if isinstance(resp, dict) else {}
     if args.db_uri is None and len(report) == 0:
-        print(
-            'pxt db status: the local database has no UDF servers; run `pxt db update` to deploy them', file=sys.stderr
-        )
-        sys.exit(EXIT_ERROR)
+        if args.json_output:
+            print(json.dumps({'db': db, 'current': None}))
+        else:
+            print('The local database has no UDF servers.')
+            flush_stdout()
+            print_next('pxt db update', 'deploys them')
+        return
     if args.json_output:
         print(json.dumps(report))
     else:

@@ -440,6 +440,21 @@ class TestLocalDb:
         assert 'The local database has nothing to deploy' in r.stderr, r.stderr
         assert not (home / 'pgdata').exists()
 
+    def test_status_without_udf_servers(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """pxt db status reports a local database without deployed UDF servers as a normal state."""
+        answers = {'/api/db/local': {'db_uri': 'pxt://acme:local-main-0123456789ab'}, '/api/db': {'report': {}}}
+        monkeypatch.setattr(db_cmd, 'get_request', lambda path, _params=None: answers[path])
+        db_cmd.run(['status'])
+        out, err = capsys.readouterr()
+        assert out == 'The local database has no UDF servers.\n'
+        assert err == 'next: pxt db update  # deploys them\n'
+        db_cmd.run(['status', '--json'])
+        out, err = capsys.readouterr()
+        assert json.loads(out) == {'db': 'local-main-0123456789ab', 'current': None}
+        assert err == ''
+
 
 class TestLocalLogs:
     @pytest.mark.db_roots('proxy', reason='a proxy-daemon database logs to a file, which the error names')

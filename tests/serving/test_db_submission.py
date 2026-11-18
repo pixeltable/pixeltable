@@ -7,9 +7,7 @@ answers, not what a real control plane does with them.
 from __future__ import annotations
 
 import base64
-import concurrent.futures
 import hashlib
-import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -22,8 +20,6 @@ import pixeltable
 from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config
-from pixeltable.env import Env
-from pixeltable.exec.expr_eval.modal_client import ModalEndpoints
 from pixeltable.service import management_client, receipts
 from pixeltable.service.db import (
     create_db_update_ops,
@@ -268,22 +264,6 @@ class TestDbSubmission:
         assert submitted.db == local.cloud_db_name()
         servers = local_db_udf_servers()
         assert servers.urls == _UDF_URLS and servers.headers == _UDF_HEADERS
-        # ModalEndpoints.get() caches its result in Env; this patch discards it after the test
-        monkeypatch.setattr(Env.get(), '_resource_pool_info', {})
-        monkeypatch.delenv('PXT_UDF_SERVERS', raising=False)
-        # concurrent first calls make one lookup
-        lookups = control_plane.udf_server_lookups
-        start = threading.Barrier(4)
-
-        def get_endpoints() -> ModalEndpoints:
-            start.wait()
-            return ModalEndpoints.get()
-
-        with concurrent.futures.ThreadPoolExecutor(4) as executor:
-            endpoints = list(executor.map(lambda _: get_endpoints(), range(4)))
-        assert endpoints[0] == ModalEndpoints(_UDF_URLS, _UDF_HEADERS)
-        assert all(e is endpoints[0] for e in endpoints)
-        assert control_plane.udf_server_lookups == lookups + 1
 
         # a changed setting deploys the UDF servers of a local database again, and restarts a hosted one
         deployed = submitted.database_target

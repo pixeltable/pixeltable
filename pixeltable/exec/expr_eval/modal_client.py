@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import pickle
-import threading
 import time
 from typing import Any, ClassVar
 
@@ -22,6 +21,7 @@ from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
 from pixeltable.service import db, proxy_protocol
 
+from ..exec_context import ExecContext
 from .interfaces import FnCallArgs
 
 _logger = logging.getLogger('pixeltable')
@@ -150,31 +150,14 @@ class ModalEndpoints:
 
     SERVERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS'
     HEADERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_HEADERS'
-    # the key of the process's ModalEndpoints in Env.get_resource_pool_info()
-    _REGISTRY_KEY: ClassVar[str] = 'modal-endpoints'
-    # serializes the first _load() of the process; Env's resource pool lock stays free during it
-    _load_lock: ClassVar[threading.Lock] = threading.Lock()
 
     # keyed by the UDF's path in the pixeltable.udf setting
     server_urls: dict[str, str]
-    # sent with every call
+    # sent with every request
     headers: dict[str, str] = dataclasses.field(repr=False)
 
     @classmethod
-    def get(cls) -> Self:
-        """Return the process's endpoints, loaded at the first call."""
-        env = Env.get()
-        endpoints: Self | None = env.get_resource_pool_info(cls._REGISTRY_KEY, None)
-        if endpoints is None:
-            with cls._load_lock:
-                endpoints = env.get_resource_pool_info(cls._REGISTRY_KEY, None)
-                if endpoints is None:
-                    loaded = cls._load()
-                    endpoints = env.get_resource_pool_info(cls._REGISTRY_KEY, lambda: loaded)
-        return endpoints
-
-    @classmethod
-    def _load(cls) -> Self:
+    def load(cls) -> Self:
         """Read the endpoints from the environment, or get the local database's endpoints from the control plane."""
         if os.environ.get(cls.SERVERS_VAR, '') != '':
             return cls(cls._env_object(cls.SERVERS_VAR), cls._env_object(cls.HEADERS_VAR))
@@ -213,13 +196,14 @@ def _() -> httpx.AsyncClient:
     # with HTTP/2, concurrent calls to a Server share one connection
     # retries=2 retries a failed connection attempt up to twice; httpx never resends a request
     transport = httpx.AsyncHTTPTransport(http2=True, retries=2)
-    return httpx.AsyncClient(transport=transport, headers=ModalEndpoints.get().headers)
+    return httpx.AsyncClient(transport=transport)
 
 
 class ModalServerClient:
     """Sends calls to one UDF's Server, from one event loop.
 
-    - A ModalScheduler creates one instance per query; the instance's asyncio tasks belong to the query's event loop.
+    - A ModalScheduler creates one instance per execution of a plan; the instance's asyncio tasks belong to the
+      plan's event loop.
     - call() POSTs each call's UdfCallRequest to the Server right away.
     - While calls are active, _monitor() sends a GET to the Server at least every _PROBE_SECONDS.
     - A GET answered with 503 means that the Server has no running container, so no POST sent before that GET can
@@ -241,6 +225,7 @@ class ModalServerClient:
     timeout: httpx.Timeout
     # set by connect()
     url: str | None
+    headers: dict[str, str] | None
     # clear if the last GET or POST found no running container
     container_running: asyncio.Event
     # the POSTs in flight, each with its send time (time.monotonic())
@@ -254,18 +239,24 @@ class ModalServerClient:
         self.setting_path = setting_path
         self.timeout = httpx.Timeout(timeout_seconds, connect=_CONNECT_SECONDS)
         self.url = None
+        self.headers = None
         self.container_running = asyncio.Event()
         self.container_running.set()
         self.posts = {}
         self.num_active_calls = 0
         self.monitor = None
 
-    async def connect(self) -> None:
-        """Look up the Server's URL."""
+    async def connect(self, ctx: ExecContext) -> None:
+        """Look up the Server's URL and headers in ctx.udf_endpoints, starting that lookup at the execution's first
+        connect()."""
         if self.url is not None:
             return
-        # the first lookup of a local database's endpoints calls the control plane and hashes the project
-        endpoints = await asyncio.to_thread(ModalEndpoints.get)
+        # no lock: every connect() of the execution runs on its event loop, and no await may come between this check
+        # and the assignment
+        if ctx.udf_endpoints is None:
+            # a local database's lookup fingerprints the project, and can call the control plane
+            ctx.udf_endpoints = asyncio.create_task(asyncio.to_thread(ModalEndpoints.load))
+        endpoints = await ctx.udf_endpoints
         url = endpoints.server_urls.get(self.setting_path)
         if url is None:
             raise excs.RequestError(
@@ -274,6 +265,7 @@ class ModalServerClient:
                 'it. Run `pxt db update` to deploy it.',
             )
         self.url = url
+        self.headers = endpoints.headers
 
     async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
         """Run call_args on the Server."""
@@ -318,7 +310,7 @@ class ModalServerClient:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_AUTH_ERROR,
                 f'The UDF server of {self.setting_path} refused the credentials of this process (HTTP 401). If the UDF '
-                'servers were deployed again after this process started, restart the process.',
+                'servers were deployed again, run the operation again.',
             )
         if response.status_code != 200:
             raise excs.ExternalServiceError(
@@ -335,7 +327,9 @@ class ModalServerClient:
 
     async def _post(self, http_client: httpx.AsyncClient, request_body: bytes) -> httpx.Response | None:
         """POST request_body to the Server and return the response, or None if the Server had no running container."""
-        post = asyncio.create_task(http_client.post(self.url, content=request_body, timeout=self.timeout))
+        post = asyncio.create_task(
+            http_client.post(self.url, content=request_body, headers=self.headers, timeout=self.timeout)
+        )
         self.posts[post] = time.monotonic()
         try:
             # unlike awaiting post, asyncio.wait() returns normally when _monitor() cancels post
@@ -378,7 +372,8 @@ class ModalServerClient:
             # GETs during calls don't make Modal start more containers: a GET every 200 ms during sequential calls
             # started none (measured)
             try:
-                status: int | None = (await http_client.get(self.url, timeout=_CONNECT_SECONDS)).status_code
+                response = await http_client.get(self.url, headers=self.headers, timeout=_CONNECT_SECONDS)
+                status: int | None = response.status_code
             except httpx.HTTPError as exc:
                 _logger.debug(f'GET of the Modal Server of {self.setting_path} failed: {exc!r}')
                 status = None
