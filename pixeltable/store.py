@@ -648,8 +648,20 @@ class StoreBase:
                 and e.orig.diag.constraint_name == self.pk_constraint_name(self.tbl_version.get())
             ):
                 detail = e.orig.diag.message_detail or ''
-                for col in self.tbl_version.get().primary_key_columns():
-                    detail = detail.replace(col.store_name(), col.name)
+                pk_cols = self.tbl_version.get().primary_key_columns()
+                m = re.search(r'=\((.+)\) already exists', detail)
+                if m and len(pk_cols) > 0:
+                    raw_vals = m.group(1)
+                    vals = (
+                        [raw_vals]
+                        if len(pk_cols) == 1
+                        else [v.strip() for v in raw_vals.split(', ', len(pk_cols) - 1)]
+                    )
+                    if len(vals) == len(pk_cols):
+                        detail = ', '.join(
+                            f"{col.name}='{val}'" if col.col_type.is_string_type() else f'{col.name}={val}'
+                            for col, val in zip(pk_cols, vals)
+                        )
                 raise excs.RequestError(
                     excs.ErrorCode.CONSTRAINT_VIOLATION, f'Duplicate primary key value: {detail}'
                 ) from e

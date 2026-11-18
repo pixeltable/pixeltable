@@ -180,6 +180,21 @@ class TestPrimaryKeyIndex:
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'id': 1, 'val': 50}])
 
+    def test_string_pk_duplicate_error_message(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """Duplicate-PK error for a String column must show the value, not Postgres SQL internals."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test_str_pk'),
+            {'id': pxt.String, 'val': pxt.Int | None},
+            primary_key='id',
+            _is_data_versioned=is_data_versioned,
+        )
+        t.insert([{'id': 'abc', 'val': 1}])
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="id='abc'") as exc_info:
+            t.insert([{'id': 'abc', 'val': 2}])
+        msg = str(exc_info.value)
+        assert '"left"' not in msg, f'SQL internals leaked into error: {msg}'
+
     def test_prohibited_pk_col_ops(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(
