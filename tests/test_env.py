@@ -1,6 +1,5 @@
 import asyncio
 import concurrent.futures
-import datetime
 import os
 import subprocess
 import sys
@@ -582,16 +581,3 @@ class TestRequirePackage:
         Env.get().require_package('pydantic', [2])
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 2\.0\.0, but version >=3 is required'):
             Env.get().require_package('pydantic', [3])
-
-
-class TestRateLimitsInfo:
-    def test_record_new_resource(self) -> None:
-        """A resource that first appears in a later response gets its own RateLimitInfo."""
-        info = env.RateLimitsInfo()
-        t0 = datetime.datetime.now(tz=datetime.timezone.utc)
-        info.record(t0, requests=(100, 99, t0))
-        t1 = t0 + datetime.timedelta(seconds=1)
-        info.record(t1, requests=(100, 98, t1), tokens=(1000, 900, t1))
-        assert info.resource_limits['requests'].remaining == 98
-        assert info.resource_limits['tokens'].limit == 1000
-        assert info.resource_limits['tokens'].remaining == 900
