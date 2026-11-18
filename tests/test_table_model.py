@@ -3894,7 +3894,6 @@ class TestTableModel:
         pxt.get_table(p('notes')).insert([{'id': 1, 'label': 'a'}, {'id': 2, 'label': 'b'}, {'id': 3, 'label': 'c'}])
         assert pxt.eval_udf(labels_after, 1) == ['b', 'c']
 
-    @pytest.mark.db_roots('local', reason='a proxy client serializes the expression before the daemon can validate it')
     def test_table_column_calls_model_query(self, db_root: DatabaseRoot) -> None:
         """A computed column of a table cannot call a @pxt.query over a model, which is bound only within models."""
         p = db_root.make_catalog_path
@@ -3910,7 +3909,7 @@ class TestTableModel:
 
         TableModel.create_all(p(''))
         t = pxt.create_table(p('t'), {'k': pxt.String})
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'calls `.*total\(\)`, which queries a model'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='A query over model `Orders` cannot be stored'):
             t.add_computed_column(total=total(t.k))
         assert 'total' not in t.columns()
 

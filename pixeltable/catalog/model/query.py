@@ -40,9 +40,10 @@ class ModelQuery(QueryBase):
         The shape it queries is synthesized from the model and carries no durable table identity, so a
         serialized one could not be read back. bind() produces the query that can be stored.
         """
-        raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR,
-            f'A query over model `{self.model_cls.__name__}` cannot be serialized; bind it to a table first.',
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'A query over model `{self.model_cls.__name__}` cannot be stored or sent to a hosted catalog; '
+            'query the table that the model is bound to instead.',
         )
 
     @property
