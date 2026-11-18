@@ -1468,6 +1468,7 @@ class TableVersion:
                     excs.ErrorCode.ROW_NOT_FOUND, f'batch_update(): {len(unmatched_rows)} row(s) not found'
                 )
             if insert_if_not_exists:
+                Planner.check_required_input_columns(self.path, unmatched_rows, None)
                 insert_status = self.insert(
                     unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
                 )

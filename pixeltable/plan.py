@@ -415,6 +415,20 @@ class Planner:
         ]
 
     @classmethod
+    def check_required_input_columns(
+        cls, path: catalog.TablePath, rows: Iterable[dict[str, Any]], outputs: Iterable[catalog.ColumnVersionMd] | None
+    ) -> None:
+        """Raise an error if a row lacks a value for one of the `required_input_columns()`."""
+        required_col_names = [md.name for md in cls.required_input_columns(path, outputs)]
+        for row in rows:
+            missing_col_names = [name for name in required_col_names if name not in row]
+            if len(missing_col_names) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED,
+                    f'Missing required column(s) ({", ".join(missing_col_names)}) in row {row}',
+                )
+
+    @classmethod
     def create_compute_plan(
         cls,
         path: catalog.TableVersionPath,
@@ -440,14 +454,7 @@ class Planner:
         base_tv = tvs[0].get()
         assert base_tv.is_insertable
 
-        required_col_names = [md.name for md in cls.required_input_columns(path, outputs)]
-        for row in rows:
-            missing_col_names = [name for name in required_col_names if name not in row]
-            if len(missing_col_names) > 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.MISSING_REQUIRED,
-                    f'Missing required column(s) ({", ".join(missing_col_names)}) in row {row}',
-                )
+        cls.check_required_input_columns(path, rows, outputs)
 
         # columns to materialize, base to target; each level's columns are computed at that level's stage
         compute_qids = {md.qcolid for md in cls.columns_to_compute(path, outputs)}
