@@ -93,10 +93,11 @@ class TblOpClass(enum.Enum):
         return TblLockMode.ACCESS_EXCLUSIVE
 
     def fails_fast(self, any_data_versioned: bool) -> bool:
-        """Return whether to fail when locks are held by others, instead of waiting for them to be released.
+        """Return whether to wait at most LOCK_TIMEOUT_MS for locks held by others and then fail, instead of waiting
+        until they are released.
 
         Data reads and writes fail fast only if `any_data_versioned` is False. Schema changes and pending-op
-        finalization always wait.
+        finalization always wait without a time limit.
         """
         if self in (TblOpClass.MD_WRITE, TblOpClass.FINALIZE):
             return False
@@ -402,8 +403,8 @@ class XactLocks:
         assert not self._is_acquired
         self._dirs.setdefault(dir_id, path)
 
-    # whether to raise LockNotAvailableError for locks held by others instead of waiting for them to be released.
-    # Applies to every lock in the set: False if any table requires waiting.
+    # whether to wait at most LOCK_TIMEOUT_MS for each lock and then raise LockNotAvailableError, instead of waiting
+    # without a time limit. Applies to every lock in the set: False if any table requires waiting without a limit.
     @property
     def fail_fast(self) -> bool:
         return self.request.op_class.fails_fast(self._any_data_versioned)
@@ -421,7 +422,7 @@ class XactLocks:
         is invisible to it.
 
         Raises:
-            LockNotAvailableError: a lock could not be acquired within LOCK_TIMEOUT_MS.
+            LockNotAvailableError: fail-fast acquisition did not obtain the lock within LOCK_TIMEOUT_MS.
             StaleLockSetError: a named store table no longer exists.
         """
         assert get_runtime().in_xact
