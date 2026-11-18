@@ -285,15 +285,17 @@ class Analyzer:
 
 
 class Planner:
+    _ROW_BATCH_SIZE = 1024
+
     @classmethod
     def create_insert_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: list[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | SqlDataSource,
         ignore_errors: bool,
         skip_existing_keys: bool = False,
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource.
+        """Creates a plan for TableVersion.insert() from either a stream of row dicts or a SqlDataSource.
 
         With skip_existing_keys, the plan drops each row whose primary key is already in tbl, before computing its
         computed columns.
@@ -304,7 +306,7 @@ class Planner:
         cls.__check_valid_columns(tbl, output_cols, 'inserted into')
 
         row_builder = exprs.RowBuilder([], output_cols, [], tbl)
-        plan, batch_size = cls._create_input_plan(tbl, source, row_builder, skip_existing_keys=skip_existing_keys)
+        plan = cls._create_input_plan(tbl, source, row_builder, skip_existing_keys=skip_existing_keys)
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
             plan = exec.ExprEvalNode(
@@ -314,7 +316,7 @@ class Planner:
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=cls._ROW_BATCH_SIZE, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
         return plan
 
@@ -335,33 +337,29 @@ class Planner:
     def _create_input_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: list[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | SqlDataSource,
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
         skip_existing_keys: bool = False,
-    ) -> tuple[exec.ExecNode, int]:
+    ) -> exec.ExecNode:
         """
-        Creates the input stage shared by insert/compute plans: materializes 'source' (in-memory rows or a
+        Create the input stage shared by insert/compute plans from 'source' (a stream of row dicts or a
         SqlDataSource, containing values for the mutable columns of 'tbl'), plus a prefetch node for media
-        inputs. Returns the plan and its exec batch size.
+        inputs.
         """
         from pixeltable.io.data_sources import SqlDataSource
 
         plan: exec.ExecNode
-        batch_size: int
         if isinstance(source, SqlDataSource):
             plan = exec.SqlDataNode(tbl.handle, source, row_builder)
-            batch_size = 1024
         else:
-            assert isinstance(source, list)
-            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
-            batch_size = 0
+            plan = exec.RowDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
 
         if skip_existing_keys:
             # ahead of the prefetch node: a skipped row's media isn't fetched
             plan = exec.AntiJoinNode(tbl.handle, row_builder, plan)
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
-        return plan, batch_size
+        return plan
 
     @classmethod
     def columns_to_compute(
@@ -436,7 +434,7 @@ class Planner:
 
         Plan shape:
         - the input rows are handled identically to insert:
-            - InMemoryDataNode
+            - RowDataNode
             - PrefetchNode
         - each table in 'path' adds its incremental nodes:
             - ExprEvalNode + FilterNode for view predicate enforcement
@@ -485,10 +483,10 @@ class Planner:
             assert result is not None
             return result
 
-        # InMemoryDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
+        # RowDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
         input_col_names = {e.col_md.name for e in row_builder.input_exprs if isinstance(e, exprs.ColumnRef)}
         rows = [{name: val for name, val in row.items() if name in input_col_names} for row in rows]
-        plan, _ = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
+        plan = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
         # the plan preserves input row order (all ExprEvalNodes maintain input order), so output rows map
         # positionally to input rows; avail: exprs whose slots are materialized so far
         materialized = exprs.ExprSet(row_builder.input_exprs)
@@ -535,6 +533,10 @@ class Planner:
         # the pre-compile copies and don't carry slot_idx).
         compiled = query._create_query_plan()
         plan: exec.ExecNode = compiled.exec_root
+        # The query result can have an arbitrary number of rows; stream it so that it isn't held in memory at once.
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        sql_node.set_stream_results(True)
         output_cols = [tbl.cols_by_name.get(col_name) for col_name in compiled.select_list_schema]
         assert all(col is not None for col in output_cols)
         plan.row_builder.set_table_output(
@@ -547,7 +549,7 @@ class Planner:
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=cls._ROW_BATCH_SIZE, ignore_errors=ignore_errors))
 
         return plan
 
@@ -1086,6 +1088,12 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
+        # This scan reads every base row created at the current version, which is an arbitrary number of rows. Stream
+        # it so that it isn't held in memory at once.
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        sql_node.set_stream_results(True)
+        exec_ctx.batch_size = cls._ROW_BATCH_SIZE
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):
@@ -1296,11 +1304,10 @@ class Planner:
         combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)
 
-        # materialized with SQL table scans (ie, single-table SELECT statements):
+        # materialized in SQL, by the SqlScanNode or SqlJoinNode:
         # - Select list subexprs that aren't aggregates. In a grouping aggregation, only the args of aggregate and
         # window function calls; the rest of the analyzer's select list is aggregate output, which is not allowed to be
         # materialized in the inner scan.
-        # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
         # - all stratify exprs
@@ -1335,25 +1342,28 @@ class Planner:
         # don't round-trip cleanly through SQL parameter binding)
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
-        # create table scans; each scan produces subexprs of (sql_exprs + join clauses)
-        join_exprs = exprs.ExprSet(
-            join_clause.join_predicate
-            for join_clause in analyzer.from_clause.join_clauses
-            if join_clause.join_predicate is not None
-        )
-        scan_target_exprs = sql_exprs | join_exprs
-        tbl_scan_plans: list[exec.SqlScanNode] = []
         plan: exec.ExecNode
-        for tbl in analyzer.from_clause.tvps:
-            # materialize all subexprs of scan_target_exprs that are bound by tbl
+        tbl = analyzer.from_clause.tvps[-1]
+        if len(analyzer.from_clause.join_clauses) > 0:
+            # SqlJoinNode does not apply these arguments
+            assert len(columns) == 0
+            assert len(created_at_current_version) == 0 and len(deleted_at_current_version) == 0
+            assert exclude_deleted_at_current_version is None
+            plan = exec.SqlJoinNode(
+                row_builder,
+                tbls=analyzer.from_clause.tvps,
+                join_clauses=analyzer.from_clause.join_clauses,
+                select_list=sql_exprs,
+                cell_md_col_refs=cls._cell_md_col_refs(sql_exprs),
+            )
+        else:
             tbl_scan_exprs = exprs.ExprSet(
                 exprs.Expr.list_subexprs(
-                    scan_target_exprs,
+                    sql_exprs,
                     filter=lambda e: e.is_bound_by([tbl]) and not isinstance(e, exprs.Literal),
                     traverse_matches=False,
                 )
             )
-
             plan = exec.SqlScanNode(
                 tbl,
                 row_builder,
@@ -1365,17 +1375,6 @@ class Planner:
                 deleted_at_current_version=deleted_at_current_version,
                 exclude_deleted_at_current_version=exclude_deleted_at_current_version,
             )
-            tbl_scan_plans.append(plan)
-
-        if len(analyzer.from_clause.join_clauses) > 0:
-            plan = exec.SqlJoinNode(
-                row_builder,
-                inputs=tbl_scan_plans,
-                join_clauses=analyzer.from_clause.join_clauses,
-                select_list=sql_exprs,
-            )
-        else:
-            plan = tbl_scan_plans[0]
 
         if analyzer.sql_where_clause is not None:
             plan.set_where(analyzer.sql_where_clause)

@@ -30,7 +30,6 @@ _VIDEO_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests
 _PDF_URL = 'https://storage.googleapis.com/vlm-data-public-prod/hub/examples/document.invoice/sample-invoice.pdf'
 
 
-@pytest.mark.remote_api
 @pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestVlmrunGateway:

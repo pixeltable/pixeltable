@@ -830,7 +830,7 @@ class TableModelMeta(type):
                     spec['type'], allow_builtin_types=False
                 )
             if 'value' in spec:
-                spec['value'] = bind_query_templates(spec['value'].copy(), catalog_dir)
+                spec['value'] = bind_query_templates(spec['value'], catalog_dir)
             columns[name] = spec
 
         bound_path = f'{catalog_dir}{table_spec["name"]}'
@@ -886,13 +886,11 @@ class TableModelMeta(type):
         tbl_id = uuid4()  # we need a table id
         handle = TableVersionHandle(catalog.TableVersionKey(tbl_id, None))
         base = None if spec['base'] is None else spec['base'].to_defined_query()
-        # prepare_model() substitutes column references in place, so hand it copies: inspecting a model must
-        # leave what it defines untouched
         columns: dict[str, ColumnSpec] = {}
         for col_name, col_spec in cls.__columns__.items():
             copied = col_spec.copy()
             if 'value' in copied:
-                copied['value'] = bind_query_templates(copied['value'].copy(), None)
+                copied['value'] = bind_query_templates(copied['value'], None)
             columns[col_name] = copied
         iterator, cols, idxs = prepare_model(
             handle, columns, spec['display_name'], spec['iterator'], base, cls.__indexes__, spec['is_data_versioned']
