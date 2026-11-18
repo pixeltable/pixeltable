@@ -335,8 +335,9 @@ class TestDbWithoutUri:
         assert code == 0 and json.loads(out) == report and posts == []
         # before the first pxt db update, the control plane has no record of the local database
         deployed = False
-        code, _, err = run('status')
-        assert code == utils.EXIT_ERROR and 'run `pxt db update` to deploy them' in err
+        code, out, err = run('status')
+        assert code == 0 and out == 'The local database has no UDF servers.\n'
+        assert 'next: pxt db update' in err
         deployed = True
 
         # only an update without --dry-run sends the POST that creates the local database
