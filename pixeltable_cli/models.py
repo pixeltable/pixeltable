@@ -214,6 +214,13 @@ class RecomputeBody(BaseModel):
     columns: list[str]
     errors_only: bool = False
     cascade: bool = True
+    dry_run: bool = False  # validate the request as the real run does and report the plan, without recomputing
+
+
+class RecomputePlanResponse(BaseModel):
+    path: str
+    columns: list[str]
+    table_rows: int
 
 
 class RecomputeResponse(BaseModel):

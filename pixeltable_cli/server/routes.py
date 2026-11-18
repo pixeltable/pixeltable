@@ -401,10 +401,12 @@ def drop_table(req: Request) -> models.DropResponse:
 
 
 @router.post('/api/tables/recompute')
-def recompute(req: Request) -> models.RecomputeResponse:
+def recompute(req: Request) -> models.RecomputeResponse | models.RecomputePlanResponse:
     body = req.body(models.RecomputeBody)
     path = req.resolve_path(body.path)
     t = pxt.get_table(path)
+    if body.dry_run:
+        return _recompute_plan(t, path, body)
     status = t.recompute_columns(*body.columns, errors_only=body.errors_only, cascade=body.cascade)
     return models.RecomputeResponse(
         path=path,
@@ -413,6 +415,38 @@ def recompute(req: Request) -> models.RecomputeResponse:
         num_excs=status.num_excs,
         cols_with_excs=status.cols_with_excs,
     )
+
+
+def _recompute_plan(t: pxt.Table, path: str, body: models.RecomputeBody) -> models.RecomputePlanResponse:
+    """Validate a recompute without running it.
+
+    Mirrors the checks of LocalTable.recompute_columns(), in the same order and with the same errors, so that a dry
+    run fails exactly where the real run would; test_smoke.py compares the two.
+    """
+    t._check_mutable('recompute columns of')
+    if len(body.columns) == 0:
+        raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'At least one column must be specified to recompute')
+    if body.errors_only and len(body.columns) > 1:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use errors_only=True with multiple columns'
+        )
+    md = t.get_metadata()
+    col_names: list[str] = []
+    for column in body.columns:
+        col_name = fold_identifier(column)
+        col_md = md['columns'].get(col_name)
+        if col_md is None:
+            raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
+        if not col_md['is_computed']:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is not a computed column'
+            )
+        if _defining_base(md, col_name)[0] is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {col_name}'
+            )
+        col_names.append(col_name)
+    return models.RecomputePlanResponse(path=path, columns=col_names, table_rows=t.count())
 
 
 @router.post('/api/tables/revert')
