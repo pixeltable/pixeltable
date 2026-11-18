@@ -273,14 +273,14 @@ class Analyzer:
                 if not is_input:
                     raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e!s}')
             return True, False
-        elif isinstance(e, (exprs.Literal, exprs.Variable)):
-            return True, True
         elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
             # we already know that this isn't a grouping expr
             return False, True
+        elif len(e.components) == 0:
+            # e does not reference a table column
+            return True, True
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
-            assert len(e.components) > 0
             statuses: list[tuple[bool, bool]] = [self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
             is_output = all(out for out, _ in statuses)
             is_input = all(inp for _, inp in statuses)

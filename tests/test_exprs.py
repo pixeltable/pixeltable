@@ -2356,6 +2356,71 @@ class TestExprs:
             # uncalled method in group_by clause
             _ = t.group_by(t.c1.upper).select(count(t.c2)).collect()
 
+    def test_agg_row_independent_exprs(self, db_root: DatabaseRoot) -> None:
+        """An expression that references no column is valid inside, beside and combined with an aggregate."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_tbl'), {'grp': pxt.String, 'n': pxt.Int, 'due': pxt.Timestamp, 'j': pxt.Json})
+        dues = [datetime.datetime(2026, month, 1, tzinfo=datetime.timezone.utc) for month in (1, 2, 3)]
+        rows = [
+            {'grp': 'a', 'n': 1, 'due': dues[0], 'j': [1, 2]},
+            {'grp': 'a', 'n': 2, 'due': dues[1], 'j': [3]},
+            {'grp': 'b', 'n': 3, 'due': dues[2], 'j': [4, 5, 6]},
+        ]
+        validate_update_status(t.insert(rows), expected_rows=3)
+
+        # function call without arguments
+        for agg_fn in (pxtf.sum, _py_sum):
+            res = t.group_by(t.grp).select(t.grp, out=agg_fn(t.n + _seven())).order_by(t.grp).collect()
+            assert res['out'] == [17, 10], agg_fn
+            assert t.select(out=agg_fn(t.n + _seven())).collect()['out'] == [27], agg_fn
+            assert t.select(out=agg_fn(_seven())).collect()['out'] == [21], agg_fn
+            res = (
+                t.group_by(t.grp)
+                .select(t.grp, seven=_seven(), total=agg_fn(t.n) + _seven(), n=agg_fn(t.n))
+                .order_by(t.grp)
+                .collect()
+            )
+            assert res['seven'] == [7, 7], agg_fn
+            assert res['total'] == [10, 10], agg_fn
+            assert res['n'] == [3, 3], agg_fn
+
+        # now()
+        now_ts = pxtf.timestamp.posix_timestamp(pxtf.timestamp.now())
+        due_ts = pxtf.timestamp.posix_timestamp(t.due)
+        res = (
+            t.group_by(t.grp)
+            .select(t.grp, now=now_ts, total_age=pxtf.sum(now_ts - due_ts), min_age=now_ts - pxtf.max(due_ts))
+            .order_by(t.grp)
+            .collect()
+        )
+        due_sums = [dues[0].timestamp() + dues[1].timestamp(), dues[2].timestamp()]
+        max_dues = [dues[1].timestamp(), dues[2].timestamp()]
+        for row, due_sum, max_due, num_rows in zip(res, due_sums, max_dues, (2, 1)):
+            assert row['total_age'] == pytest.approx(num_rows * row['now'] - due_sum, abs=1.0)
+            assert row['min_age'] == pytest.approx(row['now'] - max_due, abs=1.0)
+        res = t.group_by(t.grp).select(t.grp, now=pxtf.timestamp.now(), n=pxtf.count(t.n)).order_by(t.grp).collect()
+        assert res['now'][0] == res['now'][1]
+        assert res['n'] == [2, 1]
+
+        # json mapper
+        incremented = pxtf.map(t.j, lambda x: x + 1)
+        res = t.group_by(t.grp).select(t.grp, out=pxtf.json.make_list(incremented)).order_by(t.grp).collect()
+        assert [sorted(out) for out in res['out']] == [[[2, 3], [4]], [[5, 6, 7]]]
+        res = t.group_by(t.j).select(out=incremented, n=pxtf.count(t.n)).collect()
+        assert sorted(res['out']) == [[2, 3], [4], [5, 6, 7]]
+        assert res['n'] == [1, 1, 1]
+        match = re.escape('Invalid non-aggregate expression in aggregate query: j.map(lambda R: R + 1)')
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+            _ = t.group_by(t.grp).select(out=incremented, n=pxtf.count(t.n)).collect()
+        # an aggregate in the lambda
+        res = t.group_by(t.j).select(out=pxtf.map(t.j, lambda x: x + pxtf.sum(t.n))).collect()
+        assert sorted(res['out']) == [[2, 3], [5], [7, 8, 9]]
+        for mapper_fn in (pxtf.map, pxtf.filter, pxtf.sort):
+            name = mapper_fn.__name__
+            match = re.escape(f'{name}(): aggregate function applied to the lambda parameter: globals.count(R)')
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+                _ = mapper_fn(t.j, lambda x: pxtf.count(x) > 0)
+
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         with pxt_raises(
@@ -2697,6 +2762,23 @@ def _add_two(x: int, y: int) -> int:
 @pxt.udf
 def _is_odd(x: int) -> bool:
     return x % 2 == 1
+
+
+@pxt.udf
+def _seven() -> int:
+    return 7
+
+
+@pxt.uda
+class _py_sum(pxt.Aggregator):
+    def __init__(self) -> None:
+        self.sum = 0
+
+    def update(self, val: int) -> None:
+        self.sum += val
+
+    def value(self) -> int:
+        return self.sum
 
 
 @pytest.mark.db_roots('local', reason='exercises expr-eval slot GC internals')
