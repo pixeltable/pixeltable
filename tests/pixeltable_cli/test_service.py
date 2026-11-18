@@ -957,6 +957,8 @@ class TestService:
         # the plain rendering shows the routes under each service
         out = cli('service', 'list', f'{target}/clips').stdout
         assert '/clips' in out and 'video (file)' in out, out
+        # upload inputs must appear exactly once, as 'name (file)', not also as a plain name before it
+        assert 'video, video' not in out, out
 
     def test_media(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, sample_file_server: SampleFileServer

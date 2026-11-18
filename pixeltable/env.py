@@ -1373,7 +1373,10 @@ class RateLimitsInfo:
                 self.has_exc = False
                 for k, v in kwargs.items():
                     if v is not None:
-                        self.resource_limits[k].update(request_ts, *v)
+                        if k in self.resource_limits:
+                            self.resource_limits[k].update(request_ts, *v)
+                        else:
+                            self.resource_limits[k] = RateLimitInfo(k, request_ts, *v)
                         _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
 
     def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
