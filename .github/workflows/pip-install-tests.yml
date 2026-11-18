@@ -77,7 +77,7 @@ jobs:
             os: ubuntu-24.04
           # The only job on a large runner, and it runs only the resource_intensive tests
           - python-version: "3.11"
-            package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy imagehash"
             os: ubuntu-large
             resource-intensive: true
           # Test the basic pixeltable installation on other platforms.
