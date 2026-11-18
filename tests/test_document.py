@@ -89,6 +89,11 @@ class TestDocument:
             with zipfile.ZipFile(path, 'w') as zf:
                 zf.writestr('[Content_Types].xml', '<not valid')
             expected[path] = 'Office'
+        for ext in ('doc', 'ppt'):
+            path = str(tmp_path / f'bad.{ext}')
+            with open(path, 'wb') as fp:
+                fp.write(bytes.fromhex('d0cf11e0a1b11ae1') + bytes(range(256)) * 4)
+            expected[path] = 'Office'
 
         t = pxt.create_table('docs', {'doc': pxt.Document})
         for path in expected:

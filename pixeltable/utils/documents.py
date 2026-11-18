@@ -116,12 +116,12 @@ def get_office_handle(path: str) -> list:
     Env.get().require_package('mistune', [3, 0])
     Env.get().require_package('markitdown')
     import mistune
-    from markitdown import FileConversionException, MarkItDown
+    from markitdown import MarkItDown, MarkItDownException
 
     md = MarkItDown(enable_plugins=False)
     try:
         markdown_text = md.convert(path).text_content
-    except FileConversionException as exc:
+    except MarkItDownException as exc:
         raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid Office document: {path}') from exc
 
     md_parser = mistune.create_markdown(renderer=None)
