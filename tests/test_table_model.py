@@ -1506,7 +1506,6 @@ class TestTableModel:
             TableModel3.update_all(p(''))
         assert pxt.get_table(p('notes'), if_not_exists='ignore') is None
 
-    @pytest.mark.skip(reason='PXT-1709: join() of two bound models raises AttributeError')
     def test_bound_model_join(self, db_root: DatabaseRoot) -> None:
         """join() on a bound model accepts another bound model."""
         p = db_root.make_catalog_path
@@ -1525,6 +1524,14 @@ class TestTableModel:
         Tags.insert(doc_id=1, tag='greek')
         res = Docs.join(Tags, on=Docs.id == Tags.doc_id).select(Docs.body, Tags.tag).collect()  # type: ignore[arg-type]
         assert list(res) == [{'body': 'alpha', 'tag': 'greek'}]
+
+        TableModel2 = pxt.model_base()
+
+        class Notes(TableModel2, name='notes'):
+            doc_id: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.NOT_BOUND, match=r'`Notes` is not yet bound'):
+            Docs.join(Notes, on=Docs.id == Notes.doc_id)  # type: ignore[arg-type]
 
     @pytest.mark.skip(reason='PXT-1710: ModelQuery called in a joined Query is never bound')
     def test_joined_query_calls_model_query(self, db_root: DatabaseRoot) -> None:
