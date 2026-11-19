@@ -640,7 +640,7 @@ class QueryBase(ABC):
         how: JoinType.LiteralType = 'inner',
     ) -> Self:
         """
-        Join this Query with a table.
+        Join this Query with a table, or with a model that is bound to one.
 
         Args:
             other: the table to join with, or a model that is bound to one
