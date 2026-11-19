@@ -1,0 +1,8 @@
+{
+  "name": "pixeltable-films-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pixeltable/sdk": "file:../.."
+  }
+}

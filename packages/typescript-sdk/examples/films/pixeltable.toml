@@ -1,0 +1,2 @@
+# Pixeltable project configuration for the TypeScript example. To deploy it to a hosted database, run
+# `pxt db update pxt://org:db --add-config-entry`, then `pxt schema update app.tsx pxt://org:db`.

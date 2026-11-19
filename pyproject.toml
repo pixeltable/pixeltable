@@ -125,6 +125,8 @@ constraint-dependencies = [
 
 [tool.uv.workspace]
 members = ["packages/*"]
+# an npm package, not a Python project
+exclude = ["packages/typescript-sdk"]
 
 [tool.uv.sources]
 opentelemetry-instrumentation-pixeltable = { workspace = true }

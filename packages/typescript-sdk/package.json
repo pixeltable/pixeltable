@@ -1,0 +1,21 @@
+{
+  "name": "@pixeltable/sdk",
+  "version": "0.0.0-prototype",
+  "private": true,
+  "description": "Pixeltable for TypeScript (prototype): class-based table schemas and typed expressions",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./functions": "./src/functions/index.ts",
+    "./export": "./src/export.ts",
+    "./register": "./src/register.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test test/*.test.ts"
+  }
+}

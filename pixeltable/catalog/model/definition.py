@@ -26,7 +26,7 @@ import dataclasses
 import sys
 from pathlib import Path
 from types import FrameType
-from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, MutableMapping, Sequence, TypedDict, cast
 from uuid import UUID, uuid4
 
 from typing_extensions import TypeForm
@@ -962,3 +962,39 @@ class TableModelMeta(type):
                 f'`{cls.__name__}.bind()`, `{cls.__name__}.create()`, `pxt.bind_all()`, or `pxt.create_all()`.',
             )
         return cls._resolve_tbl(cls._catalog_dir, if_not_exists='error')
+
+
+class ModelBody:
+    """The class body of a model that define_model() builds: the columns visible so far, and the next definition."""
+
+    _namespace: _ModelNamespace
+
+    def __init__(self, namespace: _ModelNamespace) -> None:
+        self._namespace = namespace
+
+    def ref(self, name: str) -> ColumnRefByName | None:
+        """The column a class body could refer to as `name` at this point, or None."""
+        value = dict.get(self._namespace, name)
+        return value if isinstance(value, ColumnRefByName) else None
+
+    def define(self, name: str, value: Column | exprs.Expr) -> None:
+        """The counterpart of the class body statement `name = value`."""
+        self._namespace[name] = value
+
+
+def define_model(
+    model_base_: TableModelMeta, cls_name: str, module: str, body: Callable[[ModelBody], None], **table_kwargs: Any
+) -> TableModelMeta:
+    """Define a model from data rather than from a class statement, for a schema written in another language.
+
+    Equivalent to `class <cls_name>(model_base_, **table_kwargs)` in `module`, with a class body that makes the
+    definitions body() makes, in the same order and subject to the same checks.
+    """
+    bases = (model_base_,)
+    # __prepare__() reads the frame that defines the class, which is this one
+    namespace = TableModelMeta.__prepare__(cls_name, bases, **table_kwargs)
+    assert isinstance(namespace, _ModelNamespace)
+    namespace['__module__'] = module
+    namespace['__qualname__'] = cls_name
+    body(ModelBody(namespace))
+    return TableModelMeta(cls_name, bases, namespace, **table_kwargs)

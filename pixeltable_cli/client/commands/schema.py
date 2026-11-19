@@ -299,7 +299,8 @@ def run(argv: list[str]) -> None:
             '  prune    drop the tables under TARGET that the schema does not define\n'
             '  check    validate the schema file on its own (takes no TARGET)\n'
             '  example  write a working schema file to start from (takes no SCHEMA/TARGET)\n\n'
-            'SCHEMA is a Python file defining models on a pxt.model_base(); TARGET is a catalog\n'
+            'SCHEMA is a Python file defining models on a pxt.model_base(), or a TypeScript file\n'
+            '(.ts, .tsx) exporting @pixeltable/sdk models, read with Node.js; TARGET is a catalog\n'
             "directory or a pxt:// URI. Run 'pxt schema example' for a file to start from."
         )
         sys.exit(EXIT_IN_AGREEMENT if len(argv) > 0 else EXIT_ERROR)
@@ -318,7 +319,7 @@ def run(argv: list[str]) -> None:
 
     if verb == 'check':
         ap = Parser(prog='pxt schema check', epilog=CHECK_EPILOG, usage_exit_code=EXIT_ERROR)
-        ap.add_argument('schema', help='path to a Python file defining a class-based schema')
+        ap.add_argument('schema', help='path to a Python or TypeScript file defining a class-based schema')
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
         check_file('/api/schema/check', 'app_file', args.schema, verb='schema check', as_json=args.as_json)
@@ -331,7 +332,7 @@ def run(argv: list[str]) -> None:
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'prune': PRUNE_EPILOG}
     # a usage error exits EXIT_ERROR, not argparse's 2, which here means that changes are pending
     ap = Parser(prog=f'pxt schema {verb}', epilog=epilogs[verb], usage_exit_code=EXIT_ERROR)
-    ap.add_argument('schema', help='path to a Python file defining a class-based schema')
+    ap.add_argument('schema', help='path to a Python or TypeScript file defining a class-based schema')
     ap.add_argument('target', help='catalog directory to reconcile against the schema')
     ap.add_argument('--json', action='store_true', dest='as_json')
     if verb in ('update', 'prune'):
