@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import typing
 from pathlib import Path
 from typing import Any, cast
@@ -96,7 +97,7 @@ def export_parquet(
 def import_parquet(
     table: str,
     *,
-    parquet_path: str,
+    parquet_path: str | os.PathLike,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     **kwargs: Any,
