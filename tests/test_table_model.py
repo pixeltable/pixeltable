@@ -2641,6 +2641,11 @@ class TestTableModel:
             class BadPkColSpec(TableModel, name='bad_pk_col_spec'):
                 bad = Column(primary_key=True)
 
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
+
+            class AnnotatedPkColSpec(TableModel, name='annotated_pk_col_spec'):
+                bad: pxt.UUID = Column(primary_key=True)  # type: ignore[assignment]
+
         with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA,
             match=r"Column specification for 'both' cannot define both `type` and `value`: a computed column "
