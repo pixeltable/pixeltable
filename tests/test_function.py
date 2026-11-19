@@ -2297,6 +2297,8 @@ class TestFunction:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
+    # the table a retrieval UDF reads is not in the lock set of the operation that evaluates it
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     @pytest.mark.db_roots('local', reason='builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:
         t = pxt.create_table('customers', {'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None})
@@ -2376,21 +2378,28 @@ class TestFunction:
         lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
         assert lookup.matching.col_type == fn2.signature.return_type
 
-        # a model is accepted once it is bound to its table
         table_model = pxt.model_base()
 
         class Items(table_model, name='items'):
             item_id: pxt.String
             name: pxt.String
 
-        with pxt_raises(pxt.ErrorCode.NOT_BOUND, match='`Items` is not yet bound to an actual table'):
-            pxt.retrieval_udf(Items)
+        item_by_id = pxt.retrieval_udf(Items, parameters=[Items.item_id], limit=1)
+        assert item_by_id.name == 'items'
+        assert list(item_by_id.signature.parameters.keys()) == ['item_id']
+
+        class Orders(table_model, name='orders'):
+            order_id: pxt.Int
+            item_id: pxt.String
+            item = item_by_id(item_id)  # noqa: F821
 
         table_model.create_all('')
         Items.insert([{'item_id': 'A1', 'name': 'apple'}, {'item_id': 'B2', 'name': 'banana'}])
-        fn4 = pxt.retrieval_udf(Items, parameters=[Items.item_id], limit=1)
-        assert fn4.name == 'items'
-        assert list(fn4.signature.parameters.keys()) == ['item_id']
+        Orders.insert([{'order_id': 1, 'item_id': 'B2'}, {'order_id': 2, 'item_id': 'X'}])
+        res = Orders.order_by(Orders.order_id).select(Orders.item).collect()
+        assert res['item'] == [{'item_id': 'B2', 'name': 'banana'}, None]
+
+        fn4 = pxt.retrieval_udf(Items, parameters=['item_id'], limit=1)
         res = Items.select(found=fn4(item_id='B2')).limit(1).collect()
         assert res[0] == {'found': {'item_id': 'B2', 'name': 'banana'}}
 

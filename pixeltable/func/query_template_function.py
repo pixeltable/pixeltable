@@ -320,7 +320,8 @@ def retrieval_udf(
     returns the rows of the table whose columns equal the specified arguments.
 
     Args:
-        table: The table to use as the dataset for the retrieval tool, or a model that is bound to one.
+        table: The table to use as the dataset for the retrieval tool, or a model. Over a model that is not yet
+            bound to a table, the UDF can be used wherever a `@pxt.query` over that model can, and is bound with it.
         name: The name of the tool. If not specified, then the name of the table will be used by default.
         description: The description of the tool. If not specified, then a default description will be generated.
         parameters: The columns of the table to use as parameters. If not specified, all data columns
@@ -339,28 +340,29 @@ def retrieval_udf(
     """
     from pixeltable.catalog.model import TableModelMeta
 
-    if isinstance(table, TableModelMeta):
-        table = table.table
+    # an unbound model's attributes and select() yield a ModelQuery, which is bound along with the model
+    tbl_path = table.table_path() if isinstance(table, TableModelMeta) else table._tbl_path
+    col_mds = {col_md.name: col_md for col_md in tbl_path.column_md() if col_md.name is not None}
 
     # Argument validation
-    col_refs: list[exprs.ColumnRef]
-    col_names = table.columns()
+    col_refs: list[exprs.Expr]
     if parameters is None:
-        col_refs = [table[col_name] for col_name in col_names if not table[col_name].column_md.is_computed]
+        col_refs = [getattr(table, col_name) for col_name, col_md in col_mds.items() if not col_md.is_computed]
     else:
         for param in parameters:
-            if isinstance(param, str) and param not in col_names:
+            if isinstance(param, str) and param not in col_mds:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'The specified parameter {param!r} is not a column of the table {table._path()!r}',
+                    f'The specified parameter {param!r} is not a column of the table '
+                    f'{table.__table_spec__["name"] if isinstance(table, TableModelMeta) else table._path()!r}',
                 )
-        col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
+        col_refs = [getattr(table, param) if isinstance(param, str) else param for param in parameters]
 
     if len(col_refs) == 0:
         raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'Parameter list cannot be empty.')
 
     # Construct the Query
-    predicates = [col_ref == exprs.Variable(col_ref.column_md.name, col_ref.column_md.col_type) for col_ref in col_refs]
+    predicates = [col_ref == exprs.Variable(col_ref.default_column_name(), col_ref.col_type) for col_ref in col_refs]
     where_clause = reduce(lambda c1, c2: c1 & c2, predicates)
     df = table.select().where(where_clause)
     if limit is not None:
@@ -368,20 +370,20 @@ def retrieval_udf(
 
     # Construct the signature
     query_params = [
-        func.Parameter(col_ref.column_md.name, col_ref.column_md.col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        func.Parameter(col_ref.default_column_name(), col_ref.col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
         for col_ref in col_refs
     ]
 
     # Construct a name and/or description if not provided
     if name is None:
-        name = table._name()
+        name = table.__table_spec__['name'] if isinstance(table, TableModelMeta) else table._name()
     if description is None:
         description = (
             f'Retrieves an entry from the dataset {name!r} that matches the given parameters.\n\nParameters:\n'
         )
         description += '\n'.join(
             [
-                f'    {col_ref.column_md.name}: of type `{col_ref.column_md.col_type._to_base_str()}`'
+                f'    {col_ref.default_column_name()}: of type `{col_ref.col_type._to_base_str()}`'
                 for col_ref in col_refs
             ]
         )
