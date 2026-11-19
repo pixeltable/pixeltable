@@ -59,9 +59,7 @@ T = TypeVar('T')
 
 _UDF_RESOURCES_ADAPTER = pydantic.TypeAdapter(dict[str, UdfResources])
 
-_DEFAULT_PROXY_DOMAIN = 'pxt.run'
-# The tunnel load balancer also listens on 9000, the default before 443; PIXELTABLE_CLOUD_HOST=pxt.run:9000 picks it
-_DEFAULT_PROXY_PORT = 443
+_DEFAULT_CLOUD_HOST = 'pxt.run'
 
 
 def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, default: int) -> None:
@@ -744,28 +742,18 @@ class Env:
 
         metadata.upgrade_md(self._sa_engine)
 
-    def proxy_endpoint(self, org: str, db: str) -> tuple[str, int]:
-        """Host and port of the proxy daemon serving a hosted database."""
+    def gateway_origin(self, org: str, db: str) -> str:
+        """Return the HTTPS origin of the Cloud gateway for pxt://org:db."""
         # cloud_host is deliberately not a registered config option: PIXELTABLE_CLOUD_HOST is the only override
-        setting = Config.get().get_string_value('cloud_host')
-        domain, port = _DEFAULT_PROXY_DOMAIN, _DEFAULT_PROXY_PORT
-        if setting is not None:
-            domain = setting
-            if ':' in setting:
-                domain, _, port_str = setting.rpartition(':')
-                if domain == '':
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_CONFIGURATION,
-                        f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
-                    )
-                try:
-                    port = int(port_str)
-                except ValueError as err:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_CONFIGURATION,
-                        f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
-                    ) from err
-        return f'{org}-{db}.{domain}', port
+        domain = Config.get().get_string_value('cloud_host') or _DEFAULT_CLOUD_HOST
+        if ':' in domain:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Invalid PIXELTABLE_CLOUD_HOST value {domain!r}: expected a domain without a scheme or port, '
+                'such as dev.pxt.run.',
+            )
+        # each Cloud deployment, such as dev or prod, serves its gateway under svc.<domain>
+        return f'https://{org}-{db}.svc.{domain}'
 
     def object_store_clients(self, target: StorageTarget, kind: ObjectStoreClientKind = 'client') -> S3CompatClientDict:
         """The boto3 client (or resource) cache of an S3-compatible storage target."""

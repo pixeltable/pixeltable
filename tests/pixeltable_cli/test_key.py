@@ -75,11 +75,11 @@ class TestCloudKey:
         assert r.returncode == 1, r.stderr
         assert 'The API key from the PIXELTABLE_API_KEY environment variable was rejected' in r.stderr, r.stderr
 
-    @pytest.mark.db_roots('cloud-cli', reason="only a hosted database's tunnel checks the key")
-    def test_unknown_key_is_rejected_by_tunnel(
+    @pytest.mark.db_roots('cloud-cli', reason="only a hosted database's gateway checks the key")
+    def test_unknown_key_is_rejected_by_gateway(
         self, daemon_port: int, tmp_path: pathlib.Path, db_root: DatabaseRoot
     ) -> None:
-        """The tunnel to a hosted database refuses that key with the same error as the control plane."""
+        """The gateway to a hosted database refuses that key with the same error as the control plane."""
         r = _with_unknown_key(daemon_port, tmp_path, 'ls', db_root.prefix)
         assert r.returncode == 1, r.stderr
         assert 'The API key from the PIXELTABLE_API_KEY environment variable was rejected' in r.stderr, r.stderr

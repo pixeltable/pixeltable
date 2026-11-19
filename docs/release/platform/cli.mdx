@@ -1393,7 +1393,8 @@ up to a day. On Pro, the cost line ends with an estimate of what bills past the 
 When Pixeltable Cloud refuses a request past your plan's limits (`PLAN_LIMIT`), for an unpaid
 subscription (`PAYMENT_REQUIRED`), or because the media store is full (`STORE_FULL`), the command
 prints the control plane's reason alone, which ends with the fix, and exits 1. A `pxt://` connection
-to a stopped database fails at once with the command that starts it.
+to a database stopped with `pxt db stop` fails at once with the command that starts it. A connection to
+a database that was stopped for being idle starts the database and waits for it, up to about 5 minutes.
 
 ### `pxt secret`
 

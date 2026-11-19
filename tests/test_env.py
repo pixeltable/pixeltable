@@ -390,35 +390,28 @@ class TestEnsureConnected:
         assert all(proc.returncode == 0 for proc in procs), errors
 
 
-class TestProxyEndpoint:
+class TestGatewayOrigin:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),
-        [
-            (None, ('acme-main.pxt.run', 443)),
-            ('dev.pxt.run', ('acme-main.dev.pxt.run', 443)),
-            ('pxt.run:9000', ('acme-main.pxt.run', 9000)),
-            ('localhost:9443', ('acme-main.localhost', 9443)),
-        ],
+        [(None, 'https://acme-main.svc.pxt.run'), ('dev.pxt.run', 'https://acme-main.svc.dev.pxt.run')],
     )
-    def test_proxy_endpoint(
-        self, cloud_host: str | None, expected: tuple[str, int], init_env: None, monkeypatch: pytest.MonkeyPatch
+    def test_gateway_origin(
+        self, cloud_host: str | None, expected: str, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         if cloud_host is None:
             monkeypatch.delenv('PIXELTABLE_CLOUD_HOST', raising=False)
         else:
             monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
-        assert Env.get().proxy_endpoint('acme', 'main') == expected
+        assert Env.get().gateway_origin('acme', 'main') == expected
 
-    @pytest.mark.parametrize(
-        ('cloud_host', 'error'),
-        [('dev.pxt.run:https', "port 'https' is not a valid integer"), (':9000', 'missing host')],
-    )
-    def test_proxy_endpoint_rejects(
-        self, cloud_host: str, error: str, init_env: None, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize('cloud_host', ['pxt.run:9000', 'https://dev.pxt.run'])
+    def test_gateway_origin_rejects_a_scheme_or_port(
+        self, cloud_host: str, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A PIXELTABLE_CLOUD_HOST with a scheme or a port is refused: the gateway is always https:// on port 443."""
         monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=error):
-            Env.get().proxy_endpoint('acme', 'main')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='expected a domain without a scheme or port'):
+            Env.get().gateway_origin('acme', 'main')
 
 
 class _TestClient:

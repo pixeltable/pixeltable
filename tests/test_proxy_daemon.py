@@ -1,13 +1,13 @@
-import base64
-import gc
+import concurrent.futures
 import http
+import http.server
 import io
 import json
 import math
 import pathlib
+import re
 import shutil
 import socket
-import socketserver
 import ssl
 import tarfile
 import threading
@@ -35,7 +35,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.management_client import Credential
-from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
+from pixeltable.service.proxy_client import GatewayTransport, HttpTransport, ProxyClient
 from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink, PxtStorePartSink
 from pixeltable.utils import cloud_utils
 from pixeltable.utils.filecache import FileCache
@@ -444,9 +444,9 @@ class TestProxyDaemon:
         local_sink = HttpTransport('http://127.0.0.1:1').new_part_sink()
         assert type(local_sink) is proxy_protocol.InlinePartSink
 
-        tunnel = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-        remote_sink = tunnel.new_part_sink()
-        next_sink = tunnel.new_part_sink()
+        gateway = GatewayTransport('org1', 'db1', lambda: _KEY, 'https://h')
+        remote_sink = gateway.new_part_sink()
+        next_sink = gateway.new_part_sink()
         assert type(remote_sink) is PxtArchivePartSink
         assert type(next_sink) is PxtArchivePartSink
         # each request gets its own uploads/ prefix
@@ -958,7 +958,7 @@ class TestProxyDaemon:
         client = (
             ProxyClient.local('http://127.0.0.1:1', db='db1')
             if org == 'local'
-            else ProxyClient.remote(org, 'db1', lambda: _KEY, host='h', port=443)
+            else ProxyClient.remote(org, 'db1', lambda: _KEY, 'https://h')
         )
         response = proxy_protocol.encode_response(
             {
@@ -1021,7 +1021,7 @@ class TestProxyDaemon:
     def test_client_trusts_protocol_version_fields(self, table_method: bool, monkeypatch: pytest.MonkeyPatch) -> None:
         """The sentence says the database is newer. The fields say this client is, and they win."""
         sentence = 'Unsupported proxy protocol version: 1 (server expects 2)'
-        client = ProxyClient.remote('org1', 'db1', lambda: _KEY, host='h', port=443)
+        client = ProxyClient.remote('org1', 'db1', lambda: _KEY, 'https://h')
         response = proxy_protocol.encode_response(
             {
                 'error': {
@@ -1104,697 +1104,503 @@ class TestProxyDaemon:
             shutil.rmtree(proxy_daemon.proxy_home(db))
 
 
-class _ScriptedResponse:
-    def __init__(self, status: int, body: bytes) -> None:
-        self.status = status
-        self._body = body
+def _gateway(
+    answers: list[httpx.Response | BaseException], credential_cb: Callable[[], Credential] = lambda: _KEY
+) -> tuple[GatewayTransport, list[httpx.Request]]:
+    """A transport whose gateway answers each request with the next of `answers`, and the requests it received."""
+    requests: list[httpx.Request] = []
 
-    def read(self) -> bytes:
-        return self._body
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        answer = answers.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
 
-
-class _ScriptedConn:
-    """A tunnel connection whose write and read phases do what the script says.
-
-    Its socket is a real one, so the pool's own health check runs against it: an open socketpair reads as
-    a live connection, and closing the peer makes it read as one the server has closed.
-    """
-
-    responded_at: float | None = None
-
-    def __init__(self, on_write: BaseException | None = None, on_read: object = (200, b'ok')) -> None:
-        self.sock, self._peer = socket.socketpair()
-        self._on_write = on_write
-        self._on_read = on_read
-        self.writes = 0
-        self.closed = False
-
-    def request(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None) -> None:
-        self.writes += 1
-        if self._on_write is not None:
-            raise self._on_write
-
-    def getresponse(self) -> _ScriptedResponse:
-        if isinstance(self._on_read, BaseException):
-            raise self._on_read
-        assert isinstance(self._on_read, tuple)
-        return _ScriptedResponse(*self._on_read)
-
-    def close(self) -> None:
-        self.closed = True
-        self.sock.close()
-        self._peer.close()
-
-    def close_peer(self) -> None:
-        """Make the connection read as closed by the server."""
-        self._peer.close()
+    transport = GatewayTransport('org1', 'db1', credential_cb, 'https://org1-db1.svc.pxt.run')
+    transport._http = httpx.Client(base_url=transport._endpoint, transport=httpx.MockTransport(handle))
+    return transport, requests
 
 
-class _PlainTLS:
-    """An SSL context that leaves the socket as it is, for a sidecar that speaks no TLS."""
-
-    def wrap_socket(self, sock: socket.socket, server_hostname: str | None = None) -> socket.socket:
-        return sock
-
-
-def _header_fields(stream: io.BufferedIOBase) -> dict[str, str]:
-    """The header fields of the next message on the stream, after its first line."""
-    stream.readline()
-    fields: dict[str, str] = {}
-    while (line := stream.readline().decode().strip()) != '':
-        name, _, value = line.partition(':')
-        fields[name] = value.strip()
-    return fields
+def _gateway_answer(
+    status: int, error_code: str, message: str, retryable: bool = False, retry_after: int | None = None
+) -> httpx.Response:
+    """An error the gateway answers on its own, with its Retry-After header."""
+    headers = {} if retry_after is None else {'Retry-After': str(retry_after)}
+    detail = {'error_code': error_code, 'message': message, 'retryable': retryable}
+    return httpx.Response(status, json={'detail': detail}, headers=headers)
 
 
-class _PlainSidecar(socketserver.TCPServer):
-    """A sidecar on loopback TCP that records the token in each tunnel handshake.
-
-    It answers one request per tunnel and then closes it, so the client's next request needs a new
-    handshake. Handshakes get `handshakes` in turn, then 'PXT/1.0 200 OK'; an empty one gets no answer.
-    """
-
-    def __init__(self, handshakes: tuple[bytes, ...] = ()) -> None:
-        self.tokens: list[str] = []
-        self.handshakes = list(handshakes)
-        self._create_connection = socket.create_connection
-        super().__init__(('127.0.0.1', 0), _SidecarHandler)
-        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
-        self._thread.start()
-
-    def connect(self, _address: Any, timeout: float | None = None) -> socket.socket:
-        return self._create_connection(('127.0.0.1', self.server_address[1]), timeout=timeout)
-
-    def close(self) -> None:
-        self.shutdown()
-        self.server_close()
-        self._thread.join()
+def _connect_refused() -> httpx.ConnectError:
+    return httpx.ConnectError('[Errno 61] Connection refused')
 
 
-class _SidecarHandler(socketserver.StreamRequestHandler):
-    server: _PlainSidecar
-
-    def handle(self) -> None:
-        self.server.tokens.append(_header_fields(self.rfile)['Authorization'].removeprefix('Bearer '))
-        reply = self.server.handshakes.pop(0) if self.server.handshakes else b'PXT/1.0 200 OK'
-        if reply == b'':
-            self.rfile.read()  # until the client gives up and closes the tunnel
-            return
-        self.wfile.write(reply + b'\r\n\r\n')
-        if not reply.startswith(b'PXT/1.0 200'):
-            return
-        self.rfile.read(int(_header_fields(self.rfile).get('Content-Length', '0')))
-        self.wfile.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok')
-
-
-class _ConnectProxy(socketserver.ThreadingTCPServer):
-    """An HTTP proxy on loopback that records each CONNECT and relays it to `upstream`, whatever host it names.
-
-    CONNECTs get `answers` in turn, then a 200; an empty answer closes the connection, and `SILENT` none at all.
-    """
-
-    SILENT = b'(silent)'
-    daemon_threads = True
-
-    def __init__(self, upstream: tuple[str, int], answers: tuple[bytes, ...] = ()) -> None:
-        self.upstream = upstream
-        self.answers = list(answers)
-        self.requests: list[tuple[str, dict[str, str]]] = []
-        super().__init__(('127.0.0.1', 0), _ConnectHandler)
-        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
-        self._thread.start()
-
-    @property
-    def addr(self) -> str:
-        return f'127.0.0.1:{self.server_address[1]}'
-
-    def close(self) -> None:
-        self.shutdown()
-        self.server_close()
-        self._thread.join()
-
-
-class _ConnectHandler(socketserver.StreamRequestHandler):
-    server: _ConnectProxy
-
-    def handle(self) -> None:
-        request_line = self.rfile.readline().decode().strip()
-        headers: dict[str, str] = {}
-        while (line := self.rfile.readline().decode().strip()) != '':
-            name, _, value = line.partition(':')
-            headers[name] = value.strip()
-        self.server.requests.append((request_line, headers))
-        answer = self.server.answers.pop(0) if self.server.answers else b'HTTP/1.1 200 Connection established'
-        if answer == _ConnectProxy.SILENT:
-            self.rfile.read()  # until the client gives up
-            return
-        if answer == b'':
-            return
-        self.wfile.write(answer + b'\r\n\r\n')
-        if not answer.startswith(b'HTTP/1.1 200'):
-            return
-        with socket.create_connection(self.server.upstream) as upstream:
-
-            def pump(read: Callable[[int], bytes], dest: socket.socket) -> None:
-                try:
-                    while chunk := read(65536):
-                        dest.sendall(chunk)
-                except OSError:
-                    pass
-                finally:
-                    try:
-                        dest.shutdown(socket.SHUT_WR)
-                    except OSError:
-                        pass
-
-            to_upstream = threading.Thread(target=pump, args=(self.rfile.read1, upstream), daemon=True)
-            to_upstream.start()
-            pump(upstream.recv, self.connection)
-            to_upstream.join()
-
-
-class TestTunnelRetries:
+class TestGatewayRetries:
     """What the client reissues, and what it refuses to reissue."""
 
     @pytest.fixture(autouse=True)
     def _isolated(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The tunnel honors HTTPS_PROXY and NO_PROXY, so a developer's settings would reroute these tests. A failing
-        tunnel asks the control plane whether the database is stopped; here none answers, unless a test gives one."""
+        """GatewayTransport reads HTTPS_PROXY and NO_PROXY: a developer's settings would reroute these tests."""
         for name in ('HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy'):
             monkeypatch.delenv(name, raising=False)
 
-        def no_control_plane(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-            raise requests.exceptions.ConnectionError('no control plane in these tests')
-
-        monkeypatch.setattr(proxy_client.management_client, 'api_call', no_control_plane)
-
-    @staticmethod
-    def _transport(conns: list[_ScriptedConn]) -> tuple[TunnelTransport, list[_ScriptedConn]]:
-        """A transport that hands out conns in order, and the list of the ones it actually opened."""
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-        opened: list[_ScriptedConn] = []
-        queue = list(conns)
-
-        def connect() -> object:
-            conn = queue.pop(0)
-            opened.append(conn)
-            return conn
-
-        transport._pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
-        return transport, opened
-
-    def test_a_daemon_that_dies_holding_the_request_is_not_retried(self) -> None:
+    @pytest.mark.parametrize(
+        'failure',
+        [
+            httpx.ReadError('Connection reset by peer'),
+            # the daemon's own 500, which the gateway passes on without its error body
+            httpx.Response(500, content=b'Internal Server Error'),
+            # a load balancer's 502 when a gateway pod dies during the request
+            httpx.Response(502, content=b'<html>502 Bad Gateway</html>'),
+        ],
+    )
+    def test_a_daemon_that_dies_holding_the_request_is_not_retried(
+        self, failure: httpx.Response | BaseException
+    ) -> None:
         """The failure that motivated this: the daemon is OOM-killed mid-request, so reissuing it just
         kills the daemon again."""
-        transport, opened = self._transport(
-            [_ScriptedConn(on_read=ConnectionResetError('Connection reset by peer')) for _ in range(3)]
-        )
+        transport, requests = _gateway([failure] * 3)
         with pxt_raises(
             pxt.ErrorCode.INTERNAL_ERROR, match=r'became unresponsive while handling this request: pxt://org1:db1'
         ):
             transport.post(b'body')
-        assert len(opened) == 1  # no reissue
+        assert len(requests) == 1  # no reissue
 
-    def test_a_request_that_never_landed_is_retried(self) -> None:
-        """A write that fails leaves the daemon with nothing to act on, so the request can go again."""
-        transport, opened = self._transport(
-            [_ScriptedConn(on_write=ConnectionResetError('broken pipe')), _ScriptedConn(on_read=(200, b'second'))]
-        )
+    @pytest.mark.parametrize(
+        ('status', 'error_code', 'message'),
+        [
+            # nginx answers 502 or 504 after the daemon received the request too, so a write may have been applied
+            (502, 'INTERNAL_ERROR', 'The service did not answer. A write may already have been applied.'),
+            (504, 'INTERNAL_ERROR', 'The service did not respond in time. A write may already have been applied.'),
+            # the gateway itself failed
+            (500, 'INTERNAL_ERROR', 'The gateway could not process this request.'),
+            # only its owner starts a stopped database, for the usage limit as well
+            (503, 'INVALID_STATE', 'This database is stopped. Start it with `pxt db start`.'),
+            (
+                503,
+                'INVALID_STATE',
+                'This database is stopped: its organization passed the monthly usage its plan includes.',
+            ),
+            (404, 'SERVICE_NOT_FOUND', 'No service matches this host and path.'),
+        ],
+    )
+    def test_a_gateway_error_is_raised_at_once(self, status: int, error_code: str, message: str) -> None:
+        """An error that the gateway marks as not retryable is raised with the gateway's code and message."""
+        transport, requests = _gateway([_gateway_answer(status, error_code, message)] * 2)
+        with pxt_raises(excs.ErrorCode[error_code], match=re.escape(f'pxt://org1:db1: {message}')):
+            transport.post(b'body')
+        assert len(requests) == 1
+
+    @pytest.mark.parametrize(
+        'failure',
+        [
+            _connect_refused(),
+            # the HTTPS proxy could not connect to the gateway
+            httpx.ProxyError('502 Bad Gateway'),
+        ],
+    )
+    def test_a_request_that_never_landed_is_retried(self, failure: BaseException) -> None:
+        """A connection that fails leaves the daemon with nothing to act on, so the request can go again."""
+        transport, requests = _gateway([failure, httpx.Response(200, content=b'second')])
         assert transport.post(b'body') == b'second'
-        assert len(opened) == 2
-        assert opened[0].closed
+        assert len(requests) == 2
 
-    def test_a_server_error_is_retried(self) -> None:
-        """A 5xx comes from a daemon that is alive and answering; a rollout can produce one. It is retried
-        for the whole retry budget, not only as many times as a connect that times out."""
-        transport, opened = self._transport(
-            [*(_ScriptedConn(on_read=(503, b'unavailable')) for _ in range(2)), _ScriptedConn(on_read=(200, b'third'))]
-        )
+    @pytest.mark.parametrize(
+        'answer',
+        [
+            # a load balancer that does not pass the request on
+            httpx.Response(503, content=b'unavailable'),
+            # a 429 without the gateway's envelope, from a load balancer
+            httpx.Response(429, content=b'slow down'),
+            # the gateway could not ask WorkOS
+            _gateway_answer(503, 'PROVIDER_ERROR', 'API key validation is temporarily unavailable.', True, 1),
+            # the gateway's per-key limit
+            _gateway_answer(429, 'RATE_LIMITED', 'Too many requests with this API key.', True, 1),
+            # a request to a database that was stopped for being idle starts it (the gateway's Retry-After is 30)
+            _gateway_answer(503, 'DATABASE_UNAVAILABLE', 'This database is starting.', True, 1),
+        ],
+    )
+    def test_an_answer_that_says_to_retry_is_retried(self, answer: httpx.Response) -> None:
+        transport, requests = _gateway([answer, answer, httpx.Response(200, content=b'third')])
         assert transport.post(b'body') == b'third'
-        assert len(opened) == 3
+        assert len(requests) == 3
 
-    def test_a_connection_the_os_refuses_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A firewall or sandbox that denies the socket denies it again, so the error comes at once."""
-        attempts = 0
+    def test_a_zero_retry_after_still_backs_off(self) -> None:
+        """A Retry-After of 0 would otherwise resend at once for the whole budget."""
+        transport, requests = _gateway([httpx.Response(429, headers={'Retry-After': '0'}), httpx.Response(200)])
+        started_at = time.monotonic()
+        transport.post(b'body')
+        # the shortest exponential backoff is 0.5 s
+        assert time.monotonic() - started_at >= 0.5
+        assert len(requests) == 2
 
-        def deny(*_args: Any, **_kwargs: Any) -> socket.socket:
-            nonlocal attempts
-            attempts += 1
+    def test_a_starting_database_is_waited_for(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A database takes about 2 minutes to start, which is longer than the budget for other retries. A failed
+        connection in between does not shorten the wait."""
+        monkeypatch.setattr(proxy_client, '_RETRY_MAX_DELAY', 0.5)
+        starting = _gateway_answer(503, 'DATABASE_UNAVAILABLE', 'This database is starting.', True, 1)
+        transport, requests = _gateway([starting, _connect_refused(), starting, httpx.Response(200, content=b'up')])
+        assert transport.post(b'body') == b'up'
+        assert len(requests) == 4
+
+    def test_a_retryable_answer_past_the_budget_is_raised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The gateway answered, so the error is its own, without advice about the network."""
+        monkeypatch.setattr(proxy_client, '_RETRY_MAX_DELAY', 0.5)
+        limited = _gateway_answer(429, 'RATE_LIMITED', 'Too many requests with this API key.', True, 1)
+        transport, requests = _gateway([limited] * 50)
+        with pxt_raises(
+            excs.ErrorCode.RATE_LIMITED, match=r'\Apxt://org1:db1: Too many requests with this API key\.\Z'
+        ):
+            transport.post(b'body')
+        assert len(requests) > 1
+
+    @pytest.mark.parametrize(
+        ('environ', 'address'),
+        [
+            ({}, ('org1-db1.svc.pxt.run', 443)),
+            ({'HTTPS_PROXY': 'http://127.0.0.1:3128'}, ('127.0.0.1', 3128)),
+            ({'HTTPS_PROXY': 'https://127.0.0.1:3128'}, ('127.0.0.1', 3128)),
+            # a proxy without a scheme is an http:// one
+            ({'HTTPS_PROXY': '127.0.0.1:3128'}, ('127.0.0.1', 3128)),
+            # httpx needs the socksio package for a socks5:// proxy, so the connection is direct
+            ({'HTTPS_PROXY': 'socks5://127.0.0.1:1080'}, ('org1-db1.svc.pxt.run', 443)),
+            # NO_PROXY exempts the host by one of its domains, by its name, or by its name and port
+            (
+                {'HTTPS_PROXY': 'http://127.0.0.1:3128', 'NO_PROXY': 'localhost,.svc.pxt.run'},
+                ('org1-db1.svc.pxt.run', 443),
+            ),
+            (
+                {'HTTPS_PROXY': 'http://127.0.0.1:3128', 'NO_PROXY': 'org1-db1.svc.pxt.run'},
+                ('org1-db1.svc.pxt.run', 443),
+            ),
+            (
+                {'HTTPS_PROXY': 'http://127.0.0.1:3128', 'NO_PROXY': 'org1-db1.svc.pxt.run:443'},
+                ('org1-db1.svc.pxt.run', 443),
+            ),
+            # an entry for another port leaves the gateway to the proxy
+            ({'HTTPS_PROXY': 'http://127.0.0.1:3128', 'NO_PROXY': 'org1-db1.svc.pxt.run:8443'}, ('127.0.0.1', 3128)),
+        ],
+    )
+    def test_a_socket_the_os_denies_is_not_retried(
+        self, environ: dict[str, str], address: tuple[str, int], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A firewall or sandbox that denies the socket denies it again, so the error comes at once. The address it
+        denies is the proxy's, or the gateway's for a direct connection."""
+        addresses: list[tuple[str, int]] = []
+
+        def deny(target: tuple[str, int], *args: Any, **kwargs: Any) -> socket.socket:
+            addresses.append(target)
             raise PermissionError(1, 'Operation not permitted')
 
         monkeypatch.setattr(socket, 'create_connection', deny)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-
-        with pytest.raises(PermissionError):
-            transport.post(b'body')
-        assert attempts == 1
-
-    @staticmethod
-    def _stopped_or(state: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Credential | None]]:
-        """Tunnels reset and the control plane answers `state`; returns its requests, with the credential of each."""
-        requests: list[tuple[Any, Credential | None]] = []
-
-        def get_db(request: Any, credential: Credential | None = None) -> dict[str, Any]:
-            requests.append((request, credential))
-            return {'report': {'db': 'db1', 'current': {'resources': {}, 'state': state}}}
-
-        def reset(*_args: Any, **_kwargs: Any) -> socket.socket:
-            raise ConnectionResetError
-
-        monkeypatch.setattr(socket, 'create_connection', reset)
-        monkeypatch.setattr(proxy_client.management_client, 'api_call', get_db)
-        return requests
-
-    def test_a_stopped_database_is_named_at_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The control plane is asked with the tunnel's credential, which need not be the configured one."""
-        requests = self._stopped_or('STOPPED', monkeypatch)
-        supplied = Credential('api_key', 'supplied', 'the caller')
-        transport = TunnelTransport('org1', 'db1', lambda: supplied, host='h', port=443)
-        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'pxt://org1:db1 is stopped; start it with `pxt db start'):
-            transport.post(b'body')
-        assert [credential for _, credential in requests] == [supplied]
-
-    def test_a_stopped_database_is_named_at_once_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        requests = self._stopped_or('STOPPED', monkeypatch)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-        for _ in range(2):
-            with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'pxt://org1:db1 is stopped'):
-                transport._connect_tunnel()
-        assert len(requests) == 2
-
-    def test_a_database_coming_up_is_retried_and_asked_about_once_an_interval(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        requests = self._stopped_or('STARTING', monkeypatch)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-        for _ in range(2):
-            with pytest.raises(ConnectionResetError):
-                transport._connect_tunnel()
-        assert len(requests) == 1
-
-    def test_a_connect_that_times_out_names_the_blocked_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A network that allows only outbound 443 drops the connect: two short tries, then an error that says
-        what to allow, rather than retrying for the whole budget and surfacing a bare TimeoutError."""
-        timeouts: list[float | None] = []
-
-        def drop(_address: Any, timeout: float | None = None) -> socket.socket:
-            timeouts.append(timeout)
-            raise TimeoutError('timed out')
-
-        monkeypatch.setattr(socket, 'create_connection', drop)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.run', port=9000)
-
+        for name, value in environ.items():
+            monkeypatch.setenv(name, value)
+        transport = GatewayTransport('org1', 'db1', lambda: _KEY, 'https://org1-db1.svc.pxt.run')
         with pxt_raises(
             excs.ErrorCode.DATABASE_UNAVAILABLE,
-            match=r'Cannot reach pxt://org1:db1: the TCP connection to org1-db1\.pxt\.run:9000 timed out\.\n'
-            r'.*allow outbound TCP port 9000 to \*\.pxt\.run\.',
+            match=r'\ACannot reach pxt://org1:db1: the OS denied the connection \(\[Errno 1\] Operation not '
+            r'permitted\)\.\n',
         ):
             transport.post(b'body')
-        assert timeouts == [proxy_client._CONNECT_TIMEOUT] * proxy_client._CONNECT_TRIES
+        assert addresses == [address]
 
-    def test_a_connect_that_timed_out_once_is_tried_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        sidecar = _PlainSidecar()
-        connects = 0
+    @pytest.mark.parametrize(
+        'proxy_url',
+        [
+            'http://agent:secret@127.0.0.1:99999',
+            # a fullwidth colon fails urlsplit()'s NFKC check, whose own error repeats the netloc
+            'http://agent:secret@proxy.invalid\uff1a3128',
+        ],
+    )
+    def test_an_invalid_proxy_url_is_a_configuration_error(
+        self, proxy_url: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The error leaves out the URL, which can contain the proxy password."""
+        monkeypatch.setenv('HTTPS_PROXY', proxy_url)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'\AHTTPS_PROXY is not a valid URL\.\Z') as info:
+            GatewayTransport('org1', 'db1', lambda: _KEY, 'https://org1-db1.svc.pxt.run')
+        assert 'secret' not in str(info.value)
+        assert info.value.__cause__ is None and info.value.__suppress_context__
 
-        def drop_first(address: Any, timeout: float | None = None) -> socket.socket:
-            nonlocal connects
-            connects += 1
-            if connects == 1:
-                raise TimeoutError('timed out')
-            return sidecar.connect(address, timeout)
+    def test_connections_send_keepalive_probes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The daemon sends nothing until a request is done, so probes keep a NAT or firewall from dropping the
+        connection during a long request."""
+        sockets: list[socket.socket] = []
+        create_connection = socket.create_connection
 
-        monkeypatch.setattr(socket, 'create_connection', drop_first)
-        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-        try:
+        def record(*args: Any, **kwargs: Any) -> socket.socket:
+            sock = create_connection(*args, **kwargs)
+            sockets.append(sock)
+            return sock
+
+        class Daemon(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'  # keeps the connection open after the answer
+
+            def do_POST(self) -> None:
+                self.rfile.read(int(self.headers['Content-Length']))
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+
+        monkeypatch.setattr(socket, 'create_connection', record)
+        with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Daemon) as server:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            transport = GatewayTransport('org1', 'db1', lambda: _KEY, f'http://127.0.0.1:{server.server_port}')
             assert transport.post(b'body') == b'ok'
-        finally:
+            [sock] = sockets
+            assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
             transport.close()
-            sidecar.close()
-        assert connects == 2
-        assert sidecar.tokens == ['key']
+            server.shutdown()
 
-    def test_a_refused_credential_opens_no_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_concurrent_requests_do_not_wait_for_a_free_connection(self) -> None:
+        """A long request holds its connection, so other requests open connections of their own."""
+        # one more than the idle connections the transport keeps
+        concurrent_requests = 17
+        # the daemon answers once every request is in progress at the same time
+        all_in_progress = threading.Barrier(concurrent_requests, timeout=10)
+
+        class Daemon(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+
+            def do_POST(self) -> None:
+                self.rfile.read(int(self.headers['Content-Length']))
+                all_in_progress.wait()
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+
+        with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Daemon) as server:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            transport = GatewayTransport('org1', 'db1', lambda: _KEY, f'http://127.0.0.1:{server.server_port}')
+            with concurrent.futures.ThreadPoolExecutor(concurrent_requests) as pool:
+                answers = list(pool.map(lambda _: transport.post(b'body'), range(concurrent_requests)))
+            transport.close()
+            server.shutdown()
+        assert answers == [b'ok'] * concurrent_requests
+
+    @pytest.mark.parametrize(
+        ('https_proxy', 'failure', 'advice'),
+        [
+            (
+                None,
+                _connect_refused(),
+                r'If this network limits outbound HTTPS, allow org1-db1\.svc\.pxt\.run \(or \*\.svc\.pxt\.run for '
+                r'every database\) on port 443, or set HTTPS_PROXY to the proxy it uses\.',
+            ),
+            (
+                'http://127.0.0.1:3128',
+                httpx.ProxyError('502 Bad Gateway'),
+                r'Check that the proxy in HTTPS_PROXY \(127\.0\.0\.1\) answers\. If the HTTPS proxy limits outbound '
+                r'traffic, allow org1-db1\.svc\.pxt\.run \(or \*\.svc\.pxt\.run for '
+                r'every database\) on port 443 in the proxy\.',
+            ),
+        ],
+    )
+    def test_every_try_failing_to_connect_names_the_host(
+        self, https_proxy: str | None, failure: BaseException, advice: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A network that blocks the gateway refuses or drops every try: after the budget, an error that says
+        what to allow, rather than a bare transport error."""
+        monkeypatch.setattr(proxy_client, '_RETRY_MAX_DELAY', 0.5)
+        if https_proxy is not None:
+            monkeypatch.setenv('HTTPS_PROXY', https_proxy)
+        transport, requests = _gateway([failure] * 50)
+        with pxt_raises(excs.ErrorCode.DATABASE_UNAVAILABLE, match=rf'\ACannot reach pxt://org1:db1: .*\.\n{advice}\Z'):
+            transport.post(b'body')
+        assert len(requests) > 1
+
+    @pytest.mark.parametrize(
+        ('https_proxy', 'answer', 'error'),
+        [
+            (
+                'http://127.0.0.1:3128',
+                '403 Forbidden',
+                r'refused the connection \(403 Forbidden\)\.\n'
+                r'Allow org1-db1\.svc\.pxt\.run \(or \*\.svc\.pxt\.run for every database\) on port 443 in the '
+                r'proxy, or exempt it with NO_PROXY\.',
+            ),
+            (
+                'http://127.0.0.1:3128',
+                '407 Proxy Authentication Required',
+                r'requires authentication \(407 Proxy Authentication Required\)\.\n'
+                r'Put the proxy credentials in HTTPS_PROXY, as http://user:password@127\.0\.0\.1:3128\.',
+            ),
+            (
+                'http://agent:wrong@127.0.0.1:3128',
+                '407 Proxy Authentication Required',
+                r'requires authentication .*\nCheck the proxy credentials in HTTPS_PROXY\.\Z',
+            ),
+        ],
+    )
+    def test_a_proxy_that_refuses_is_not_retried(
+        self, https_proxy: str, answer: str, error: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The error says what to change in the proxy or in HTTPS_PROXY."""
+        monkeypatch.setenv('HTTPS_PROXY', https_proxy)
+        transport, requests = _gateway([httpx.ProxyError(answer)] * 2)
+        with pxt_raises(excs.ErrorCode.DATABASE_UNAVAILABLE, match=error):
+            transport.post(b'body')
+        assert len(requests) == 1
+
+    @pytest.mark.parametrize(
+        ('userinfo', 'statuses', 'proxy_authorization', 'error'),
+        [
+            # a 502 is the proxy failing to reach the gateway, which a retry can pass, and a 403 is a refusal
+            ('', [502, 403], None, r'the HTTPS proxy refused the connection \(403 Forbidden\)\.\n'),
+            # 'YWdlbnQ6cEBzcw==' is agent:p@ss in base64
+            (
+                'agent:p%40ss@',
+                [407],
+                'Basic YWdlbnQ6cEBzcw==',
+                r'requires authentication \(407 Proxy Authentication Required\)\.\nCheck the proxy credentials',
+            ),
+        ],
+    )
+    def test_a_proxy_answer_over_a_real_socket(
+        self,
+        userinfo: str,
+        statuses: list[int],
+        proxy_authorization: str | None,
+        error: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """httpx reports the proxy's answer to CONNECT in its own words, which decide the retry and the advice."""
+        connects: list[tuple[str, str | None]] = []
+        answers = iter(statuses)
+
+        class Proxy(http.server.BaseHTTPRequestHandler):
+            def do_CONNECT(self) -> None:
+                connects.append((self.path, self.headers.get('Proxy-Authorization')))
+                self.send_response(next(answers))
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+
+        with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Proxy) as proxy:
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
+            monkeypatch.setenv('HTTPS_PROXY', f'http://{userinfo}127.0.0.1:{proxy.server_port}')
+            transport = GatewayTransport('org1', 'db1', lambda: _KEY, 'https://org1-db1.svc.pxt.run')
+            with pxt_raises(excs.ErrorCode.DATABASE_UNAVAILABLE, match=error):
+                transport.post(b'body')
+            proxy.shutdown()
+        assert connects == [('org1-db1.svc.pxt.run:443', proxy_authorization)] * len(statuses)
+
+    def test_a_refused_credential_opens_no_connection(self) -> None:
         """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
 
         def refuse() -> Credential:
             raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, 'no credential in this test')
 
-        def connect(*_args: Any, **_kwargs: Any) -> socket.socket:
-            raise AssertionError('connected before resolving the credential')
-
-        monkeypatch.setattr(socket, 'create_connection', connect)
-        transport = TunnelTransport('org1', 'db1', refuse, host='h', port=443)
-
+        transport, requests = _gateway([httpx.Response(200, content=b'ok')], refuse)
         with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='no credential in this test'):
             transport.post(b'body')
+        assert requests == []
 
-    def test_each_new_tunnel_sends_the_current_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A session renewed between two tunnels reaches the second: the credential is resolved per handshake."""
-        sidecar = _PlainSidecar()
-        monkeypatch.setattr(socket, 'create_connection', sidecar.connect)
-        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
+    def test_each_request_sends_the_current_credential(self) -> None:
+        """A session renewed between two requests reaches the second: the credential is resolved per request."""
         credentials = iter([Credential('session', token, 'a test') for token in ('first-token', 'renewed-token')])
-        transport = TunnelTransport('org1', 'db1', lambda: next(credentials), host='h', port=443)
-        try:
-            assert transport.post(b'one') == b'ok'
-            assert transport.post(b'two') == b'ok'
-        finally:
-            transport.close()
-            sidecar.close()
+        transport, requests = _gateway([httpx.Response(200, content=b'ok')] * 2, lambda: next(credentials))
+        assert transport.post(b'one') == b'ok'
+        assert transport.post(b'two') == b'ok'
+        assert [r.headers['Authorization'] for r in requests] == ['Bearer first-token', 'Bearer renewed-token']
+        assert [r.headers['Content-Length'] for r in requests] == ['3', '3']
 
-        assert sidecar.tokens == ['first-token', 'renewed-token']
-
-    @staticmethod
-    def _post_through(sidecar: _PlainSidecar, monkeypatch: pytest.MonkeyPatch) -> bytes:
-        monkeypatch.setattr(socket, 'create_connection', sidecar.connect)
-        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-        try:
-            return transport.post(b'body')
-        finally:
-            transport.close()
-            sidecar.close()
-
-    def test_a_rejected_key_names_its_source_and_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        sidecar = _PlainSidecar((b'PXT/1.0 401 Unauthorized',))
+    def test_a_rejected_key_names_its_source_and_is_not_retried(self) -> None:
+        answer = _gateway_answer(401, 'MISSING_CREDENTIALS', 'Missing or invalid API key.')
+        transport, requests = _gateway([answer] * 2)
         with pxt_raises(
             excs.ErrorCode.PROVIDER_AUTH_ERROR,
-            match='The API key from the PIXELTABLE_API_KEY environment variable was rejected: Unauthorized',
+            match=r'The API key from the PIXELTABLE_API_KEY environment variable was rejected: Missing or invalid API '
+            r'key\.\Z',
         ):
-            self._post_through(sidecar, monkeypatch)
-        assert sidecar.tokens == ['key']
+            transport.post(b'body')
+        assert len(requests) == 1
+        assert requests[0].headers['X-api-key'] == 'key'
 
-    def test_a_key_without_access_to_the_database_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        sidecar = _PlainSidecar((b'PXT/1.0 403 Forbidden',))
+    def test_a_key_without_access_to_the_database_is_refused(self) -> None:
+        answer = _gateway_answer(403, 'INSUFFICIENT_PRIVILEGES', 'This API key is not permitted to call this service.')
+        transport, requests = _gateway([answer] * 2)
         with pxt_raises(
             excs.ErrorCode.INSUFFICIENT_PRIVILEGES, match='is valid but is not permitted to connect to pxt://org1:db1'
         ):
-            self._post_through(sidecar, monkeypatch)
-        assert sidecar.tokens == ['key']
-
-    def test_a_handshake_the_sidecar_could_not_complete_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A 5xx says nothing about the credential: the sidecar could not reach the daemon yet."""
-        sidecar = _PlainSidecar((b'PXT/1.0 503 Service Unavailable',) * 2)
-        assert self._post_through(sidecar, monkeypatch) == b'ok'
-        assert sidecar.tokens == ['key'] * 3
-
-    def test_a_handshake_that_times_out_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A timeout after the connection opened is not a blocked port: the gateway or sidecar is slow to answer."""
-        monkeypatch.setattr(proxy_client, '_HANDSHAKE_TIMEOUT', 0.2)
-        sidecar = _PlainSidecar((b'', b''))
-        assert self._post_through(sidecar, monkeypatch) == b'ok'
-        assert sidecar.tokens == ['key'] * 3
+            transport.post(b'body')
+        assert len(requests) == 1
 
     @pytest.mark.parametrize(
-        ('proxy_env', 'fix'),
+        'answer',
         [
-            ({}, r'If this network sends HTTPS through a proxy, set HTTPS_PROXY to it\.'),
-            (
-                {'HTTPS_PROXY': 'http://proxy.invalid:3128', 'NO_PROXY': 'h'},
-                r'NO_PROXY exempts h:443 from HTTPS_PROXY; remove it from NO_PROXY\.',
-            ),
-            (
-                {'HTTPS_PROXY': 'socks5://agent:secret@proxy.invalid:1080'},
-                r'The tunnel can use only an http:// proxy, and HTTPS_PROXY names a socks5:// one\.',
-            ),
+            # the daemon's answer for a missing media file
+            httpx.Response(404, json={'detail': 'not found'}),
+            # JSON that is not an object
+            httpx.Response(404, json=['nope']),
+            # a firewall's own page, which says nothing about the credential
+            httpx.Response(403, content=b'<html>Access denied</html>'),
+            httpx.Response(409, content=b'conflict'),
+            # httpx does not follow redirects
+            httpx.Response(302, headers={'Location': 'https://elsewhere/'}),
         ],
     )
-    def test_an_answer_from_something_other_than_the_sidecar_is_not_retried(
-        self, proxy_env: dict[str, str], fix: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A sandbox's egress gateway answers a direct connection on 443 as an HTTP server. That is no refusal by
-        Pixeltable Cloud, and it answers the same way again. The hint says why the connection was direct."""
-        for name, value in proxy_env.items():
-            monkeypatch.setenv(name, value)
-        sidecar = _PlainSidecar((b'HTTP/1.1 400 Bad Request',))
+    def test_an_unexpected_answer_is_not_retried(self, answer: httpx.Response) -> None:
+        """Only the gateway's own refusals read as a refused credential."""
+        transport, requests = _gateway([answer] * 2)
         with pxt_raises(
-            excs.ErrorCode.DATABASE_UNAVAILABLE,
-            match=rf"answered instead of Pixeltable Cloud \('HTTP/1.1 400 Bad Request'\)\.\n{fix}",
-        ) as info:
-            self._post_through(sidecar, monkeypatch)
-        assert 'secret' not in str(info.value)
-        assert sidecar.tokens == ['key']
-
-    @staticmethod
-    def _post_through_proxy(proxy: _ConnectProxy, monkeypatch: pytest.MonkeyPatch, proxy_url: str) -> bytes:
-        monkeypatch.setenv('HTTPS_PROXY', proxy_url)
-        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
-        try:
-            return transport.post(b'body')
-        finally:
-            transport.close()
-
-    def test_a_tunnel_goes_through_the_https_proxy(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A sandbox that allows HTTPS only through its proxy passes a CONNECT on 443 through untouched."""
-        sidecar = _PlainSidecar()
-        proxy = _ConnectProxy(('127.0.0.1', sidecar.server_address[1]))
-        try:
-            # .invalid never resolves, so only a connection through the proxy can succeed
-            assert self._post_through_proxy(proxy, monkeypatch, f'http://agent:p%40ss@{proxy.addr}') == b'ok'
-        finally:
-            proxy.close()
-            sidecar.close()
-        [(request_line, headers)] = proxy.requests
-        assert request_line == 'CONNECT org1-db1.pxt.invalid:443 HTTP/1.1'
-        assert headers['Proxy-Authorization'] == f'Basic {base64.b64encode(b"agent:p@ss").decode()}'
-        assert sidecar.tokens == ['key']
-
-    @pytest.mark.parametrize(
-        ('no_proxy', 'dialed'),
-        [
-            ('localhost,.pxt.invalid', ('org1-db1.pxt.invalid', 443)),
-            ('org1-db1.pxt.invalid', ('org1-db1.pxt.invalid', 443)),
-            ('org1-db1.pxt.invalid:443', ('org1-db1.pxt.invalid', 443)),
-            # an entry for another port leaves this one to the proxy
-            ('org1-db1.pxt.invalid:9000', ('127.0.0.1', 1)),
-        ],
-    )
-    def test_no_proxy_exempts_a_host(
-        self, no_proxy: str, dialed: tuple[str, int], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        addresses: list[Any] = []
-
-        def deny(address: Any, timeout: float | None = None) -> socket.socket:
-            addresses.append(address)
-            raise PermissionError(1, 'Operation not permitted')
-
-        monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
-        monkeypatch.setenv('NO_PROXY', no_proxy)
-        monkeypatch.setattr(socket, 'create_connection', deny)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
-        with pytest.raises(PermissionError):
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            match=re.escape(f'A request to pxt://org1:db1 got an unexpected answer (HTTP {answer.status_code}).'),
+        ):
             transport.post(b'body')
-        assert addresses == [dialed]
+        assert len(requests) == 1
 
-    @pytest.mark.parametrize(
-        ('userinfo', 'answer', 'error'),
-        [
-            (
-                '',
-                b'HTTP/1.1 403 Forbidden',
-                r'refused to connect to org1-db1\.pxt\.invalid:443 \(403 Forbidden\)\.\n.*NO_PROXY',
-            ),
-            # a sandbox's proxy does this to a CONNECT on a port it does not allow
-            ('', b'', r'closed the connection when asked for org1-db1\.pxt\.invalid:443\.\n.*only some ports'),
-            (
-                '',
-                b'HTTP/1.1 407 Proxy Authentication Required',
-                r'requires authentication \(407 Proxy Authentication Required\)\.\n'
-                r'Put the proxy credentials in HTTPS_PROXY, as http://user:password@',
-            ),
-            (
-                'agent:wrong@',
-                b'HTTP/1.1 407 Proxy Authentication Required',
-                r'requires authentication .*\nCheck the proxy credentials in HTTPS_PROXY\.',
-            ),
-        ],
-    )
-    def test_a_proxy_that_refuses_is_not_retried(
-        self, userinfo: str, answer: bytes, error: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        proxy = _ConnectProxy(('127.0.0.1', 1), (answer,))
-        try:
-            with pxt_raises(excs.ErrorCode.DATABASE_UNAVAILABLE, match=rf'Cannot reach pxt://org1:db1: .*{error}'):
-                self._post_through_proxy(proxy, monkeypatch, f'http://{userinfo}{proxy.addr}')
-        finally:
-            proxy.close()
-        assert len(proxy.requests) == 1
+    def test_a_certificate_that_does_not_verify_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A proxy or firewall that inspects TLS presents the same certificate on every try."""
+        handshakes: list[socket.socket] = []
 
-    @pytest.mark.parametrize('answer', [b'HTTP/1.1 502 Bad Gateway', b'HTTP/1.1 429 Too Many Requests'])
-    def test_a_proxy_that_cannot_reach_the_host_is_retried(
-        self, answer: bytes, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A 5xx from the proxy is its upstream failing, which a rollout can cause; a 429 asks to come back later."""
-        sidecar = _PlainSidecar()
-        proxy = _ConnectProxy(('127.0.0.1', sidecar.server_address[1]), (answer,))
-        try:
-            assert self._post_through_proxy(proxy, monkeypatch, f'http://{proxy.addr}') == b'ok'
-        finally:
-            proxy.close()
-            sidecar.close()
-        assert len(proxy.requests) == 2
+        def refuse_certificate(context: ssl.SSLContext, sock: socket.socket, *args: Any, **kwargs: Any) -> None:
+            handshakes.append(sock)
+            raise ssl.SSLCertVerificationError(
+                1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in chain'
+            )
 
-    def test_an_answer_through_the_proxy_from_something_other_than_the_sidecar(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Through a proxy, an HTTP answer to the PXT/1.0 frame means the proxy inspects TLS, so the hint is not to
-        set HTTPS_PROXY, which is set already."""
-        sidecar = _PlainSidecar((b'HTTP/1.1 400 Bad Request',))
-        proxy = _ConnectProxy(('127.0.0.1', sidecar.server_address[1]))
-        try:
+        monkeypatch.setattr(ssl.SSLContext, 'wrap_socket', refuse_certificate)
+        with socket.create_server(('127.0.0.1', 0)) as inspecting_proxy:
+            origin = f'https://127.0.0.1:{inspecting_proxy.getsockname()[1]}'
+            transport = GatewayTransport('org1', 'db1', lambda: _KEY, origin)
             with pxt_raises(
                 excs.ErrorCode.DATABASE_UNAVAILABLE,
-                match=r'answered instead of Pixeltable Cloud .*\nThe HTTPS proxy may inspect TLS: .*NO_PROXY',
+                match=r'Cannot reach pxt://org1:db1: the TLS certificate did not verify .*\n'
+                r'A proxy or firewall on this network may inspect TLS: have it pass .* through uninspected, or set '
+                r'SSL_CERT_FILE to a file with its CA certificate\.',
             ):
-                self._post_through_proxy(proxy, monkeypatch, f'http://{proxy.addr}')
-        finally:
-            proxy.close()
-            sidecar.close()
-        assert sidecar.tokens == ['key']
+                transport.post(b'body')
+        assert len(handshakes) == 1
 
-    def test_a_proxy_without_a_scheme_is_http(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        sidecar = _PlainSidecar()
-        proxy = _ConnectProxy(('127.0.0.1', sidecar.server_address[1]))
-        try:
-            assert self._post_through_proxy(proxy, monkeypatch, proxy.addr) == b'ok'
-        finally:
-            proxy.close()
-            sidecar.close()
-        assert len(proxy.requests) == 1
-
-    @pytest.mark.parametrize('proxy_url', ['socks5://127.0.0.1:1080', 'https://127.0.0.1:3128'])
-    def test_other_kinds_of_proxy_connect_directly(self, proxy_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Only an http:// proxy can carry the tunnel; with any other kind, it connects directly, as before."""
-        addresses: list[Any] = []
-
-        def deny(address: Any, timeout: float | None = None) -> socket.socket:
-            addresses.append(address)
-            raise PermissionError(1, 'Operation not permitted')
-
-        monkeypatch.setenv('HTTPS_PROXY', proxy_url)
-        monkeypatch.setattr(socket, 'create_connection', deny)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
-        with pytest.raises(PermissionError):
-            transport.post(b'body')
-        assert addresses == [('org1-db1.pxt.invalid', 443)]
+    def test_daemon_media_is_fetched_with_the_credential(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The gateway checks every request, so a media download goes through the transport, not fetch_url();
+        a URL anywhere else still goes to fetch_url()."""
+        monkeypatch.setattr(proxy_client, 'fetch_url', lambda url: pathlib.Path(f'/fetched{url}'))
+        transport, requests = _gateway([httpx.Response(200, content=b'jpeg bytes')])
+        fetched = transport.fetch(transport.media_url('a/b.jpg'))
+        assert fetched.suffix == '.jpg'
+        assert fetched.read_bytes() == b'jpeg bytes'
+        [request] = requests
+        assert (request.method, request.url.path, request.headers['X-api-key']) == ('GET', '/db/media/a/b.jpg', 'key')
+        assert transport.fetch('https://elsewhere/x.jpg') == pathlib.Path('/fetchedhttps://elsewhere/x.jpg')
 
     @pytest.mark.parametrize(
-        ('proxy_url', 'error'),
+        'failure',
         [
-            ('http://agent:secret@127.0.0.1:99999', r'HTTPS_PROXY names 127\.0\.0\.1 with an invalid port\.'),
-            # a fullwidth colon fails urlsplit()'s NFKC check, whose own error repeats the netloc
-            ('http://agent:secret@proxy.invalid\uff1a3128', r'HTTPS_PROXY is not a valid URL\.'),
+            httpx.ReadError('Connection reset by peer'),
+            # a load balancer's 502 when a gateway pod dies during the request
+            httpx.Response(502, content=b'<html>502 Bad Gateway</html>'),
         ],
     )
-    def test_an_invalid_proxy_url_is_a_configuration_error(
-        self, proxy_url: str, error: str, monkeypatch: pytest.MonkeyPatch
+    def test_a_media_download_that_fails_midway_is_retried(
+        self, failure: httpx.Response | BaseException, init_env: None
     ) -> None:
-        """The error leaves out the URL, which can hold the proxy's password."""
-        monkeypatch.setenv('HTTPS_PROXY', proxy_url)
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=error) as info:
-            transport.post(b'body')
-        assert 'secret' not in str(info.value)
-        assert info.value.__cause__ is None and info.value.__suppress_context__
-
-    def test_a_proxy_that_cannot_be_reached_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A refused connection to the proxy is retried like any refused connection, then named for the proxy."""
-        monkeypatch.setattr(proxy_client, '_TUNNEL_RETRY_MAX_DELAY', 0.3)
-        # nothing listens on port 1, and no port 0 bind gets it; a port released here could be handed to another
-        # xdist worker's fake proxy, which this test would then reach
-        monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
-        with pytest.raises(ConnectionError, match=r'Cannot connect to the HTTPS proxy at 127\.0\.0\.1:1: '):
-            transport.post(b'body')
-
-    def test_a_proxy_that_never_answers_times_out_like_a_connect(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(proxy_client, '_CONNECT_TIMEOUT', 0.2)
-        proxy = _ConnectProxy(('127.0.0.1', 1), (_ConnectProxy.SILENT,) * proxy_client._CONNECT_TRIES)
-        try:
-            with pxt_raises(
-                excs.ErrorCode.DATABASE_UNAVAILABLE,
-                match=rf'org1-db1\.pxt\.invalid:443 through the HTTPS proxy at {proxy.addr} timed out',
-            ):
-                self._post_through_proxy(proxy, monkeypatch, f'http://{proxy.addr}')
-        finally:
-            proxy.close()
-        assert len(proxy.requests) == proxy_client._CONNECT_TRIES
-
-    def test_a_client_error_is_not_retried(self) -> None:
-        transport, opened = self._transport([_ScriptedConn(on_read=(404, b'nope')) for _ in range(2)])
-        with pytest.raises(RuntimeError, match='error 404'):
-            transport.post(b'body')
-        assert len(opened) == 1
-
-    def test_a_pooled_connection_the_server_closed_is_not_handed_out(self) -> None:
-        """Without this, an idle connection the server closed would read as a daemon that died on the
-        request, and the request would fail instead of going onto a fresh connection."""
-        dead, live = _ScriptedConn(), _ScriptedConn()
-        dead.close_peer()
-        assert proxy_client._is_server_closed(dead)  # type: ignore[arg-type]
-        assert not proxy_client._is_server_closed(live)  # type: ignore[arg-type]
-
-        opened: list[_ScriptedConn] = []
-
-        def connect() -> object:
-            opened.append(live)
-            return live
-
-        pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
-        pool._idle.append((dead, time.monotonic()))  # type: ignore[arg-type]
-        with pool.borrow() as conn:
-            assert conn is live
-        assert dead.closed
-        assert opened == [live]
-
-    def test_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it_is_not_handed_out(self) -> None:
-        """A daemon from an earlier release closes a connection idle 5 s, which loses a request sent while that close is
-        on its way."""
-        stale, fresh = _ScriptedConn(), _ScriptedConn()
-        opened: list[_ScriptedConn] = []
-
-        def connect() -> object:
-            opened.append(fresh)
-            return fresh
-
-        pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
-        # still open, so only its age can tell the pool not to send on it
-        pool._idle.append((stale, time.monotonic() - proxy_client._MAX_IDLE_S - 0.1))  # type: ignore[arg-type]
-        with pool.borrow() as conn:
-            assert conn is fresh
-        assert stale.closed
-
-        # one that went idle just now is handed out again
-        with pool.borrow() as conn:
-            assert conn is fresh
-        assert opened == [fresh]
-
-    def test_a_connection_idle_since_its_response_began_is_not_handed_out(self) -> None:
-        """The daemon's idle timer starts once it has sent a response, which can be long before the client has
-        read all of it: the age runs from when the response's headers arrived, not from when the read ended."""
-        slow, fresh = _ScriptedConn(), _ScriptedConn()
-        conns = iter([slow, fresh])
-        pool = proxy_client._TunnelPool(lambda: next(conns))  # type: ignore[arg-type,return-value]
-        with pool.borrow() as conn:
-            assert conn is slow
-            # its response began arriving long ago and was read only now
-            slow.responded_at = time.monotonic() - proxy_client._MAX_IDLE_S - 0.1
-
-        with pool.borrow() as conn:
-            assert conn is fresh
-        assert slow.closed
-
-    def test_a_collected_transport_closes_its_idle_connections(self) -> None:
-        """A transport dropped without close(), as when the runtime holding it is discarded, closes its idle
-        connections when GC collects it and its pool."""
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-        idle = _ScriptedConn()
-        transport._pool._idle.append((idle, time.monotonic()))  # type: ignore[arg-type]
-        del transport
-        gc.collect()
-        assert idle.closed
+        """A GET changes nothing, so it can go again after the daemon received it."""
+        transport, requests = _gateway([failure, httpx.Response(200, content=b'jpeg bytes')])
+        assert transport.fetch(transport.media_url('a/b.jpg')).read_bytes() == b'jpeg bytes'
+        assert len(requests) == 2
 
 
 class _SigningPlane:
@@ -1888,13 +1694,13 @@ class TestHostedMediaReads:
 
     @staticmethod
     def _client(monkeypatch: pytest.MonkeyPatch) -> tuple[ProxyClient, list[str], list[str]]:
-        """A client on a tunnel, with the paths it GETs through the tunnel and the URLs it passes to fetch_url()."""
-        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
-        tunnel_gets: list[str] = []
+        """A client on the gateway, with the paths it GETs from the daemon and the URLs it passes to fetch_url()."""
+        transport = GatewayTransport('org1', 'db1', lambda: _KEY, 'https://h')
+        daemon_gets: list[str] = []
         fetched: list[str] = []
 
-        def tunnel_request(method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
-            tunnel_gets.append(path)
+        def daemon_request(method: str, path: str, body: bytes | None = None) -> bytes:
+            daemon_gets.append(path)
             return b'daemon'
 
         def fetch_url(url: str) -> pathlib.Path:
@@ -1903,9 +1709,9 @@ class TestHostedMediaReads:
             path.write_bytes(b'remote')
             return path
 
-        monkeypatch.setattr(transport, '_request', tunnel_request)
+        monkeypatch.setattr(transport, '_request', daemon_request)
         monkeypatch.setattr(proxy_client, 'fetch_url', fetch_url)
-        return ProxyClient(transport, CatalogPath(org='org1', db='db1')), tunnel_gets, fetched
+        return ProxyClient(transport, CatalogPath(org='org1', db='db1')), daemon_gets, fetched
 
     def test_signed_in_batches(
         self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
@@ -1913,7 +1719,7 @@ class TestHostedMediaReads:
         """250 home-bucket URLs, in both spellings, take three signing calls of at most 100 keys, and no request for
         bucket credentials."""
         plane, objects = signing
-        client, tunnel_gets, fetched = self._client(monkeypatch)
+        client, daemon_gets, fetched = self._client(monkeypatch)
         db = f'db_{uuid.uuid4().hex}'
         keys = [f'media/{i:03d}.jpg' for i in range(250)]
         urls = [
@@ -1932,7 +1738,7 @@ class TestHostedMediaReads:
         for url, key in zip(urls, keys):
             assert local[url].endswith('.jpg')
             assert pathlib.Path(local[url]).read_bytes() == f'/{db}/{key}'.encode()
-        assert tunnel_gets == [] and fetched == []
+        assert daemon_gets == [] and fetched == []
         # no store was built for the bucket, so nothing holds its credentials
         assert not any(db in key for key in Env.get().object_store_clients(StorageTarget.PIXELTABLE_STORE).clients)
 
@@ -1942,12 +1748,12 @@ class TestHostedMediaReads:
         assert len(objects.opened) == 250
 
     def test_mixed_media(self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch) -> None:
-        """Daemon media still comes through the tunnel and other remote media through fetch_url(). Both spellings of
-        an address share a key, and each database is signed on its own."""
+        """Daemon media still comes through the gateway, with the credential, and other remote media through
+        fetch_url(). Both spellings of an address share a key, and each database is signed on its own."""
         plane, _ = signing
-        client, tunnel_gets, fetched = self._client(monkeypatch)
+        client, daemon_gets, fetched = self._client(monkeypatch)
         db1, db2 = f'db_{uuid.uuid4().hex}', f'db_{uuid.uuid4().hex}'
-        daemon_url = 'https://h:443/media/a/b.png'
+        daemon_url = 'https://h/db/media/a/b.png'
         remote_url = 'https://example.com/c.png'
         pxtfs_url = f'pxtfs://org1:{db1}/home/k/1.png'
         pxt_url = f'pxt://org1:{db1}/buckets/home/k/1.png'
@@ -1955,7 +1761,7 @@ class TestHostedMediaReads:
 
         local = client.fetch_media([daemon_url, remote_url, pxtfs_url, pxt_url, other_db_url])
 
-        assert tunnel_gets == ['/media/a/b.png']
+        assert daemon_gets == ['/media/a/b.png']
         assert fetched == [remote_url]
         assert sorted((request['db'], request['keys']) for request in plane.requests) == sorted(
             [(db1, ['k/1.png']), (db2, ['k/2.png'])]
