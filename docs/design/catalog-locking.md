@@ -49,10 +49,10 @@ it fails fast: it waits at most 100 ms (`lock_timeout`) for each table lock, and
 `SCHEMA_CHANGE_IN_PROGRESS`. If any locked table is data-versioned, the transaction waits for every required table
 lock. Schema changes and finalization always wait, regardless of versioning.
 
-The short wait, rather than failing immediately with `NOWAIT`, accommodates momentary locks that Postgres takes on its own. VACUUM, including
-autovacuum, takes `ACCESS EXCLUSIVE` to truncate empty pages at the end of a table, for example after all rows were
-deleted. While it holds that lock, it checks for queued lock requests every 20 ms and releases the lock if it finds
-one. A `NOWAIT` request never enters the queue, so it would fail instead.
+The short wait, rather than failing immediately with `NOWAIT`, puts the request in the lock queue, so VACUUM can see
+it and yield. VACUUM, including autovacuum, takes `ACCESS EXCLUSIVE` to truncate empty pages at the end of a table,
+for example after all rows were deleted. While it holds that lock, it checks for queued lock requests every 20 ms and
+releases the lock if it finds one. A `NOWAIT` request never enters the queue, so it would fail instead.
 
 ### A waiting schema change blocks later operations
 

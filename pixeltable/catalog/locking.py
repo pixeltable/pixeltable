@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# VACUUM checks for queued lock requests every 20 ms (VACUUM_TRUNCATE_LOCK_CHECK_INTERVAL), so 100 ms gives
+# it several chances to notice a waiter and release the lock.
 LOCK_TIMEOUT_MS = 100
 
 
