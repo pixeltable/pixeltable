@@ -1443,6 +1443,48 @@ class TestGatewayRetries:
             transport.post(b'body')
         assert len(requests) == 1
 
+    @pytest.mark.parametrize(
+        ('userinfo', 'statuses', 'proxy_authorization', 'error'),
+        [
+            # a 502 is the proxy failing to reach the gateway, which a retry can pass, and a 403 is a refusal
+            ('', [502, 403], None, r'the HTTPS proxy refused the connection \(403 Forbidden\)\.\n'),
+            # 'YWdlbnQ6cEBzcw==' is agent:p@ss in base64
+            (
+                'agent:p%40ss@',
+                [407],
+                'Basic YWdlbnQ6cEBzcw==',
+                r'requires authentication \(407 Proxy Authentication Required\)\.\nCheck the proxy credentials',
+            ),
+        ],
+    )
+    def test_a_proxy_answer_over_a_real_socket(
+        self,
+        userinfo: str,
+        statuses: list[int],
+        proxy_authorization: str | None,
+        error: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """httpx reports the proxy's answer to CONNECT in its own words, which decide the retry and the advice."""
+        connects: list[tuple[str, str | None]] = []
+        answers = iter(statuses)
+
+        class Proxy(http.server.BaseHTTPRequestHandler):
+            def do_CONNECT(self) -> None:
+                connects.append((self.path, self.headers.get('Proxy-Authorization')))
+                self.send_response(next(answers))
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+
+        with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Proxy) as proxy:
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
+            monkeypatch.setenv('HTTPS_PROXY', f'http://{userinfo}127.0.0.1:{proxy.server_port}')
+            transport = GatewayTransport('org1', 'db1', lambda: _KEY, 'https://org1-db1.svc.pxt.run')
+            with pxt_raises(excs.ErrorCode.DATABASE_UNAVAILABLE, match=error):
+                transport.post(b'body')
+            proxy.shutdown()
+        assert connects == [('org1-db1.svc.pxt.run:443', proxy_authorization)] * len(statuses)
+
     def test_a_refused_credential_opens_no_connection(self) -> None:
         """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
 

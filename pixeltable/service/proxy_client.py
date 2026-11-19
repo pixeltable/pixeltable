@@ -181,7 +181,7 @@ _RETRY_MAX_DELAY = 90.0
 _START_MAX_DELAY = 300.0
 
 # Failures that leave the request undelivered: no connection, or the request could not be written.
-_UNDELIVERED_EXC = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout, httpx.WriteError, httpx.WriteTimeout)
+_UNDELIVERED_EXC = (httpx.ConnectError, httpx.ConnectTimeout, httpx.WriteError, httpx.WriteTimeout)
 # Failures after the daemon received the request.
 _UNANSWERED_EXC = (httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError)
 
