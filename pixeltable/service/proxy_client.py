@@ -171,7 +171,7 @@ class HttpTransport(Transport):
 
 _CONNECT_TIMEOUT = 10.0
 _RPC_TIMEOUT = 1800.0
-_MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
+_MAX_IDLE_CONNECTIONS = 16  # matches the fetch_media download threadpool
 # below the 1800 s idle timeout of the gateway's load balancer, so that no request goes out on a pooled connection
 # that the load balancer has closed
 _MAX_GATEWAY_IDLE_S = 60.0
@@ -257,7 +257,8 @@ def _last_answer_error(retry_state: RetryCallState) -> excs.Error | None:
 def _wait(retry_state: RetryCallState) -> float:
     """Wait for the Retry-After of the last answer, otherwise back off exponentially."""
     error = _last_answer_error(retry_state)
-    if error is not None and error.retry_after is not None:
+    # a Retry-After of 0 would resend at once for the whole budget
+    if error is not None and error.retry_after is not None and error.retry_after > 0:
         return min(error.retry_after, _RETRY_MAX_DELAY)
     return wait_exponential_jitter(initial=0.5, max=5.0)(retry_state)
 
@@ -292,8 +293,9 @@ class GatewayTransport(Transport):
     _db: str
     # read per request: a session renewed while this client lives reaches the next request
     _credential_cb: Callable[[], Credential]
-    # the wildcard that covers the gateway host of every database, such as '*.svc.pxt.run'
-    _host_wildcard: str
+    # the gateway host and the wildcard for every database, such as
+    # 'org-main.svc.pxt.run (or *.svc.pxt.run for every database)'
+    _hosts_to_allow: str
     _proxy: urllib.parse.SplitResult | None
 
     def __init__(self, org: str, db: str, credential_cb: Callable[[], Credential], origin: str):
@@ -301,14 +303,20 @@ class GatewayTransport(Transport):
         self._db = db
         self._credential_cb = credential_cb
         host = urllib.parse.urlsplit(origin).hostname or ''
-        # the gateway host is <org>-<db>.svc.<domain>, so its domain without the first label covers every database
-        self._host_wildcard = f'*.{host.partition(".")[2]}'
+        # the gateway host is <org>-<db>.svc.<domain>, so its domain without the first label covers every database.
+        # Some sandboxes allow only exact hosts, so the host comes first.
+        self._hosts_to_allow = f'{host} (or *.{host.partition(".")[2]} for every database)'
         self._proxy = _https_proxy(host)
         # the gateway forwards /db/rpc and /db/media/{ref} to the daemon
         endpoint = f'{origin}/db'
         transport = httpx.HTTPTransport(
             proxy=None if self._proxy is None else self._proxy.geturl(),
-            limits=httpx.Limits(max_connections=_MAX_POOL_SIZE, keepalive_expiry=_MAX_GATEWAY_IDLE_S),
+            # no limit on open connections, so that a long request does not hold up the others
+            limits=httpx.Limits(
+                max_connections=None,
+                max_keepalive_connections=_MAX_IDLE_CONNECTIONS,
+                keepalive_expiry=_MAX_GATEWAY_IDLE_S,
+            ),
             # probes keep a NAT or firewall from dropping the connection during a long request, in which the daemon
             # sends nothing until it is done
             socket_options=tcp_keepalive_options(),
@@ -325,8 +333,8 @@ class GatewayTransport(Transport):
         connection, the request could not be written, or the HTTPS proxy answered 5xx or 429) is retried with backoff.
         So is an error the gateway marks retryable, or a 429 or 503 without the gateway's error body, after its
         Retry-After. Retries stop after _RETRY_MAX_DELAY, or after _START_MAX_DELAY once the gateway has answered that
-        the database is starting. A refused credential, a connection the OS refuses, a TLS certificate that does not
-        verify, a proxy that refuses the connection and any other answer are not retried.
+        the database is starting. A refused credential, a socket the OS denies (PermissionError), a TLS certificate
+        that does not verify, a proxy that refuses the connection and any other answer are not retried.
 
         A failure after the daemon received the request, a broken connection or a 5xx without the gateway's error
         body, is retried only for a GET, which changes nothing. Any other request may have crashed the daemon, and a
@@ -360,14 +368,18 @@ class GatewayTransport(Transport):
             except _UNDELIVERED_EXC as exc:
                 denied = _find_cause(exc, PermissionError)
                 if denied is not None:
-                    raise denied from exc
+                    # a firewall or sandbox that denies the socket denies it again on a retry
+                    raise excs.ServiceUnavailableError(
+                        excs.ErrorCode.DATABASE_UNAVAILABLE,
+                        f'Cannot reach {uri}: the OS denied the connection ({denied}).\n{self._network_advice()}',
+                    ) from exc
                 cert_error = _find_cause(exc, ssl.SSLCertVerificationError)
                 if cert_error is not None:
                     # a proxy or firewall that inspects TLS presents the same certificate on every try
                     raise excs.ServiceUnavailableError(
                         excs.ErrorCode.DATABASE_UNAVAILABLE,
                         f'Cannot reach {uri}: the TLS certificate did not verify ({cert_error}).\n'
-                        f'A proxy or firewall on this network may inspect TLS: have it pass {self._host_wildcard} '
+                        f'A proxy or firewall on this network may inspect TLS: have it pass {self._hosts_to_allow} '
                         'through uninspected, or set SSL_CERT_FILE to a file with its CA certificate.',
                     ) from exc
                 raise ConnectionError(f'{method} {path}: {exc}') from exc
@@ -390,13 +402,20 @@ class GatewayTransport(Transport):
         except ConnectionError as exc:
             # every try within the budget failed to reach the gateway
             raise excs.ServiceUnavailableError(
-                excs.ErrorCode.DATABASE_UNAVAILABLE,
-                f'Cannot reach {uri}: {exc}.\nIf this network limits outbound HTTPS, allow {self._host_wildcard} on '
-                'port 443, or set HTTPS_PROXY to the proxy it uses.',
+                excs.ErrorCode.DATABASE_UNAVAILABLE, f'Cannot reach {uri}: {exc}.\n{self._network_advice()}'
             ) from exc
         if isinstance(result, excs.Error):
             raise result
         return result
+
+    def _network_advice(self) -> str:
+        """Return what to allow on a network that limits outbound HTTPS."""
+        if self._proxy is None:
+            return (
+                f'If this network limits outbound HTTPS, allow {self._hosts_to_allow} on port 443, or set HTTPS_PROXY '
+                'to the proxy it uses.'
+            )
+        return f'If the HTTPS proxy limits outbound traffic, allow {self._hosts_to_allow} on port 443 in the proxy.'
 
     def _proxy_refusal(self, uri: str, answer: str) -> excs.Error:
         """Return the error for an HTTPS proxy that refused the connection with answer, such as '403 Forbidden'."""
@@ -417,7 +436,7 @@ class GatewayTransport(Transport):
         return excs.ServiceUnavailableError(
             excs.ErrorCode.DATABASE_UNAVAILABLE,
             f'Cannot reach {uri}: the HTTPS proxy refused the connection ({answer}).\n'
-            f'Allow {self._host_wildcard} on port 443 in the proxy, or exempt it with NO_PROXY.',
+            f'Allow {self._hosts_to_allow} on port 443 in the proxy, or exempt it with NO_PROXY.',
         )
 
     def _answer_error(self, response: httpx.Response, sent: Credential, idempotent: bool) -> tuple[excs.Error, bool]:

@@ -205,7 +205,7 @@ On a network or in an agent sandbox that limits outbound traffic, allow all of t
 | `*.r2.cloudflarestorage.com` | 443, HTTPS | Media in the home bucket |
 | `*.svc.pxt.run` | 443, HTTPS | Everything that uses tables (`pxt schema update`, `pxt ls`, `pxt.get_table()`), requests to a hosted service, and `pxt service update` and `pxt service restart`, which wait for the service to answer |
 
-Everything that uses tables sends HTTPS requests to `{org}-{db}.svc.pxt.run`, through the `http://` or `https://` proxy in `HTTPS_PROXY`, unless the host is in `NO_PROXY`. With any other kind of proxy, such as `socks5://`, or a proxy set only in the system settings, it connects directly. A network that blocks it still lets the other commands work, `pxt db update` included. A command that uses the tables fails with `Cannot reach pxt://org:main: ...`, which says what to allow. It fails at once when the proxy refuses the connection, and after about 90 s when the network drops or refuses it.
+Everything that uses tables sends HTTPS requests to `{org}-{db}.svc.pxt.run`, through the `http://` or `https://` proxy in `HTTPS_PROXY`, unless the host is in `NO_PROXY`. With any other kind of proxy, such as `socks5://`, or a proxy set only in the system settings, it connects directly. A network that blocks it still lets the other commands work, `pxt db update` included. A command that uses the tables fails with `Cannot reach pxt://org:main: ...`, which says what to allow. It fails at once when the proxy refuses the connection or the OS denies it, and after about 90 s when the network drops or refuses it.
 
 To allow these hosts for a coding agent:
 

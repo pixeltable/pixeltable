@@ -1,3 +1,4 @@
+import concurrent.futures
 import http
 import http.server
 import io
@@ -1224,6 +1225,15 @@ class TestGatewayRetries:
         assert transport.post(b'body') == b'third'
         assert len(requests) == 3
 
+    def test_a_zero_retry_after_still_backs_off(self) -> None:
+        """A Retry-After of 0 would otherwise resend at once for the whole budget."""
+        transport, requests = _gateway([httpx.Response(429, headers={'Retry-After': '0'}), httpx.Response(200)])
+        started_at = time.monotonic()
+        transport.post(b'body')
+        # the shortest exponential backoff is 0.5 s
+        assert time.monotonic() - started_at >= 0.5
+        assert len(requests) == 2
+
     def test_a_starting_database_is_waited_for(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A database takes about 2 minutes to start, which is longer than the budget for other retries. A failed
         connection in between does not shorten the wait."""
@@ -1271,7 +1281,7 @@ class TestGatewayRetries:
             ({'HTTPS_PROXY': 'http://127.0.0.1:3128', 'NO_PROXY': 'org1-db1.svc.pxt.run:8443'}, ('127.0.0.1', 3128)),
         ],
     )
-    def test_a_connection_the_os_refuses_is_not_retried(
+    def test_a_socket_the_os_denies_is_not_retried(
         self, environ: dict[str, str], address: tuple[str, int], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A firewall or sandbox that denies the socket denies it again, so the error comes at once. The address it
@@ -1286,7 +1296,11 @@ class TestGatewayRetries:
         for name, value in environ.items():
             monkeypatch.setenv(name, value)
         transport = GatewayTransport('org1', 'db1', lambda: _KEY, 'https://org1-db1.svc.pxt.run')
-        with pytest.raises(PermissionError):
+        with pxt_raises(
+            excs.ErrorCode.DATABASE_UNAVAILABLE,
+            match=r'\ACannot reach pxt://org1:db1: the OS denied the connection \(\[Errno 1\] Operation not '
+            r'permitted\)\.\n',
+        ):
             transport.post(b'body')
         assert addresses == [address]
 
@@ -1339,16 +1353,60 @@ class TestGatewayRetries:
             transport.close()
             server.shutdown()
 
-    def test_every_try_failing_to_connect_names_the_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_concurrent_requests_do_not_wait_for_a_free_connection(self) -> None:
+        """A long request holds its connection, so other requests open connections of their own."""
+        # one more than the idle connections the transport keeps
+        concurrent_requests = 17
+        # the daemon answers once every request is in progress at the same time
+        all_in_progress = threading.Barrier(concurrent_requests, timeout=10)
+
+        class Daemon(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+
+            def do_POST(self) -> None:
+                self.rfile.read(int(self.headers['Content-Length']))
+                all_in_progress.wait()
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+
+        with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Daemon) as server:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            transport = GatewayTransport('org1', 'db1', lambda: _KEY, f'http://127.0.0.1:{server.server_port}')
+            with concurrent.futures.ThreadPoolExecutor(concurrent_requests) as pool:
+                answers = list(pool.map(lambda _: transport.post(b'body'), range(concurrent_requests)))
+            transport.close()
+            server.shutdown()
+        assert answers == [b'ok'] * concurrent_requests
+
+    @pytest.mark.parametrize(
+        ('https_proxy', 'failure', 'advice'),
+        [
+            (
+                None,
+                _connect_refused(),
+                r'If this network limits outbound HTTPS, allow org1-db1\.svc\.pxt\.run \(or \*\.svc\.pxt\.run for '
+                r'every database\) on port 443, or set HTTPS_PROXY to the proxy it uses\.',
+            ),
+            (
+                'http://127.0.0.1:3128',
+                httpx.ProxyError('502 Bad Gateway'),
+                r'If the HTTPS proxy limits outbound traffic, allow org1-db1\.svc\.pxt\.run \(or \*\.svc\.pxt\.run for '
+                r'every database\) on port 443 in the proxy\.',
+            ),
+        ],
+    )
+    def test_every_try_failing_to_connect_names_the_host(
+        self, https_proxy: str | None, failure: BaseException, advice: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A network that blocks the gateway refuses or drops every try: after the budget, an error that says
         what to allow, rather than a bare transport error."""
         monkeypatch.setattr(proxy_client, '_RETRY_MAX_DELAY', 0.5)
-        transport, requests = _gateway([_connect_refused() for _ in range(50)])
-        with pxt_raises(
-            excs.ErrorCode.DATABASE_UNAVAILABLE,
-            match=r'Cannot reach pxt://org1:db1: POST /rpc: .*Connection refused\.\n'
-            r'If this network limits outbound HTTPS, allow \*\.svc\.pxt\.run on port 443',
-        ):
+        if https_proxy is not None:
+            monkeypatch.setenv('HTTPS_PROXY', https_proxy)
+        transport, requests = _gateway([failure] * 50)
+        with pxt_raises(excs.ErrorCode.DATABASE_UNAVAILABLE, match=rf'\ACannot reach pxt://org1:db1: .*\.\n{advice}\Z'):
             transport.post(b'body')
         assert len(requests) > 1
 
@@ -1359,7 +1417,8 @@ class TestGatewayRetries:
                 'http://127.0.0.1:3128',
                 '403 Forbidden',
                 r'refused the connection \(403 Forbidden\)\.\n'
-                r'Allow \*\.svc\.pxt\.run on port 443 in the proxy, or exempt it with NO_PROXY\.',
+                r'Allow org1-db1\.svc\.pxt\.run \(or \*\.svc\.pxt\.run for every database\) on port 443 in the '
+                r'proxy, or exempt it with NO_PROXY\.',
             ),
             (
                 'http://127.0.0.1:3128',
