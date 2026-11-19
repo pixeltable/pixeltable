@@ -181,6 +181,165 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
+def sin(self: float) -> float:
+    """
+    Return the sine of the given angle, in radians.
+
+    Equivalent to Python [`math.sin()`](https://docs.python.org/3/library/math.html#math.sin).
+
+    Raises an error for infinity.
+    """
+    return math.sin(self)
+
+
+@sin.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.sin(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def cos(self: float) -> float:
+    """
+    Return the cosine of the given angle, in radians.
+
+    Equivalent to Python [`math.cos()`](https://docs.python.org/3/library/math.html#math.cos).
+
+    Raises an error for infinity.
+    """
+    return math.cos(self)
+
+
+@cos.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.cos(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def tan(self: float) -> float:
+    """
+    Return the tangent of the given angle, in radians.
+
+    Equivalent to Python [`math.tan()`](https://docs.python.org/3/library/math.html#math.tan).
+
+    Raises an error for infinity.
+    """
+    return math.tan(self)
+
+
+@tan.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.tan(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def asin(self: float) -> float:
+    """
+    Return the arc sine of the given number, in radians.
+
+    Equivalent to Python [`math.asin()`](https://docs.python.org/3/library/math.html#math.asin).
+
+    Raises an error if the input is outside the range `[-1, 1]`.
+    """
+    return math.asin(self)
+
+
+@asin.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.asin(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def acos(self: float) -> float:
+    """
+    Return the arc cosine of the given number, in radians.
+
+    Equivalent to Python [`math.acos()`](https://docs.python.org/3/library/math.html#math.acos).
+
+    Raises an error if the input is outside the range `[-1, 1]`.
+    """
+    return math.acos(self)
+
+
+@acos.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.acos(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def atan(self: float) -> float:
+    """
+    Return the arc tangent of the given number, in radians.
+
+    Equivalent to Python [`math.atan()`](https://docs.python.org/3/library/math.html#math.atan).
+    """
+    return math.atan(self)
+
+
+@atan.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.atan(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def degrees(self: float) -> float:
+    """
+    Convert an angle from radians to degrees.
+
+    Equivalent to Python [`math.degrees()`](https://docs.python.org/3/library/math.html#math.degrees).
+    """
+    return math.degrees(self)
+
+
+@degrees.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.degrees(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def radians(self: float) -> float:
+    """
+    Convert an angle from degrees to radians.
+
+    Equivalent to Python [`math.radians()`](https://docs.python.org/3/library/math.html#math.radians).
+    """
+    return math.radians(self)
+
+
+@radians.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.radians(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def sign(self: float) -> float:
+    """
+    Return the sign of the given number: `-1.0` if it is negative, `1.0` if it is positive, and `0.0` if it is zero.
+
+    NaN is returned unchanged.
+    """
+    if math.isnan(self):
+        return self
+    return builtins.float((self > 0) - (self < 0))
+
+
+@sign.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Postgres' sign() returns 0 for NaN; in Postgres, unlike in IEEE 754, NaN compares equal to NaN
+    return sql.case(
+        (self == sql.literal_column("'NaN'::double precision"), sql.cast(self, sql.Float)),
+        else_=sql.func.sign(self, type_=sql.Float),
+    )
+
+
+@pxt.udf(is_method=True)
 def bitwise_and(self: int, other: int) -> int:
     """
     Bitwise AND of two integers.
@@ -277,17 +436,26 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 __all__ = [
     'abs',
+    'acos',
+    'asin',
+    'atan',
     'bitwise_and',
     'bitwise_or',
     'bitwise_xor',
     'ceil',
+    'cos',
+    'degrees',
     'exp',
     'floor',
     'log',
     'log10',
     'pow',
+    'radians',
     'round',
+    'sign',
+    'sin',
     'sqrt',
+    'tan',
     'to_float',
     'to_int',
 ]

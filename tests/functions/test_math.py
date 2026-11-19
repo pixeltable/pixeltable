@@ -98,6 +98,62 @@ class TestMath:
             else:
                 raise AssertionError()
 
+    def test_trig_and_sign(self, uses_db: None) -> None:
+        """Trigonometric functions, degrees()/radians() and sign() agree between Postgres and Python."""
+        # inputs on which every function below is defined (asin/acos need [-1, 1], sin/cos/tan need finite values)
+        unit_floats = [-1.0, -0.5, 0.0, 0.25, 1.0]
+        wide_floats = [-19.27469, -1.6, *unit_floats, 1.6, 100.0]
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'x': pxt.Float})
+        t.insert({'id': i, 'x': x} for i, x in enumerate(sorted({*unit_floats, *wide_floats})))
+        values = [r['x'] for r in t.order_by(t.id).collect()]
+
+        def check(pxt_fn: pxt.Function, py_fn: Callable, xs: list[float], where: exprs.Expr | None = None) -> None:
+            expected = [py_fn(x) for x in xs]
+            base = t if where is None else t.where(where)
+            actual_db = base.select(out=pxt_fn(t.x)).order_by(t.id).collect()['out']
+            # a non-SQLizable identity function forces evaluation in Python
+            ident = t.x.apply(lambda x: x, col_type=pxt.Float)
+            actual_py = base.select(out=pxt_fn(ident)).order_by(t.id).collect()['out']
+            assert np.allclose(actual_db, expected), f'{pxt_fn.name}: {actual_db} != {expected}'
+            assert np.allclose(actual_py, expected), f'{pxt_fn.name}: {actual_py} != {expected}'
+            # method syntax
+            assert getattr(t.x, pxt_fn.name)().col_type.is_float_type()
+
+        for fn, py_fn in [
+            (pxtf.math.sin, math.sin),
+            (pxtf.math.cos, math.cos),
+            (pxtf.math.tan, math.tan),
+            (pxtf.math.atan, math.atan),
+            (pxtf.math.degrees, math.degrees),
+            (pxtf.math.radians, math.radians),
+        ]:
+            check(fn, py_fn, values)
+        for fn, py_fn in [(pxtf.math.asin, math.asin), (pxtf.math.acos, math.acos)]:
+            check(fn, py_fn, [x for x in values if -1 <= x <= 1], (t.x >= -1) & (t.x <= 1))
+        check(pxtf.math.sign, lambda x: float((x > 0) - (x < 0)), values)
+
+        # sign() preserves infinities' direction and NaN, in both SQL and Python
+        t2 = pxt.create_table('special_tbl', {'id': pxt.Int, 'x': pxt.Float})
+        t2.insert({'id': i, 'x': x} for i, x in enumerate([-math.inf, -0.0, 0.0, math.inf, math.nan]))
+        for x_expr in (t2.x, t2.x.apply(lambda x: x, col_type=pxt.Float)):
+            res = t2.select(out=pxtf.math.sign(x_expr)).order_by(t2.id).collect()['out']
+            assert np.array_equal(res, [-1.0, 0.0, 0.0, 1.0, math.nan], equal_nan=True), res
+
+        # works on Int input
+        t3 = pxt.create_table('int_tbl', {'id': pxt.Int, 'x': pxt.Int})
+        t3.insert({'id': i, 'x': x} for i, x in enumerate([-3, 0, 7]))
+        assert t3.select(out=t3.x.sign()).order_by(t3.id).collect()['out'] == [-1.0, 0.0, 1.0]
+        assert np.allclose(
+            t3.select(out=t3.x.sin()).order_by(t3.id).collect()['out'], [math.sin(x) for x in (-3, 0, 7)]
+        )
+
+        # out-of-domain inputs are errors, not silent NaNs
+        t4 = pxt.create_table('domain_tbl', {'id': pxt.Int, 'x': pxt.Float})
+        t4.add_computed_column(out=t4.x.asin())
+        status = t4.insert([{'id': 0, 'x': 2.0}], on_error='ignore')
+        assert status.num_excs == 1
+        assert t4.select(t4.out).collect()['out'] == [None]
+
     def test_to_int(self, uses_db: None) -> None:
         """to_int() truncates toward zero and returns the same values from Python and from Postgres."""
         floats = [0.0, 2.5, 3.5, 2.7, -2.7, 3e9, 9.2e18]
