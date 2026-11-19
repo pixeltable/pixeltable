@@ -17,6 +17,7 @@ import pandas as pd
 
 from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog import fold_identifier, is_valid_identifier
+from pixeltable.catalog.model import TableModelMeta
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.type_system import ColumnType
@@ -684,8 +685,6 @@ class QueryBase(ABC):
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
-        from pixeltable.catalog.model import TableModelMeta
-
         assert len(self._from_clause.tbls) > 0
         if isinstance(other, TableModelMeta):
             other = other.table
