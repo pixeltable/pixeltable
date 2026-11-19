@@ -1559,8 +1559,7 @@ class TableVersion:
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
                         f'Column {col_name!r}: the value {value_expr!s} has type `{value_expr.col_type}`, which is not '
-                        f'compatible with the column type `{col.col_type}`. update() accepts a literal or an '
-                        'expression of a compatible type',
+                        f'compatible with the column type `{col.col_type}`',
                     ) from exc
             update_targets[col] = value_expr
 

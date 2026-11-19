@@ -2465,8 +2465,7 @@ class TestTable:
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
             match=r"Column 'n': the value acct_counts\(acct\) has type `Json\[\(Int, \.\.\.\)\]`, which is not "
-            r'compatible with the column type `Int \| None`. update\(\) accepts a literal or an expression of a '
-            r'compatible type$',
+            r'compatible with the column type `Int \| None`$',
         ):
             accts.update({'n': acct_counts(accts.acct)})
 
