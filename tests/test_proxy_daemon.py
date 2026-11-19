@@ -1392,7 +1392,8 @@ class TestGatewayRetries:
             (
                 'http://127.0.0.1:3128',
                 httpx.ProxyError('502 Bad Gateway'),
-                r'If the HTTPS proxy limits outbound traffic, allow org1-db1\.svc\.pxt\.run \(or \*\.svc\.pxt\.run for '
+                r'Check that the proxy in HTTPS_PROXY \(127\.0\.0\.1\) answers\. If the HTTPS proxy limits outbound '
+                r'traffic, allow org1-db1\.svc\.pxt\.run \(or \*\.svc\.pxt\.run for '
                 r'every database\) on port 443 in the proxy\.',
             ),
         ],

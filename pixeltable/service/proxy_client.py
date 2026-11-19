@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 from uuid import UUID
 
-import certifi
 import httpx
 from tenacity import (
     RetryCallState,
@@ -312,10 +311,10 @@ class GatewayTransport(Transport):
         self._proxy = _https_proxy(host)
         # the gateway forwards /db/rpc and /db/media/{ref} to the daemon
         endpoint = f'{origin}/db'
-        # the system store trusts a TLS-inspecting proxy whose CA is installed on this machine, and reads
-        # SSL_CERT_FILE. certifi adds the CAs that httpx trusts by default.
-        tls_context = ssl.create_default_context()
-        tls_context.load_verify_locations(certifi.where())
+        # httpx's own context trusts certifi, or SSL_CERT_FILE when it is set. The system store adds a TLS-inspecting
+        # proxy whose CA is installed on this machine.
+        tls_context = httpx.create_ssl_context()
+        tls_context.load_default_certs()
         transport = httpx.HTTPTransport(
             proxy=None if self._proxy is None else self._proxy.geturl(),
             verify=tls_context,
@@ -422,7 +421,10 @@ class GatewayTransport(Transport):
                 f'If this network limits outbound HTTPS, allow {self._hosts_to_allow} on port 443, or set HTTPS_PROXY '
                 'to the proxy it uses.'
             )
-        return f'If the HTTPS proxy limits outbound traffic, allow {self._hosts_to_allow} on port 443 in the proxy.'
+        return (
+            f'Check that the proxy in HTTPS_PROXY ({self._proxy.hostname}) answers. If the HTTPS proxy limits '
+            f'outbound traffic, allow {self._hosts_to_allow} on port 443 in the proxy.'
+        )
 
     def _proxy_refusal(self, answer: str) -> excs.Error:
         """Return the error for an HTTPS proxy that refused the connection with answer, such as '403 Forbidden'."""
