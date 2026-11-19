@@ -13,7 +13,6 @@ from .signature import Signature
 if TYPE_CHECKING:
     from pixeltable._query import Query, ResultSet
     from pixeltable._query_base import QueryBase
-    from pixeltable.catalog.model import TableModelMeta
 
 
 class QueryTemplateFunction(Function):
@@ -308,7 +307,7 @@ def query(*args: Any, **kwargs: Any) -> Any:
 
 
 def retrieval_udf(
-    table: catalog.Table | TableModelMeta,
+    table: catalog.Table | catalog.model.TableModelMeta,
     name: str | None = None,
     description: str | None = None,
     parameters: Iterable[str | exprs.ColumnRef] | None = None,
