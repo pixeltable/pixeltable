@@ -28,7 +28,7 @@ from tqdm import tqdm
 
 import pixeltable
 from pixeltable import exceptions as excs
-from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, Config, ConfigSections, DatabaseConfig
+from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, SECRET_KEYS, Config, ConfigSections, DatabaseConfig
 from pixeltable.env import Env
 from pixeltable_cli.utils import project_root_error
 
@@ -278,18 +278,36 @@ def pyproject_hash(data: bytes) -> str:
 
     The settings in that table are in the fingerprint's config. The output must not change for the same input.
     """
-    try:
-        parsed = tomllib.loads(data.decode())
-    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'{PYPROJECT_FILE} is not valid TOML: {exc}'
-        ) from exc
+    parsed = _parse_pyproject(data)
     tool = parsed.get('tool')
     if isinstance(tool, dict):
         tool.pop('pixeltable', None)
         if len(tool) == 0:
             del parsed['tool']  # [tool.pixeltable] alone creates the tool table
     return hashlib.sha256(json.dumps(parsed, sort_keys=True, default=_toml_datetime_json).encode()).hexdigest()
+
+
+def _parse_pyproject(data: bytes) -> dict[str, Any]:
+    """Parse data, the contents of pyproject.toml."""
+    try:
+        return tomllib.loads(data.decode())
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{PYPROJECT_FILE} is not valid TOML: {exc}'
+        ) from exc
+
+
+def _secret_path(value: Any) -> str | None:
+    """Return the dotted path of the first key in SECRET_KEYS, searching value and its nested tables."""
+    if not isinstance(value, dict):
+        return None
+    for key, item in value.items():
+        if key in SECRET_KEYS:
+            return key
+        path = _secret_path(item)
+        if path is not None:
+            return f'{key}.{path}'
+    return None
 
 
 def _toml_datetime_json(value: datetime.date | datetime.time) -> dict[str, str]:
@@ -312,6 +330,15 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
         return path_hash
     if relpath == PYPROJECT_FILE:
         data = path.read_bytes()
+        # archives and image contexts go to Pixeltable Cloud, which gets secrets through pxt secret set only
+        tool = _parse_pyproject(data).get('tool')
+        secret_path = _secret_path(tool.get('pixeltable') if isinstance(tool, dict) else None)
+        if secret_path is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f"'{secret_path}' in [tool.pixeltable] of {path} is a secret, and {PYPROJECT_FILE} goes to Pixeltable "
+                'Cloud with the project. Remove it: Pixeltable Cloud gets secrets through `pxt secret set`.',
+            )
         info.size = len(data)
         tf.addfile(info, io.BytesIO(data))
         return member_hash(pyproject_hash(data), symlink=False)

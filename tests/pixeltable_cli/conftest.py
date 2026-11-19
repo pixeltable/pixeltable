@@ -202,6 +202,11 @@ def pxt_daemon(
 
 PxtRunner = Callable[..., PxtResult]
 
+
+def daemon_pid(cli: PxtRunner) -> int:
+    return cli('daemon', 'status', '--json').json['pid']
+
+
 # `pxt db update` against a hosted database builds its image, which runs CodeBuild
 BUILD_TIMEOUT = 1800.0
 

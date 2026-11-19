@@ -420,6 +420,27 @@ class TestLocalConfigEntry:
             assert config_file.read_text(encoding='utf-8') == text
 
 
+class TestLocalDb:
+    def test_no_local_db(self, cli: PxtRunner, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """Without a local database, a pxt db command without a uri fails without creating one."""
+        home = tmp_path / 'home'
+        env = {
+            'PIXELTABLE_HOME': str(home),
+            'PIXELTABLE_PGDATA': str(home / 'pgdata'),
+            'PIXELTABLE_DB_CONNECT_STR': None,
+            'PXT_PORT': str(daemon_port),
+        }
+        for argv in (('status',), ('diff',), ('update', '--dry-run')):
+            r = cli('db', *argv, env_overrides=env, check=False)
+            assert r.returncode == EXIT_ERROR, r.stderr
+            assert 'This install has no local database' in r.stderr, r.stderr
+        # the session's project has no pixeltable.udf setting
+        r = cli('db', 'update', env_overrides=env, check=False)
+        assert r.returncode == EXIT_ERROR, r.stderr
+        assert 'The local database has nothing to deploy' in r.stderr, r.stderr
+        assert not (home / 'pgdata').exists()
+
+
 class TestLocalLogs:
     @pytest.mark.db_roots('proxy', reason='a proxy-daemon database logs to a file, which the error names')
     def test_local_logs_error(self, cli: PxtRunner, db_root: DatabaseRoot, proxy_daemon_db: str) -> None:

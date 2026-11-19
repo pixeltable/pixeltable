@@ -1063,7 +1063,9 @@ def get_org(req: Request) -> dict[str, Any]:
 
 @router.get('/api/dbs')
 def list_dbs(req: Request) -> dict[str, Any]:
-    return management_client.api_call(ListDbRequest(org=req.query_str('org')))
+    # an install without a local database lists none, and the listing doesn't create one
+    local_db_names = [db.local_database().cloud_db_name()] if Env.get().has_local_db() else []
+    return management_client.api_call(ListDbRequest(org=req.query_str('org'), local_db_names=local_db_names))
 
 
 @router.get('/api/secrets')
@@ -1108,6 +1110,17 @@ class _GetUsageRequest(pydantic.BaseModel):
 @router.get('/api/usage')
 def get_usage(_req: Request) -> dict[str, Any]:
     return management_client.api_call(_GetUsageRequest())
+
+
+@router.get('/api/db/local')
+def local_db(_req: Request) -> dict[str, str]:
+    return {'db_uri': db.local_db_uri()}
+
+
+@router.post('/api/db/local')
+def create_local_db(_req: Request) -> dict[str, str]:
+    db.create_local_db()
+    return {'db_uri': db.local_db_uri()}
 
 
 @router.get('/api/db')

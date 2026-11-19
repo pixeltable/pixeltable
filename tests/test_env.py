@@ -1,6 +1,7 @@
 import asyncio
 import concurrent.futures
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -341,6 +342,27 @@ class TestPgdataDir:
         _reset_env(reinit=False, db_name=None)
 
 
+class TestHasLocalDb:
+    def test_has_local_db(self, uses_db: None, tmp_path: Path) -> None:
+        """An install has a local database once it has started one, and the check doesn't start it."""
+        skip_test_if_not_local()
+        assert Env.get().has_local_db()
+
+        # a process of an install that never started its database
+        home = tmp_path / 'home'
+        env = {k: v for k, v in os.environ.items() if k != 'PIXELTABLE_DB_CONNECT_STR'}
+        env.update(PIXELTABLE_HOME=str(home), PIXELTABLE_PGDATA=str(home / 'pgdata'))
+        script = 'from pixeltable.env import Env; print(Env.get().has_local_db())'
+        result = subprocess.run([sys.executable, '-c', script], env=env, capture_output=True, text=True, check=True)
+        assert result.stdout.splitlines()[-1] == 'False'
+        assert not (home / 'pgdata').exists()
+
+        # a data directory without a cluster
+        (home / 'pgdata').mkdir(parents=True)
+        result = subprocess.run([sys.executable, '-c', script], env=env, capture_output=True, text=True, check=True)
+        assert result.stdout.splitlines()[-1] == 'False'
+
+
 class TestEnsureConnected:
     def test_failed_connect_starts_over(self, uses_db: None, fault_injection: None) -> None:
         """A failed connect disposes its engine, and the next call connects."""
@@ -388,6 +410,18 @@ class TestEnsureConnected:
         with concurrent.futures.ThreadPoolExecutor(len(procs)) as pool:
             errors = list(pool.map(lambda proc: proc.communicate('\n')[1], procs))
         assert all(proc.returncode == 0 for proc in procs), errors
+
+    def test_install_id(self, uses_db: None) -> None:
+        """A database keeps its install id, and a database created anew gets its own."""
+        skip_test_if_not_local()
+        dbname = aux_db_name('install_id')
+        _reset_env(reinit=True, db_name=dbname)
+        install_id = Env.get().install_id
+        assert re.fullmatch(r'[0-9a-f]{32}', install_id) is not None
+        _reset_env(reinit=False, db_name=dbname)
+        assert Env.get().install_id == install_id
+        _reset_env(reinit=True, db_name=dbname)
+        assert Env.get().install_id != install_id
 
 
 class TestProxyEndpoint:

@@ -21,7 +21,6 @@ from ..hosted import (
     print_logs,
     print_receipt,
     print_spans,
-    resolve_db_uri,
     spinner,
 )
 from ..parser import Parser
@@ -46,6 +45,7 @@ Examples:
   pxt db diff --json-schema    # the schema of the --json output, on its own
   pxt db update pxt://org:db   # apply it: the artifacts, then capacity
   pxt db update pxt://org:db --no-wait   # submit it and return without waiting
+  pxt db update                # the local database's UDF servers
   pxt db list
   pxt db status pxt://org:db
   pxt db status --json-schema  # the schema of its --json output, on its own
@@ -72,6 +72,10 @@ the image (system_dependencies, python_version), and what the database runs on (
 disk_gb, workers). 'diff' compares the entry against the database; 'update' applies the difference.
 Secrets are set separately, with 'pxt secret'.
 
+Without a uri, diff, update, status, retry and delete act on the local
+database: 'update' deploys the UDFs of its pixeltable.udf setting to servers in Pixeltable Cloud, built from
+the project. Its [[pixeltable.database]] entry is the one named 'local'.
+
 Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the
 command exits early: Ctrl-C or SIGTERM only stops the waiting, and --no-wait returns once the change is accepted.
 Rerunning the same update reports the change already accepted, and retries it if it failed.
@@ -90,8 +94,22 @@ class _Parser(Parser):
         super().__init__(*args, usage_exit_code=EXIT_ERROR, **kwargs)
 
 
+# the verbs that apply to a local database, which has UDF servers in Pixeltable Cloud but no pods
+_LOCAL_VERBS = ('diff', 'update', 'status', 'retry', 'delete')
+
+
+def _add_db_uri(parser: argparse.ArgumentParser, verb: str) -> None:
+    """Add the db_uri argument of verb to parser; a verb in _LOCAL_VERBS acts on the local database without it."""
+    if verb in _LOCAL_VERBS:
+        parser.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: the local database)')
+    else:
+        parser.add_argument('db_uri', help='Database URI: pxt://org:db')
+
+
 def run(argv: list[str]) -> None:
-    parser = _Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG)
+    parser = _Parser(
+        prog='pxt db', description='manage hosted databases and the UDF servers of the local database', epilog=EPILOG
+    )
     sub = parser.add_subparsers(dest='action', required=True)
 
     if argv == ['diff', '--json-schema']:
@@ -107,7 +125,7 @@ def run(argv: list[str]) -> None:
 
     for verb in ('diff', 'update'):
         p = sub.add_parser(verb, help=f'{"show" if verb == "diff" else "apply"} what the project defines')
-        p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+        _add_db_uri(p, verb)
         p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
         p.add_argument(
             '--add-config-entry',
@@ -130,41 +148,46 @@ def run(argv: list[str]) -> None:
     p = sub.add_parser('list', help='list hosted databases')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
-    p = sub.add_parser('status', help='show status of a hosted database')
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    p = sub.add_parser('status', help='show status of a database')
+    _add_db_uri(p, 'status')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('logs', help="read the database pod's log")
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    _add_db_uri(p, 'logs')
     add_logs_args(p)
 
     p = sub.add_parser('spans', help="read the sampled trace spans of the database's pod")
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    _add_db_uri(p, 'spans')
     add_logs_args(p, spans=True)
 
     for verb, help_text in (
         ('start', 'start (wake) a stopped hosted database'),
         ('stop', 'stop (sleep) a running hosted database'),
         ('restart', 'restart a hosted database'),
-        ('retry', 'retry the failed current update of a hosted database'),
+        ('retry', 'retry the failed current update of a database'),
     ):
         p = sub.add_parser(verb, help=help_text)
-        p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+        _add_db_uri(p, verb)
         p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
         _add_no_wait(p)
 
     p = sub.add_parser('build-image', help='build the image a hosted database runs on, from a project')
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    _add_db_uri(p, 'build-image')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     _add_no_wait(p)
 
-    p = sub.add_parser('delete', help='delete a hosted database')
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    p = sub.add_parser('delete', help='delete a hosted database, or the UDF servers of the local database')
+    _add_db_uri(p, 'delete')
     p.add_argument('-f', '--force', action='store_true', help='skip confirmation')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     _add_no_wait(p)
 
     args = parser.parse_args(argv)
+    if getattr(args, 'add_config_entry', False) and args.db_uri is None:
+        parser.error(
+            "--add-config-entry needs a database uri; the local database's entry is the [[pixeltable.database]] "
+            "entry named 'local'"
+        )
 
     if args.action == 'diff':
         _diff(args)
@@ -199,9 +222,18 @@ def _list(args: argparse.Namespace) -> None:
 
 
 def _status(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db status')
-    resp = get_request('/api/db', {'org': org, 'db': db})
+    org, db = parse_db_uri(_db_uri(args, 'pxt db status'))
+    params: dict[str, Any] = {'org': org, 'db': db}
+    if args.db_uri is None:
+        # the control plane registers the local database at its first pxt db update
+        params['missing_ok'] = True
+    resp = get_request('/api/db', params)
     report = resp.get('report', resp) if isinstance(resp, dict) else {}
+    if args.db_uri is None and len(report) == 0:
+        print(
+            'pxt db status: the local database has no UDF servers; run `pxt db update` to deploy them', file=sys.stderr
+        )
+        sys.exit(EXIT_ERROR)
     if args.json_output:
         print(json.dumps(report))
     else:
@@ -209,12 +241,12 @@ def _status(args: argparse.Namespace) -> None:
 
 
 def _logs(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db logs')
+    org, db = parse_db_uri(args.db_uri, prog='pxt db logs')
     print_logs({'org': org, 'db': db}, args)
 
 
 def _spans(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db spans')
+    org, db = parse_db_uri(args.db_uri, prog='pxt db spans')
     print_spans({'org': org, 'db': db}, args)
 
 
@@ -250,8 +282,10 @@ def _change_lifecycle(args: argparse.Namespace) -> None:
 
 
 def _db_uri(args: argparse.Namespace, prog: str) -> str:
-    """The uri the verb acts on, defaulting to the one the config names."""
-    org, db = resolve_db_uri(args.db_uri, prog=prog)
+    """Return the uri argument, or without one the uri of the local database in Pixeltable Cloud."""
+    if args.db_uri is None:
+        return get_request('/api/db/local')['db_uri']
+    org, db = parse_db_uri(args.db_uri, prog=prog)
     return f'pxt://{org}:{db}'
 
 
@@ -283,7 +317,11 @@ def _diff(args: argparse.Namespace) -> None:
 
 
 def _update(args: argparse.Namespace) -> None:
-    db_uri = _db_uri(args, 'pxt db update')
+    if args.db_uri is None and not args.dry_run:
+        # the POST creates the local database if it doesn't exist
+        db_uri = post_request('/api/db/local', {})['db_uri']
+    else:
+        db_uri = _db_uri(args, 'pxt db update')
     entry_added_to = _add_config_entry(args, db_uri)
     body: dict[str, Any] = {'db_uri': db_uri}
     plan = DbPlan.model_validate(post_request('/api/db/diff', body))
@@ -396,9 +434,15 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False, error: di
 
 
 def _delete(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db delete')
-    db_uri = f'pxt://{org}:{db}'
-    confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force)
+    db_uri = _db_uri(args, 'pxt db delete')
+    _, db = parse_db_uri(db_uri)
+    if args.db_uri is None:
+        # the deletion leaves the local database and its data in place
+        what = 'the UDF servers of the local database'
+        confirm_or_exit(f'delete {what} ({db_uri})? This is irreversible.', args.force)
+    else:
+        what = f"database '{db}'"
+        confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force)
     with spinner(None if args.json_output else f'Submitting the deletion of {db_uri} ...'):
         accepted = DbLifecycleResponse.model_validate(post_request('/api/db/delete', {'db_uri': db_uri, 'wait': False}))
     settled = _await(db_uri, [accepted.receipt], args)
@@ -407,9 +451,9 @@ def _delete(args: argparse.Namespace) -> None:
     if args.json_output:
         print(json.dumps({'deleted' if deleted else 'deleting': db, 'receipt': settled[0].model_dump(mode='json')}))
     elif deleted:
-        print(f"Deleted database '{db}'.")
+        print(f'Deleted {what}.')
     else:
-        print(f"Deleting database '{db}'; its name stays taken until its teardown finishes.")
+        print(f'Deleting {what}; its name stays taken until its teardown finishes.')
     if not deleted:
         _print_receipts(db_uri, settled, waited=args.wait, show=not args.json_output)
 

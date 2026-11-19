@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import logging
 import urllib.error
@@ -11,6 +12,7 @@ from typing import Literal
 
 from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.config import Config, DatabaseConfig
+from pixeltable.env import Env
 from pixeltable.service import management_client, receipts
 from pixeltable.service.db_md import DatabaseResources
 from pixeltable.service.management_protocol import (
@@ -22,6 +24,10 @@ from pixeltable.service.management_protocol import (
     DeleteDbRequest,
     GetDbRequest,
     GetDbResponse,
+    GetUdfServersRequest,
+    GetUdfServersResponse,
+    ListOrgsRequest,
+    ListOrgsResponse,
     PrepareUpdateRequest,
     PrepareUpdateResponse,
     ReportServiceInstanceRequest,
@@ -40,7 +46,7 @@ from pixeltable.utils.project import (
     project_fingerprint,
 )
 from pixeltable_cli.types import DbChangeOp, DbPlan, GenerationReceipt, OpStatus
-from pixeltable_cli.utils import hosted_db_uri_error
+from pixeltable_cli.utils import LOCAL_DB_CLOUD_NAME_PREFIX, hosted_db_uri_error
 
 _logger = logging.getLogger('pixeltable')
 
@@ -51,6 +57,9 @@ _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply
 
 DbAction = Literal['start', 'stop', 'restart', 'delete']
 
+# TODO: replace with the names of the local databases, once an install can have more than one
+LOCAL_DB_NAME = 'main'
+
 _LIFECYCLE_REQUESTS = {
     'start': StartDbRequest,
     'stop': StopDbRequest,
@@ -59,9 +68,124 @@ _LIFECYCLE_REQUESTS = {
 }
 
 
+@dataclasses.dataclass(frozen=True)
+class LocalDatabase:
+    """A local database, identified by its install and its name within the install."""
+
+    # SystemInfoMd.install_id
+    install_id: str
+    name: str
+
+    def cloud_db_name(self) -> str:
+        """Return the database's name in the control plane: name and a hash, unique within an organization."""
+        digest = hashlib.sha256(f'{self.install_id}:{self.name}'.encode()).hexdigest()[:12]
+        # a name in the control plane has at most 29 characters of [a-z0-9-]; the prefix, a hyphen and digest
+        # leave 10 for name
+        label = ''.join(c if c.isascii() and c.isalnum() else '-' for c in self.name.lower())
+        label = label[:10].strip('-')
+        if label == '':
+            return LOCAL_DB_CLOUD_NAME_PREFIX + digest
+        return f'{LOCAL_DB_CLOUD_NAME_PREFIX}{label}-{digest}'
+
+
+def local_database() -> LocalDatabase:
+    """Return the install's local database, which this call starts, and creates if it doesn't exist."""
+    env = Env.get()
+    env.ensure_connected()
+    return LocalDatabase(install_id=env.install_id, name=LOCAL_DB_NAME)
+
+
+def local_db_uri() -> str:
+    """Return the uri under which the control plane registers the local database.
+
+    The database belongs to the organization of the configured credential.
+    """
+    _check_db_uri_setting()
+    if not Env.get().has_local_db():
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            'This install has no local database. Pass the uri of a hosted database (pxt://org:db), or run '
+            '`pxt db update` to create the local database and deploy its UDF servers.',
+        )
+    return f'pxt://{_local_db_org()}:{local_database().cloud_db_name()}'
+
+
+def create_local_db() -> None:
+    """Create the local database for an update of its UDF servers, unless the install has one.
+
+    Raises an error, and creates nothing, if the update would deploy nothing.
+    """
+    _check_db_uri_setting()
+    _check_local_udf_setting()
+    # starts Postgres, and runs initdb if the install has no cluster
+    Env.get().ensure_connected()
+
+
+def _check_db_uri_setting() -> None:
+    """Raise an error if the config still has the removed pixeltable.db_uri setting."""
+    # TODO: remove this check one release after the one that dropped the pixeltable.db_uri setting
+    stale_db_uri = Config.get().get_string_value('db_uri')
+    if stale_db_uri is not None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'The pixeltable.db_uri setting is no longer supported, and a command without a uri acts on the local '
+            f'database. Remove the setting, and pass the uri to act on the hosted database: {stale_db_uri}',
+        )
+
+
+def _local_db_org() -> str:
+    """Return the name of the organization with the local database's UDF servers: the credential's only one."""
+    orgs = ListOrgsResponse.model_validate(management_client.api_call(ListOrgsRequest())).orgs
+    if len(orgs) == 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            'The UDF servers of a local database belong to an organization, and your sign-in has no organization. '
+            'Create one in Pixeltable Cloud first.',
+        )
+    if len(orgs) > 1:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            f'The UDF servers of a local database belong to one organization, and your sign-in has {len(orgs)}. '
+            'Set `PIXELTABLE_API_KEY` to an API key of the organization.',
+        )
+    return orgs[0].org
+
+
+def local_db_udf_servers() -> GetUdfServersResponse:
+    """Return the local database's UDF servers. Raises if they run another version of the project."""
+    if Config.get().project_root is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'The pixeltable.udf setting needs a project in order to create UDF servers. '
+            'Run `pxt init` to write a project configuration, then `pxt db update`.',
+        )
+    request = GetUdfServersRequest(org=_local_db_org(), db=local_database().cloud_db_name())
+    try:
+        servers = GetUdfServersResponse.model_validate(management_client.api_call(request))
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404:
+            raise
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            'The UDFs in the pixeltable.udf setting have no servers. Run `pxt db update` to deploy them.',
+        ) from None
+    fingerprint = _db_target(_local_db_config()).fingerprint
+    assert fingerprint is not None
+    if len(fingerprint.compare(servers.fingerprint)) > 0:
+        changes = '\n'.join(f'  {line}' for line in fingerprint.changes(servers.fingerprint))
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            f'The UDF servers of the pixeltable.udf setting run another version of the project:\n{changes}\n'
+            'Run `pxt db update` to deploy this one.',
+        )
+    return servers
+
+
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
     db_path = _validated_db_uri(db_uri)
+    _check_local_db_uri(db_path)
+    _check_udf_setting(db_path)
     return _plan(db_path, _db_target(_get_db_config(db_path)))[0]
 
 
@@ -80,25 +204,34 @@ def db_fingerprint(db_path: catalog.Path, *, desired: bool = False) -> ProjectFi
     return None if report.current is None else report.current.resources.fingerprint
 
 
-def create_db_update_ops(target: DatabaseResources, current: DatabaseResources | None) -> list[DbChangeOp]:
-    """The operations needed to reconcile current with target."""
+def create_db_update_ops(
+    target: DatabaseResources, current: DatabaseResources | None, *, requires_restart: bool = True
+) -> list[DbChangeOp]:
+    """The operations needed to reconcile current with target.
+
+    requires_restart: False for a local database, which has no pods
+    """
     ops: list[DbChangeOp] = []
 
     if target.fingerprint is not None:
         if current is None or current.fingerprint is None:
             # nothing to diff against: the database is new, or still on the base image
             # TODO: record the base image's fingerprint at provisioning and remove this branch
-            ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
+            ops += [
+                DbChangeOp.build_image(requires_restart=requires_restart),
+                DbChangeOp.upload_archive(requires_restart=requires_restart),
+            ]
         else:
             changed = target.fingerprint.compare(current.fingerprint)
             if ProjectPart.IMAGE in changed:
-                ops.append(DbChangeOp.build_image(target.fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})))
+                changes = target.fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})
+                ops.append(DbChangeOp.build_image(changes, requires_restart=requires_restart))
             if ProjectPart.ARCHIVE in changed:
-                ops.append(
-                    DbChangeOp.upload_archive(target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE}))
-                )
+                changes = target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE})
+                ops.append(DbChangeOp.upload_archive(changes, requires_restart=requires_restart))
             if ProjectPart.CONFIG in changed:
-                ops.append(DbChangeOp.config(target.fingerprint.changes(current.fingerprint, {ProjectPart.CONFIG})))
+                changes = target.fingerprint.changes(current.fingerprint, {ProjectPart.CONFIG})
+                ops.append(DbChangeOp.config(changes, requires_restart=requires_restart))
 
     current_capacity = DatabaseCapacity() if current is None else current.capacity()
     for field, value in current_capacity.changes(target.capacity()).model_dump(exclude_none=True).items():
@@ -123,6 +256,8 @@ def db_update(
     Returns the submitted plan, with its receipt.
     """
     db_path = _validated_db_uri(db_uri)
+    _check_local_db_uri(db_path)
+    _check_udf_setting(db_path)
     config = _get_db_config(db_path)
     target = _db_target(config)
     plan, prepared = _plan(db_path, target)
@@ -159,6 +294,9 @@ def db_build_image(db_uri: str, *, wait: bool = True) -> tuple[list[DbChangeOp],
     if the control plane does not hold it already.
     """
     db_path = _validated_db_uri(db_uri)
+    _check_local_db_uri(db_path)
+    # a local database has no pods to restart
+    requires_restart = not _is_local_db(db_path)
     config = _get_db_config(db_path)
     target = _db_target(config)
     prepared = _prepare(db_path, target, blob=None)
@@ -170,9 +308,9 @@ def db_build_image(db_uri: str, *, wait: bool = True) -> tuple[list[DbChangeOp],
     target = target.model_copy(update={**desired.capacity().model_dump(), 'force_build_nonce': uuid.uuid4().hex})
     accepted, uploaded = _submit(db_path, config, target, expected_generation=prepared.generations.database or 0)
     settled = _settle(db_path, accepted, wait=wait)
-    image_op = DbChangeOp.build_image()
+    image_op = DbChangeOp.build_image(requires_restart=requires_restart)
     image_op.status = 'applied' if wait else 'accepted'
-    archive_op = DbChangeOp.upload_archive()
+    archive_op = DbChangeOp.upload_archive(requires_restart=requires_restart)
     archive_op.status = 'applied' if uploaded else 'skipped'
     return [image_op, archive_op], settled
 
@@ -232,7 +370,9 @@ def _plan(db_path: catalog.Path, target: DatabaseTarget) -> tuple[DbPlan, Prepar
         plan = DbPlan.from_ops(
             db_path.uri_str,
             None if current is None else current.state,
-            create_db_update_ops(target, None if current is None else current.resources),
+            create_db_update_ops(
+                target, None if current is None else current.resources, requires_restart=not _is_local_db(db_path)
+            ),
         )
     plan.generation = prepared.generations.database or 0
     receipt = prepared.report.receipt
@@ -380,7 +520,55 @@ def _validated_db_uri(db_uri_str: str) -> catalog.Path:
     return path
 
 
+def _local_db_config() -> DatabaseConfig:
+    config = Config.get().get_database_config(catalog.Path())
+    return DatabaseConfig() if config is None else config
+
+
+def _is_local_db(db_path: catalog.Path) -> bool:
+    assert db_path.db is not None
+    # the control plane reserves the prefix for local databases
+    return db_path.db.startswith(LOCAL_DB_CLOUD_NAME_PREFIX)
+
+
+def _check_local_db_uri(db_path: catalog.Path) -> None:
+    """Raise an error if db_path is a local database other than local_db_uri()."""
+    if not _is_local_db(db_path):
+        return
+    local_uri = local_db_uri()
+    if db_path.uri_str != local_uri:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{db_path.uri_str} is not the local database of this install ({local_uri}): the prefix '
+            f'{LOCAL_DB_CLOUD_NAME_PREFIX!r} is reserved for local databases.',
+        )
+
+
+def _check_udf_setting(db_path: catalog.Path) -> None:
+    """Raise an error for an invalid pixeltable.udf setting, or for an empty one if db_path is the local database."""
+    if _is_local_db(db_path):
+        _check_local_udf_setting()
+    else:
+        Env.get().udf_configs()  # raises for an invalid setting
+
+
+def _check_local_udf_setting() -> None:
+    """Raise an error if there is no project, or if its pixeltable.udf setting is invalid or empty.
+
+    An update of the local database deploys the UDF servers of that setting, and nothing else.
+    """
+    _validated_project_root()
+    if len(Env.get().udf_configs()) == 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'The local database has nothing to deploy: the project has no pixeltable.udf setting. '
+            'For a hosted database, pass its uri: pxt://org:db.',
+        )
+
+
 def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
+    if _is_local_db(db_uri):
+        return _local_db_config()
     config = Config.get().get_database_config(db_uri)
     if config is None:
         where = Config.get().project_config_file or 'the project configuration'

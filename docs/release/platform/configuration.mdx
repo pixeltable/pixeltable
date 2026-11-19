@@ -71,9 +71,12 @@ database only. A `[[pixeltable.database]]` entry with no `name` corresponds to t
 `[[pixeltable.database]]` entry named `pxt://org:db` is a hosted database, and must be in `pixeltable.toml`, not
 `config.toml`. Its pods read the entry and the sections of
 `pixeltable.toml` after `pxt db update`, and `pxt service update` restarts running services with them. For a hosted
-database, `pxt db update` refuses a secret in `pixeltable.toml` (a key named `api_key`, `api_secret`, `api_token`,
-`token`, `storage_account_key`, or `exporter_otlp_headers`); set it with
-`pxt secret set pxt://org:db OPENAI_API_KEY=...` instead.
+database, and for a project with a `pixeltable.udf` setting, `pxt` refuses a secret in `pixeltable.toml` (a key named
+`api_key`, `api_secret`, `api_token`, `token`, `storage_account_key`, or `exporter_otlp_headers`), and `pxt db update`
+refuses one under `[tool.pixeltable]` in `pyproject.toml`, which Pixeltable Cloud receives with the project. Keep such
+keys in `config.toml` or in the environment, and set them for Pixeltable Cloud with `pxt secret set`: for example
+`pxt secret set pxt://org:db OPENAI_API_KEY=...` for a hosted database, or `pxt secret set pxt://org OPENAI_API_KEY=...`
+for the UDF servers (see [Modal](/integrations/modal)).
 
 ```toml
 # pixeltable.toml
