@@ -9,6 +9,9 @@ import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
+import PIL.Image
+
+import pixeltable.utils.image as image_utils
 from pixeltable import env, exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
 from .interfaces import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
@@ -52,6 +55,41 @@ class DefaultExprEvaluator(Evaluator):
                 rows_with_excs.add(idx)
                 self.dispatcher.dispatch_exc([row], self.e.slot_idx, exc_tb, self.eval_ctx)
         self.dispatcher.dispatch([rows[i] for i in range(len(rows)) if i not in rows_with_excs], self.eval_ctx)
+
+
+class ImageLoadEvaluator(Evaluator):
+    """
+    Decodes the stored image file of a ColumnRef slot on Env.cpu_pool.
+    """
+
+    def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
+        for row in rows:
+            task = asyncio.create_task(self.eval(row, slot_idx))
+            self.dispatcher.register_task(task)
+
+    async def eval(self, row: exprs.DataRow, slot_idx: int) -> None:
+        assert not row.has_val[slot_idx] and row.file_paths[slot_idx] is not None
+        if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+            return
+
+        loop = asyncio.get_running_loop()
+        load_fn = functools.partial(self._load, row.file_paths[slot_idx])
+        # carry the ambient instrumentation span onto the worker thread, so that the load span nests under it
+        thread_fn = functools.partial(telemetry.run_in_context, telemetry.capture_context(), load_fn)
+        try:
+            row.vals[slot_idx] = await loop.run_in_executor(env.Env.get().cpu_pool, thread_fn)
+        except Exception:
+            # The slot keeps its file and stays without a decoded value, because set_exc() would clear the file of the
+            # image column itself. The expr that reads the slot repeats the decode and reports the error for its own
+            # cell.
+            pass
+        row.has_val[slot_idx] = True
+        self.dispatcher.dispatch([row], self.eval_ctx)
+
+    @classmethod
+    def _load(cls, path: str) -> PIL.Image.Image:
+        with telemetry.span('pixeltable.media.load', level=telemetry.DEBUG):
+            return image_utils.load(path)
 
 
 class FnCallEvaluator(Evaluator):

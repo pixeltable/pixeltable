@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
 import traceback
 from types import TracebackType
 from typing import AsyncGenerator, Iterable
 
 import numpy as np
-import PIL.Image
 
 import pixeltable.exceptions as excs
-import pixeltable.utils.image as image_utils
 from pixeltable import exprs, telemetry, telemetry_schemas
-from pixeltable.env import Env
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
@@ -47,7 +43,7 @@ class ExprEvalNode(ExecNode):
     """
 
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
-    outputs: np.ndarray  # bool per slot; True if this slot is part of our output
+    outputs: np.ndarray  # bool per slot; True if this slot is part of our output, except for image decode slots
     schedulers: dict[str, Scheduler]  # key: resource pool name
     col_names: dict[int, str]  # Dispatcher protocol; slot idx -> name of the table column it materializes
     eval_ctx: ExprEvalCtx  # for input/output rows
@@ -93,6 +89,8 @@ class ExprEvalNode(ExecNode):
         output_slot_idxs = [e.slot_idx for e in output_exprs]
         self.outputs[output_slot_idxs] = True
         self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
+        # leave out the image decode slots, so that the progress bar and cells_computed do not count a decode as a cell
+        self.outputs[self.eval_ctx.image_decode_slot_idxs] = False
         self._init_exec_state()
 
     def init_bindings(self) -> None:
@@ -141,7 +139,6 @@ class ExprEvalNode(ExecNode):
         """
         Fetches another batch from our input or sets input_complete to True if there are no more batches.
 
-        - decodes the stored images in the slots eval_ctx.image_decode_slot_idxs
         - stores the batch in current_input_batch, if not already set, or next_input_batch
         - updates row_pos_map, if needed
         """
@@ -151,7 +148,6 @@ class ExprEvalNode(ExecNode):
             if self.progress_reporter is not None:
                 # make sure our progress reporter shows up before we run anything long
                 self.progress_reporter.update(0)
-            await self._decode_images(batch)
             assert self.next_input_batch is None
             if self.current_input_batch is None:
                 self.current_input_batch = batch
@@ -173,40 +169,6 @@ class ExprEvalNode(ExecNode):
         except Exception as exc:
             self.error = exc
             self.exc_event.set()
-
-    async def _decode_images(self, batch: DataRowBatch) -> None:
-        """Decode, on Env.cpu_pool, the stored images in the slots eval_ctx.image_decode_slot_idxs of every row.
-
-        A slot that has a file path and no value would otherwise get decoded on the event loop when the first expr
-        reads it.
-        """
-        if len(self.eval_ctx.image_decode_slot_idxs) == 0:
-            return
-        loop = asyncio.get_running_loop()
-        # carry the ambient instrumentation span onto the worker threads, so that the load spans nest under it
-        hooks_ctx = telemetry.capture_context()
-        pending: list[tuple[exprs.DataRow, int, asyncio.Future[PIL.Image.Image]]] = []
-        for row in batch.rows:
-            for slot_idx in self.eval_ctx.image_decode_slot_idxs:
-                path = row.file_paths[slot_idx]
-                if not row.has_val[slot_idx] or row.vals[slot_idx] is not None or path is None:
-                    continue
-                load_fn = functools.partial(self._load_image, path)
-                thread_fn = functools.partial(telemetry.run_in_context, hooks_ctx, load_fn)
-                pending.append((row, slot_idx, loop.run_in_executor(Env.get().cpu_pool, thread_fn)))
-
-        for row, slot_idx, fut in pending:
-            try:
-                row.vals[slot_idx] = await fut
-            except Exception:
-                # The slot stays without a value. The expr that reads it repeats the decode and reports the error for
-                # its own cell.
-                pass
-
-    @classmethod
-    def _load_image(cls, path: str) -> PIL.Image.Image:
-        with telemetry.span('pixeltable.media.load', level=telemetry.DEBUG):
-            return image_utils.load(path)
 
     @property
     def total_buffered(self) -> int:

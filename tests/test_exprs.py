@@ -2546,6 +2546,14 @@ class TestExprs:
         for src_path, stored_path in zip(res['src'], res['stored'], strict=True):
             assert Path(src_path).read_bytes() == Path(stored_path).read_bytes()
 
+        # The unstored tile column of a view reads the base image outside the dispatch order. A query that reads the
+        # tiles and also passes the base image to a UDF gets both.
+        v = pxt.create_view(p('tiles'), t, iterator=pxtf.image.tile_iterator(t.img, tile_size=(256, 256)))
+        res = v.select(tile_width=v.tile.width, rot=v.img.rotate(90)).collect()
+        assert len(res) == v.count()
+        assert all(width == 256 for width in res['tile_width'])
+        assert all(img is not None for img in res['rot'])
+
         # a stored image file that fails to decode gives an error for the cell of the UDF call that reads it, for a
         # run_in_thread UDF (rotate) and for an unmarked UDF (convert)
         t = pxt.create_table(p('corrupt'), {'img': pxt.Image})
@@ -2561,10 +2569,34 @@ class TestExprs:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='encountered exception UnidentifiedImageError'):
                 t.select(expr).collect()
 
+        # A decode holds up only the readers of its image. Each decode below waits until a UDF on another column of
+        # the same query has run. The query finishes only if that UDF does not wait for the decodes.
+        t = pxt.create_table(p('gate'), {'id': pxt.Int, 'img': pxt.Image})
+        validate_update_status(t.insert({'id': i, 'img': f} for i, f in enumerate(files)), expected_rows=len(files))
+        decode_gate.clear()
+        image_load = image_utils.load
+
+        def gated_load(path: str) -> PIL.Image.Image:
+            assert decode_gate.wait(timeout=30)
+            return image_load(path)
+
+        monkeypatch.setattr(image_utils, 'load', gated_load)
+        res = t.select(id=open_decode_gate(t.id), rot=t.img.rotate(90)).collect()
+        assert sorted(res['id']) == list(range(len(files)))
+
 
 @pxt.udf
 def image_path_as_image(path: str) -> PIL.Image.Image:
     return path  # type: ignore[return-value]
+
+
+decode_gate = threading.Event()
+
+
+@pxt.udf
+def open_decode_gate(x: int) -> int:
+    decode_gate.set()
+    return x
 
 
 @pxt.udf
