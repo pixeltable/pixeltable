@@ -1218,6 +1218,8 @@ def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     entire contents of the UDF docstring. If a UDF is wrapped in a `pxt.tool()` invocation, then the name and/or
     description may be customized.
 
+    A tool's parameters must be of type `String`, `Int`, `Float`, `Bool`, `UUID` or `Json`.
+
     Args:
         args: The UDFs to use as tools.
 
@@ -1261,9 +1263,6 @@ def tool(fn: func.Function, name: str | None = None, description: str | None = N
     Returns:
         A `Tool` instance that can be passed to an LLM tool-calling API.
     """
-    if isinstance(fn, func.AggregateFunction):
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
-
     return func.tools.Tool(fn=fn, name=name, description=description)
 
 
