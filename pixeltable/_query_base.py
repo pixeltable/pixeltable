@@ -635,7 +635,7 @@ class QueryBase(ABC):
 
     def join(
         self,
-        other: catalog.Table,
+        other: catalog.Table | TableModelMeta,
         on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: JoinType.LiteralType = 'inner',
     ) -> Self:
@@ -643,7 +643,7 @@ class QueryBase(ABC):
         Join this Query with a table.
 
         Args:
-            other: the table to join with
+            other: the table to join with, or a model that is bound to one
             on: the join condition, which can be either a) references to one or more columns or b) a boolean
                 expression.
 
