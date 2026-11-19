@@ -73,7 +73,7 @@ class InsertableTableProxy(TableProxy):
             # materialize a generator/iterator of rows, matching the local insert path
             source = list(source)
         if isinstance(source, os.PathLike):
-            source = os.fspath(source)
+            source = os.fsdecode(source)
 
         if isinstance(source, str):
             # A file/directory/URL source is sent to the daemon as-is. The exception is a source with media columns,
