@@ -436,7 +436,7 @@ class TestIterator:
                     raise StopIteration
 
     def test_create_view_schema_errors(self, db_root: DatabaseRoot) -> None:
-        """create_view() validates the iterator's output schema; these errors surface in both local and proxy mode."""
+        """Iterator output schema errors surface at call time, in both local and proxy mode."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl_plain_dict'), schema={'input': pxt.Int | None})
 
