@@ -344,7 +344,8 @@ class _ModelNamespace(dict):
             if 'type' in spec and 'value' in spec:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column specification for {name!r} cannot define both `type` and `value`',
+                    f'Column specification for {name!r} cannot define both `type` and `value`: a computed column '
+                    'takes its type from `value`; to change it, cast the value with `.astype()`',
                 )
             if 'type' not in spec and 'value' not in spec:
                 raise excs.RequestError(

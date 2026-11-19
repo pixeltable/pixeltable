@@ -2643,7 +2643,8 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA,
-            match=r"Column specification for 'both' cannot define both `type` and `value`",
+            match=r"Column specification for 'both' cannot define both `type` and `value`: a computed column "
+            r'takes its type from `value`; to change it, cast the value with `.astype\(\)`$',
         ):
 
             class BothColSpec(TableModel, name='both_col_spec'):
