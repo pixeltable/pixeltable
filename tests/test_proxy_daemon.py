@@ -1079,7 +1079,7 @@ class TestProxyDaemon:
     @staticmethod
     def _export_copy(
         db_root: DatabaseRoot, export_dir: pathlib.Path
-    ) -> tuple[CatalogProxy, CatalogPath, list[TableVersionMd], table_copy._Chunk]:
+    ) -> tuple[CatalogProxy, CatalogPath, TableVersionMd, table_copy._Chunk]:
         """Export a local table of two rows into export_dir, for tests that send import_table() requests that
         create_table() does not send. Returns the catalog of db_root, the path of the copy, and the export."""
         src = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
@@ -1118,13 +1118,13 @@ class TestProxyDaemon:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a media file of'):
             cat.import_table(copy_path, uuid.uuid4(), md, [table_copy.CopyChunk(rows_file, {})], IfExistsParam.ERROR)
 
-        # rows beyond the history of the copy, whose rowids a later insert into the copy would assign
+        # rows whose rowids a later insert into the copy would assign
         rows = pq.read_table(rows_file)
         shifted_rows_file = str(tmp_path / 'shifted_rows.parquet')
         pq.write_table(
             rows.set_column(rows.schema.get_field_index('rowid'), 'rowid', pa.array([100, 101])), shifted_rows_file
         )
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a row of the history of'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a row of'):
             cat.import_table(
                 copy_path,
                 uuid.uuid4(),

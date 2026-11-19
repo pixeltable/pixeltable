@@ -225,7 +225,7 @@ class CatalogProxy(CatalogBase):
         )
 
     def import_table(
-        self, path: Path, tbl_id: UUID, md: list[TableVersionMd], chunks: Iterable[CopyChunk], if_exists: IfExistsParam
+        self, path: Path, tbl_id: UUID, md: TableVersionMd, chunks: Iterable[CopyChunk], if_exists: IfExistsParam
     ) -> tuple[Table, bool]:
         # a LocalFile is uploaded with the request
         args = {

@@ -61,7 +61,7 @@ class TestCopyTable:
         t.insert((row(i) for i in range(4, 6)), on_error='ignore')
         t.update({'s': 'updated'}, where=t.id == 1)
         t.delete(where=t.id == 0)
-        # a dropped column: its values remain part of the history
+        # a dropped column, which the copy leaves out
         t.add_column(note=pxt.String | None)
         t.update({'note': 'a note'}, where=t.id == 3)
         t.drop_column('note')
@@ -79,10 +79,11 @@ class TestCopyTable:
             return set(urls['img_fileurl']) | set(urls['rot_fileurl'])
 
         src_rows = rows(t)
-        src_versions = t.get_versions()
         t2 = pxt.create_table(p('dst'), source=t)
 
         assert t2.count() == t.count() == 5
+        # the dropped column is not copied
+        assert t2.columns() == t.columns()
         assert_resultset_eq(rows(t2), src_rows, compare_col_names=True)
         assert sum(errortype is not None for errortype in src_rows['ratio_errortype']) == 1
         # every media file was uploaded: the copy's urls are its own
@@ -90,23 +91,21 @@ class TestCopyTable:
         # the embeddings were copied
         sim = t.s.similarity(string='text 3')
         sim2 = t2.s.similarity(string='text 3')
-        assert list(t2.select(t2.id, score=sim2).order_by(sim2, asc=False).collect()) == list(
-            t.select(t.id, score=sim).order_by(sim, asc=False).collect()
+        # id orders the rows with equal scores, which a database returns in any order
+        assert list(t2.select(t2.id, score=sim2).order_by(sim2, asc=False).order_by(t2.id).collect()) == list(
+            t.select(t.id, score=sim).order_by(sim, asc=False).order_by(t.id).collect()
         )
         # a copy of a table of the destination's database, which that database runs
         t3 = pxt.create_table(p('dst2'), source=t2)
         assert_resultset_eq(rows(t3), src_rows, compare_col_names=True)
         assert media_urls(t2).isdisjoint(media_urls(t3))
 
-        if is_data_versioned:
-            assert t2.get_versions() == t3.get_versions() == src_versions
-            for version in (v['version'] for v in src_versions):
-                src_version = pxt.get_table(f'src:{version}')
-                dst_version = pxt.get_table(f'{p("dst")}:{version}')
-                assert dst_version.columns() == src_version.columns()
-                assert_resultset_eq(
-                    dst_version.order_by(dst_version.id).collect(), src_version.order_by(src_version.id).collect()
-                )
+        # a copy has no history: it has the single version 0
+        for copy in (t2, t3):
+            assert [v['version'] for v in copy.get_versions()] == [0]
+            if is_data_versioned:
+                with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot revert version 0'):
+                    copy.revert()
 
         # the copy doesn't depend on the local table, whose computed images go with it
         pxt.drop_table('src')
@@ -124,7 +123,7 @@ class TestCopyTable:
         empty.add_computed_column(upper=empty.s.upper())
         empty2 = pxt.create_table(p('empty_dst'), source=empty)
         assert empty2.count() == 0
-        assert empty2.get_versions() == empty.get_versions()
+        assert [v['version'] for v in empty2.get_versions()] == [0]
         empty2.insert([{'s': 'a'}])
         assert empty2.select(empty2.upper).collect()['upper'] == ['A']
 
@@ -158,21 +157,11 @@ class TestCopyTable:
         assert_resultset_eq(media_rows(t2), media_rows(t))
         # each input file was uploaded once
         assert len(set(t2.select(t2.img.fileurl).collect()['img_fileurl'])) == 2
-        # an uploaded file is stored under the earliest version that references it, so reverting the second insert
-        # keeps the files of the first
-        t2.revert()
-        FileCache.get().clear()  # so that reading the images fetches them from the destination
-        assert_resultset_eq(media_rows(t2), t.where(t.id < 5).select(t.id, t.img, t.rot).order_by(t.id).collect())
-
-        # The files that a computed column wrote for the rows it filled are stored under the version that added it.
-        t = pxt.create_table('backfilled_src', {'img': pxt.Image})
-        t.insert({'img': f} for f in img_files)
-        t.add_computed_column(rot=t.img.rotate(90))  # version 2, which fills the rows of version 1
-        t2 = pxt.create_table(p('backfilled_dst'), source=t)
-        for tbl in (t, t2):
-            urls = tbl.select(tbl.rot.fileurl).collect()['rot_fileurl']
-            # a stored file is named <table prefix>_<column id>_<table version>_<suffix>
-            assert {pathlib.PurePosixPath(url).name.split('_')[2] for url in urls} == {'2'}
+        urls = t2.select(t2.img.fileurl, t2.rot.fileurl).collect()
+        # every file of the copy is stored under its only version: a stored file is named
+        # <table prefix>_<column id>_<table version>_<suffix>
+        file_names = [pathlib.PurePosixPath(url).name for url in urls['img_fileurl'] + urls['rot_fileurl']]
+        assert {name.split('_')[2] for name in file_names} == {'0'}
 
         # An object that the source stores under its table prefix in a bucket is uploaded, since the source's
         # drop_table() and revert() delete that prefix. A remote url outside of that prefix is kept.
@@ -303,12 +292,9 @@ class TestCopyTable:
         # in the local database, a copy of src2 and a table like src2 can reference src
         assert pxt.create_table('copy_src2', source=t2).columns() == t2.columns()
         assert pxt.create_table('like_src2', schema_source=t2).columns() == t2.columns()
-        # A dropped computed column stays in the history that a copy takes along, so the copy is still refused. A
-        # table like src2 takes only the current schema.
+        # a copy and a table like src2 take only the current schema, without the dropped computed column
         t2.drop_column('r')
-        if is_other_db:
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"computed column 'r' references table 'src'"):
-                pxt.create_table(p('dst'), source=t2)
+        assert pxt.create_table(p('copy_dropped_r'), source=t2).columns() == ['n']
         assert pxt.create_table(p('like_dropped_r'), schema_source=t2).columns() == ['n']
 
         if is_other_db:
@@ -321,32 +307,26 @@ class TestCopyTable:
             with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND):
                 pxt.create_table(p('dst'), schema_source=t4)
             assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
-            # A revert of the copy would restore a dropped column, so the copy is still refused. The input column of
-            # the UDF is dropped as well.
+            # A dropped column with a UDF that the destination cannot load is not copied. The input column of the UDF
+            # is dropped as well.
             t5 = pxt.create_table('src5', {'n': pxt.Int, 'k': pxt.Int})
             t5.add_computed_column(n1=local_only_udf(t5.n))
             t5.drop_column('n1')
             t5.drop_column('n')
-            with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r"computed column 'n1'(.|\n)*pxt db update"):
-                pxt.create_table(p('dst'), source=t5)
-            # ... and so would a revert restore a dropped embedding index
+            assert pxt.create_table(p('dst5'), source=t5).columns() == ['k']
+            # ... and neither is a dropped embedding index
             t6 = pxt.create_table('src6', {'s': pxt.String})
             t6.add_embedding_index('s', idx_name='idx', string_embed=local_only_embed)
             t6.drop_embedding_index(idx_name='idx')
-            with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r'value column of an index(.|\n)*local_only_embed'):
-                pxt.create_table(p('dst'), source=t6)
-            assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
-        # a dropped column that references another dropped column is copied, and a revert of the copy restores both
+            assert pxt.create_table(p('dst6'), source=t6).columns() == ['s']
+        # a dropped column that references another dropped column is not copied
         t7 = pxt.create_table('src7', {'n': pxt.Int})
         t7.add_computed_column(c1=t7.n + 1)
         t7.add_computed_column(c2=t7.c1 + 1)
         t7.insert([{'n': 1}])
         t7.drop_column('c2')
         t7.drop_column('c1')
-        dst7 = pxt.create_table(p('dst7'), source=t7)
-        dst7.revert()
-        dst7.revert()
-        assert list(pxt.get_table(p('dst7')).collect()) == [{'n': 1, 'c1': 2, 'c2': 3}]
+        assert list(pxt.create_table(p('dst7'), source=t7).collect()) == [{'n': 1}]
 
         # A referenced local media file that no longer exists. It is under the Pixeltable home, so that the insert
         # keeps its url. The insert copies a file of the system temp dir into the media store.
@@ -439,12 +419,13 @@ class TestCopyTable:
         assert t2.order_by(t2.id).select(t2.upper).collect()['upper'] == ['TEXT 0', 'TEXT 1', 'TEXT 2']
         sim = t.s.similarity(string='text 1')
         sim2 = t2.s.similarity(string='text 1')
-        assert list(t2.select(t2.id).order_by(sim2, asc=False).collect()) == list(
-            t.select(t.id).order_by(sim, asc=False).collect()
+        # id orders the rows with equal scores, which a database returns in any order
+        assert list(t2.select(t2.id).order_by(sim2, asc=False).order_by(t2.id).collect()) == list(
+            t.select(t.id).order_by(sim, asc=False).order_by(t.id).collect()
         )
 
         # if_exists: 'error' refuses the existing table, 'ignore' returns it, 'replace' creates an empty one
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="'dst' is an existing table"):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="dst' is an existing table"):
             pxt.create_table(p('dst'), schema_source=t)
         assert pxt.create_table(p('dst'), schema_source=t, if_exists='ignore').count() == 3
         assert pxt.create_table(p('dst'), schema_source=t, if_exists='replace').count() == 0

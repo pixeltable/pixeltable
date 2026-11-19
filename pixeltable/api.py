@@ -94,8 +94,9 @@ def create_table(
     contents of the specified data, and the data will be imported from the specified source into the new table. The
     source format and/or schema can be specified directly via the `source_format` and `schema_overrides` parameters.
 
-    If `source` is a table, then the new table is a copy of that table with its columns, computed columns, indexes,
-    rows and versions. A local table can be copied to the same database or to a hosted one. A hosted table can be
+    If `source` is a table, then the new table is a copy of the current version of that table with its columns,
+    computed columns, indexes and rows. The copy has no version history: it starts at version 0 and cannot be
+    reverted. A local table can be copied to the same database or to a hosted one. A hosted table can be
     copied only within its own database. The copy keeps the stored values, so
     that computed columns and embedding indexes are not computed again. The copy stores its own media files: the
     local media files of the table and the media files that it stored in a bucket are copied. Any other media URL
@@ -196,7 +197,7 @@ def create_table(
         ...     if_exists='replace',
         ... )
 
-        Copy a table, with its computed columns, indexes, rows and history:
+        Copy a table, with its computed columns, indexes and rows:
 
         >>> t = pxt.create_table('films_copy', source=pxt.get_table('films'))
 

@@ -1838,13 +1838,14 @@ class Catalog(CatalogBase):
         self,
         path: Path,
         tbl_id: UUID,
-        md: list[TableVersionMd],
+        md: TableVersionMd,
         chunks: Iterable[table_copy.CopyChunk],
         if_exists: IfExistsParam,
     ) -> tuple[LocalTable, bool]:
         """
-        Creates the base table tbl_id at path from the history md of another base table and the store rows and media
-        files of chunks. The table appears at path with all of its rows, or not at all.
+        Creates the base table tbl_id at path from the current version md of another base table and the store rows
+        and media files of chunks. The new table has the single version 0. It appears at path with all of its rows, or
+        not at all.
 
         Returns `t, False` for an existing table `t` if `if_exists == IfExistsParam.IGNORE`, otherwise `t, True`.
         """
@@ -1853,27 +1854,14 @@ class Catalog(CatalogBase):
         if existing_copy is not None:
             return existing_copy, True
         copy_md = table_copy.md_for_copy(md, tbl_id, path.name)
-        tbl_md = copy_md[0].tbl_md
-        version_mds = [m.version_md for m in copy_md]
-        schema_version_mds = list({m.schema_version_md.schema_version: m.schema_version_md for m in copy_md}.values())
         stored_urls: dict[str, str] = {}  # url in the rows -> url of the stored file
         rows_files: list[str] = []
 
         # one transaction creates the metadata, the store table and the rows, so that a failure leaves nothing behind
         # and the new table needs no pending ops
         def write_tbl_fn(dir_id: UUID) -> UUID:
-            current_version_md = next(m for m in version_mds if m.version == tbl_md.current_version)
-            current_schema_version_md = next(
-                m for m in schema_version_mds if m.schema_version == tbl_md.current_schema_version
-            )
-            self.write_tbl_md(tbl_id, dir_id, tbl_md, current_version_md, current_schema_version_md)
-            for version_md in version_mds:
-                if version_md is not current_version_md:
-                    self.write_tbl_md(tbl_id, None, None, version_md, None)
-            for schema_version_md in schema_version_mds:
-                if schema_version_md is not current_schema_version_md:
-                    self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
-            self._create_store_tbl(tbl_md)
+            self.write_tbl_md(tbl_id, dir_id, copy_md.tbl_md, copy_md.version_md, copy_md.schema_version_md)
+            self._create_store_tbl(copy_md.tbl_md)
             tv = self._get_tbl_version(TableVersionKey(tbl_id, None), check_pending_ops=False)
             for rows_file in rows_files:
                 table_copy.insert_rows(tv, copy_md, rows_file, stored_urls)

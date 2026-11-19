@@ -381,7 +381,7 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
 
 
 def _import_table(request: ProxyRequest) -> tuple[list, bool]:
-    # md is written as received, so it must be of this database's metadata version
+    # the metadata of the copy is made from md, so md must be of this database's metadata version
     if request.schema_version != MD_SCHEMA_VERSION:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
