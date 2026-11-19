@@ -5,11 +5,18 @@ The control plane stores these and the management protocol sends them, so the wi
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from pixeltable.service.resources import DatabaseCapacity
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.types import DbState
+
+# what a hosted database's pods run: 'default', the shared default image, which holds no project packages and gets the
+# project's files alone from `pxt schema update` and `pxt service update`; 'project', an image `pxt db update` built
+# from the project
+ImageKind = Literal['default', 'project']
 
 
 class DatabaseResources(DatabaseCapacity):
@@ -22,6 +29,12 @@ class DatabaseResources(DatabaseCapacity):
 
     pxt_md_version: int = Field(
         default=0, description='metadata schema version of the Pixeltable that packaged the archive'
+    )
+    image: ImageKind | None = Field(
+        default=None,
+        description="'default' when the pods run the shared default image, which only `pxt db update` replaces with "
+        "one built from the project; 'project' once they run that one; null from a control plane that does not say. "
+        "A submission sets 'default' to send the project's files alone, and leaves it null to build an image",
     )
     default_bucket: str | None = None
 

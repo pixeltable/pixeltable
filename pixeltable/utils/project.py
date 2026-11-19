@@ -439,6 +439,47 @@ def _requirement_lines(text: str) -> list[str]:
     return lines
 
 
+def declared_requirements(project_dir: Path) -> list[tuple[str, str]]:
+    """What the project declares for its runtime: each entry of requirements.txt and of pyproject.toml's
+    [project].dependencies, as (file name, entry), with comments removed. An option line of requirements.txt counts as
+    an entry."""
+    declared: list[tuple[str, str]] = []
+    requirements = project_dir / 'requirements.txt'
+    if requirements.is_file():
+        for line in _requirement_lines(requirements.read_text(encoding='utf-8')):
+            # a comment starts the line or follows whitespace; a '#' inside a url is part of it
+            entry = re.sub(r'(^|\s)#.*$', '', line).strip()
+            if entry != '':
+                declared.append((requirements.name, entry))
+    pyproject = project_dir / PYPROJECT_FILE
+    if pyproject.is_file():
+        try:
+            parsed = tomllib.loads(pyproject.read_text(encoding='utf-8'))
+        except tomllib.TOMLDecodeError as exc:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'{pyproject.name} is not valid TOML: {exc}'
+            ) from exc
+        dependencies = parsed.get('project', {}).get('dependencies', [])
+        declared.extend((pyproject.name, entry.strip()) for entry in dependencies if isinstance(entry, str))
+    return declared
+
+
+def requirement_name(entry: str) -> str | None:
+    """The normalized distribution name a requirement entry installs from an index, or None if it installs from a
+    location (a url or a path) or is an option."""
+    if entry.startswith('-') or _direct_reference(entry) is not None:
+        return None
+    match = re.match(r'[A-Za-z0-9][A-Za-z0-9._-]*', entry)
+    if match is None:
+        return None
+    return normalized_name(match.group(0))
+
+
+def normalized_name(name: str) -> str:
+    """A distribution name as PEP 503 compares it."""
+    return re.sub(r'[-_.]+', '-', name).lower()
+
+
 def _find_links_target(line: str) -> str | None:
     """Where a --find-links option points, or None if line sets another option."""
     for name in ('--find-links', '-f'):

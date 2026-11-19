@@ -941,6 +941,10 @@ pxt schema update app.py pxt://acme:main    # create the tables declared by the 
 pxt service update app.py pxt://acme:main   # start the services there
 ```
 
+A database that never had a `pxt db update` runs the default image, and there `schema update` and `service update`
+upload the project files themselves, so the first command is needed only for packages, settings or sizes of the project's
+own ([Before the first `pxt db update`](/cloud#before-the-first-pxt-db-update)).
+
 `diff`, `update`, `prune`, `stop`, `restart` and `list` all accept a hosted target. `run` does not: it serves from the
 calling process, so it is local by definition. Two verbs differ in meaning against a hosted database, where
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while

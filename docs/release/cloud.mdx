@@ -158,6 +158,17 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 
 `[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image includes, the CPU, memory, disk, and worker counts, and each service's resources. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
 
+### Before the first `pxt db update`
+
+A database that `pxt org create`, `pxt new` or the dashboard created runs the default image until its first `pxt db update`. The default image has Pixeltable, the SDKs of the model providers Pixeltable integrates (OpenAI, Anthropic, Gemini, Mistral, Groq, Together, Fireworks, Replicate, Voyage, fal and Ollama), CPU-only PyTorch with `transformers` and `sentence-transformers`, and `ffmpeg`. On such a database, `pxt schema update` and `pxt service update` upload the project files themselves:
+
+```bash
+pxt schema update app.py pxt://org:main
+pxt service update app.py pxt://org:main
+```
+
+They send the files alone: the database keeps its size and gets none of the settings in `pixeltable.toml`, and each upload restarts it. When `requirements.txt` or `pyproject.toml` names a package the default image lacks, or the entry sets `system_dependencies`, `python_version` or `uv_options` it does not match, both commands stop and name `pxt db update`, which builds an image from the project. From then on, the table below applies.
+
 ## What to run after a change
 
 | You changed | Run |

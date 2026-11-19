@@ -89,6 +89,37 @@ class SchemaChangeOp(ChangeOp):
         )
 
     @classmethod
+    def upload_project(cls, changes: list[str], runtime: str | None) -> SchemaChangeOp:
+        """The database runs the default image, which gets the project's udf sources from this command.
+
+        runtime: what the default image runs, printable; None if the control plane does not say.
+        """
+        image = 'the default image' if runtime is None else f'the default image ({runtime})'
+        return cls(
+            target='project',
+            name='upload',
+            op='alter',
+            severity='additive',
+            description=f'the project files will be uploaded to run on {image} ({_summary(changes)}), which '
+            'restarts the database',
+            details=SchemaChangeOpDetails(),
+            requires_restart=True,
+        )
+
+    @classmethod
+    def needs_project_image(cls, missing: list[str], command: str) -> SchemaChangeOp:
+        """The database runs the default image, which lacks what the project declares."""
+        return cls(
+            target='project',
+            name='project',
+            op='alter',
+            severity='blocked',
+            description=f'the default image the database runs lacks what the project declares ({_summary(missing)}); '
+            f'run {command} to build an image from the project',
+            details=SchemaChangeOpDetails(command=command),
+        )
+
+    @classmethod
     def drop_table(cls, pxt_path: PxtPath, status: OpStatus) -> SchemaChangeOp:
         """The operation for dropping the table at the given path, in the given status."""
         return cls(
@@ -209,15 +240,49 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
-    def needs_db_update(cls, command: str) -> ServiceChangeOp:
-        """The target runs the base image, so it holds neither this project's dependencies nor its files."""
+    def needs_db_update(cls, command: str, missing: list[str] | None = None) -> ServiceChangeOp:
+        """The target runs the base image, so it holds neither this project's dependencies nor its files.
+
+        missing: what the project declares that the default image lacks; None when the control plane does not run
+        projects on the default image.
+        """
+        if missing is None:
+            return cls(
+                target='project',
+                name='project',
+                op='alter',
+                severity='blocked',
+                description=f'run {command} to build the project image and upload its files',
+                details={'command': command},
+            )
         return cls(
             target='project',
             name='project',
             op='alter',
             severity='blocked',
-            description=f'run {command} to build the project image and upload its files',
-            details={'command': command},
+            description=f'the default image the database runs lacks what the project declares ({_summary(missing)}); '
+            f'run {command} to build an image from the project',
+            details={'missing': '; '.join(missing), 'command': command},
+        )
+
+    @classmethod
+    def upload_project(cls, changes: list[str] | None, runtime: str | None) -> ServiceChangeOp:
+        """The database runs the default image, which gets the project's files from this command.
+
+        changes: ProjectFingerprint.changes() of the files; None when the database holds no project files yet.
+        runtime: what the default image runs, printable; None if the control plane does not say.
+        """
+        image = 'the default image' if runtime is None else f'the default image ({runtime})'
+        what = '' if changes is None else f' ({_summary(changes)})'
+        return cls(
+            target='project',
+            name='upload',
+            op='alter',
+            severity='additive',
+            description=f'the project files will be uploaded to run on {image}{what}, which restarts the database '
+            'and the service',
+            details={} if changes is None else {'changes': '; '.join(changes)},
+            requires_restart=True,
         )
 
     @classmethod
@@ -526,12 +591,13 @@ class SchemaPlan(pydantic.BaseModel):
     status: OpStatus | None = None
 
     @pydantic.computed_field(  # type: ignore[prop-decorator]
-        description='true when no table needs a create or an update, and no operation is blocked; extras do not count'
+        description='true when no table needs a create or an update, and no operation is blocked or changes the '
+        "database's project; extras do not count"
     )
     @property
     def in_agreement(self) -> bool:
-        """True if no table needs a create or an update; extras don't count."""
-        if any(op.severity == 'blocked' for op in self.ops):
+        """True if no table needs a create or an update, and the project needs no change; extras don't count."""
+        if any(op.severity == 'blocked' or op.target == 'project' for op in self.ops):
             return False
         return all(t.resolution == 'up_to_date' for t in self.tables)
 

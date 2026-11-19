@@ -88,8 +88,9 @@ ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Doc
 _HOSTED = """
 Hosted databases:
   TARGET may be a pxt:// uri, and the services then run in that database rather than on this machine.
-  'pxt db update' puts this project's code there first, and 'pxt schema update' creates the
-  tables; 'run' is local only, since it serves from the calling process.
+  'pxt schema update' creates the tables there first. Until its first 'pxt db update', the database runs
+  the default image, and update uploads this project's code itself; after that, 'pxt db update' puts it
+  there. 'run' is local only, since it serves from the calling process.
 """
 
 _OWN_APP = """

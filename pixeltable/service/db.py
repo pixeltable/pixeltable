@@ -1,24 +1,27 @@
 from __future__ import annotations
 
 import base64
+import contextlib
+import dataclasses
 import hashlib
 import logging
 import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Iterator, Literal, Sequence
 
 from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service import management_client, receipts
-from pixeltable.service.db_md import DatabaseResources
+from pixeltable.service.db_md import DatabaseResources, ImageKind
 from pixeltable.service.management_protocol import (
     BlobRef,
     BlobUpload,
     DatabaseReport,
     DatabaseTarget,
     DbReceiptResponse,
+    DefaultImage,
     DeleteDbRequest,
     GetDbRequest,
     GetDbResponse,
@@ -26,6 +29,7 @@ from pixeltable.service.management_protocol import (
     PrepareUpdateResponse,
     ReportServiceInstanceRequest,
     RestartDbRequest,
+    ServiceMutation,
     StartDbRequest,
     StopDbRequest,
     SubmitUpdateRequest,
@@ -35,9 +39,12 @@ from pixeltable.utils.project import (
     ProjectFingerprint,
     ProjectPart,
     check_hosted_pixeltable,
+    declared_requirements,
     image_input_files,
+    normalized_name,
     package_project_archive,
     project_fingerprint,
+    requirement_name,
 )
 from pixeltable_cli.types import DbChangeOp, DbPlan, GenerationReceipt, OpStatus
 from pixeltable_cli.utils import hosted_db_uri_error
@@ -65,19 +72,94 @@ def db_diff(db_uri: str) -> DbPlan:
     return _plan(db_path, _db_target(_get_db_config(db_path)))[0]
 
 
-def db_fingerprint(db_path: catalog.Path, *, desired: bool = False) -> ProjectFingerprint | None:
-    """Return the fingerprint of the project deployed to a hosted database; None for a local one.
+@dataclasses.dataclass(frozen=True)
+class Deployment:
+    """What a hosted database runs, as its report says."""
 
-    desired: return the project of the current desired generation, which may still be in progress.
+    # the deployed project; None while the database holds no project files
+    fingerprint: ProjectFingerprint | None
+
+    # None from a control plane that does not say, which runs a project only on an image built by `pxt db update`
+    image: ImageKind | None
+
+    default_image: DefaultImage | None
+
+    @property
+    def runtime(self) -> str | None:
+        """What the default image runs, printable; None if the control plane does not say."""
+        if self.default_image is None:
+            return None
+        return f'pixeltable {self.default_image.pixeltable_version}, Python {self.default_image.python_version}'
+
+
+def db_deployment(db_path: catalog.Path, *, desired: bool = False) -> Deployment | None:
+    """Return what a hosted database runs; None for a local one, or one that does not exist.
+
+    desired: return what the current desired generation runs, which may still be in progress.
     """
     if db_path.org is None or db_path.org == 'local' or db_path.db is None:
         return None
     report = _get_db_report(db_path)
     if report is None:
         return None
-    if desired and report.target_resources is not None and report.target_resources.fingerprint is not None:
-        return report.target_resources.fingerprint
-    return None if report.current is None else report.current.resources.fingerprint
+    current = None if report.current is None else report.current.resources
+    target = report.target_resources if desired else None
+    fingerprint = None if current is None else current.fingerprint
+    if target is not None and target.fingerprint is not None:
+        fingerprint = target.fingerprint
+    image = (target or current or DatabaseResources()).image
+    return Deployment(fingerprint=fingerprint, image=image, default_image=report.default_image)
+
+
+def default_image_mismatches(project_root: Path, config: DatabaseConfig | None, image: DefaultImage) -> list[str]:
+    """What the project declares that the default image does not provide, one printable line each.
+
+    Packages are compared by name: the image's versions apply, whatever version a requirement asks for.
+    """
+    mismatches: list[str] = []
+    for file_name, entry in declared_requirements(project_root):
+        name = requirement_name(entry)
+        if name == 'pixeltable':
+            # the image runs its own pixeltable, which the plan names
+            continue
+        if name is None:
+            mismatches.append(f'{entry!r} in {file_name}')
+        elif name not in image.packages:
+            mismatches.append(f'{name} ({file_name})')
+    if config is not None:
+        system_packages = {normalized_name(p) for p in image.system_packages}
+        for spec in config.system_dependencies or []:
+            name = requirement_name(spec)
+            if name is None or name not in system_packages:
+                mismatches.append(f'system dependency {spec!r}')
+        if config.python_version is not None and config.python_version != image.python_version:
+            mismatches.append(f'python_version {config.python_version} (the image runs {image.python_version})')
+        if config.uv_options:
+            mismatches.append('uv_options')
+    return mismatches
+
+
+def default_image_target(config: DatabaseConfig | None) -> DatabaseTarget:
+    """The target that puts this project's files on a database that runs the default image.
+
+    It names no size and carries no settings: only `pxt db update` sends those.
+    """
+    return DatabaseTarget(
+        fingerprint=project_fingerprint(_validated_project_root(), config, project_config={}), image='default'
+    )
+
+
+def upload_project(db_uri: str, *, wait: bool = True) -> list[GenerationReceipt]:
+    """Put this project's files on the database at db_uri, which runs the default image, keeping its size and settings.
+
+    Returns the receipts of the database generation that runs them.
+    """
+    db_path = _validated_db_uri(db_uri)
+    config = Config.get().get_database_config(db_path)
+    target = default_image_target(config)
+    prepared = _prepare(db_path, target, blob=None)
+    accepted, _ = _submit(db_path, config, target, expected_generation=prepared.generations.database or 0)
+    return _settle(db_path, accepted, wait=wait)
 
 
 def create_db_update_ops(target: DatabaseResources, current: DatabaseResources | None) -> list[DbChangeOp]:
@@ -85,8 +167,16 @@ def create_db_update_ops(target: DatabaseResources, current: DatabaseResources |
     ops: list[DbChangeOp] = []
 
     if target.fingerprint is not None:
-        if current is None or current.fingerprint is None:
-            # nothing to diff against: the database is new, or still on the base image
+        if target.image == 'default':
+            # the project's files alone, which the default image runs
+            if current is None or current.fingerprint is None:
+                ops.append(DbChangeOp.upload_archive())
+            elif ProjectPart.ARCHIVE in target.fingerprint.compare(current.fingerprint):
+                changes = target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE})
+                ops.append(DbChangeOp.upload_archive(changes))
+        elif current is None or current.fingerprint is None or current.image == 'default':
+            # nothing to diff against: the database is new, or still on the base or default image, which holds no
+            # image built from the project
             # TODO: record the base image's fingerprint at provisioning and remove this branch
             ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
         else:
@@ -244,24 +334,36 @@ def _plan(db_path: catalog.Path, target: DatabaseTarget) -> tuple[DbPlan, Prepar
     return plan, prepared
 
 
-def _prepare(db_path: catalog.Path, target: DatabaseTarget, *, blob: BlobRef | None) -> PrepareUpdateResponse:
-    request = PrepareUpdateRequest(org=db_path.org, db=_db_name(db_path), database_target=target, blob=blob)
+def _prepare(
+    db_path: catalog.Path,
+    target: DatabaseTarget,
+    *,
+    blob: BlobRef | None,
+    service_mutations: Sequence[ServiceMutation] = (),
+) -> PrepareUpdateResponse:
+    request = PrepareUpdateRequest(
+        org=db_path.org,
+        db=_db_name(db_path),
+        database_target=target,
+        service_mutations=list(service_mutations),
+        blob=blob,
+    )
     return PrepareUpdateResponse.model_validate(management_client.api_call(request))
 
 
-def _submit(
-    db_path: catalog.Path, config: DatabaseConfig, target: DatabaseTarget, *, expected_generation: int
-) -> tuple[list[GenerationReceipt], bool]:
-    """Package the project, upload it unless the control plane holds it, and submit target against
-    expected_generation, read before the project was packaged.
+@contextlib.contextmanager
+def packaged_project(config: DatabaseConfig | None, target: DatabaseTarget) -> Iterator[tuple[Path, BlobRef]]:
+    """Package the project whose files target's fingerprint describes, and remove the archive afterwards.
 
-    Returns the resulting receipts, and whether the archive was uploaded.
+    Yields the archive's path and its blob reference. Raises if the project changed since it was fingerprinted.
     """
     if target.fingerprint is None:
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'a project was submitted without a fingerprint')
     project_root = _validated_project_root()
-    image_input_files(project_root)
-    check_hosted_pixeltable(project_root)
+    if target.image != 'default':
+        # the default image installs nothing from the project
+        image_input_files(project_root)
+        check_hosted_pixeltable(project_root)
     archive = package_project_archive(project_root, config, show_progress=True)
     try:
         changed = {
@@ -275,10 +377,33 @@ def _submit(
                 f'the project changed while it was being packaged ({"; ".join(sorted(changed))}); '
                 'run the command again',
             )
-        blob = _blob_ref(archive.path)
+        yield archive.path, _blob_ref(archive.path)
+    finally:
+        archive.path.unlink(missing_ok=True)
+
+
+def upload_archive(prepared: PrepareUpdateResponse, path: Path, blob: BlobRef) -> bool:
+    """Upload the archive at path where prepared says, unless the control plane holds it already.
+
+    Returns whether it was uploaded.
+    """
+    if prepared.upload is None:
+        return False
+    _put_blob(prepared.upload, path, blob)
+    return True
+
+
+def _submit(
+    db_path: catalog.Path, config: DatabaseConfig | None, target: DatabaseTarget, *, expected_generation: int
+) -> tuple[list[GenerationReceipt], bool]:
+    """Package the project, upload it unless the control plane holds it, and submit target against
+    expected_generation, read before the project was packaged.
+
+    Returns the resulting receipts, and whether the archive was uploaded.
+    """
+    with packaged_project(config, target) as (path, blob):
         prepared = _prepare(db_path, target, blob=blob)
-        if prepared.upload is not None:
-            _put_blob(prepared.upload, archive.path, blob)
+        uploaded = upload_archive(prepared, path, blob)
         request = SubmitUpdateRequest(
             org=db_path.org,
             db=_db_name(db_path),
@@ -292,9 +417,7 @@ def _submit(
                 excs.ErrorCode.INTERNAL_ERROR,
                 f'{db_path.uri_str} accepted a database update as {len(accepted)} receipts rather than one',
             )
-        return accepted, prepared.upload is not None
-    finally:
-        archive.path.unlink(missing_ok=True)
+        return accepted, uploaded
 
 
 def _blob_ref(path: Path) -> BlobRef:

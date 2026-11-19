@@ -73,6 +73,19 @@ def _validate_hosted_name(value: str, kind: str) -> str:
     return value
 
 
+class DefaultImage(BaseModel):
+    """What the shared default image holds, which a database runs until its first `pxt db update`."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    pixeltable_version: str
+    python_version: str = Field(description="the image's Python, as major.minor")
+    packages: dict[str, str] = Field(
+        default_factory=dict, description='the Python distributions it installs, by normalized name, with versions'
+    )
+    system_packages: list[str] = Field(default_factory=list, description='the system packages it installs')
+
+
 class DatabaseReport(BaseModel):
     """A hosted db's requested resources and the ones it provides."""
 
@@ -92,6 +105,10 @@ class DatabaseReport(BaseModel):
 
     receipt: GenerationReceipt | None = Field(
         default=None, description="the receipt of the database's current desired generation"
+    )
+
+    default_image: DefaultImage | None = Field(
+        default=None, description='what the default image holds; null from a control plane that does not say'
     )
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
-from pixeltable.service.db import db_fingerprint
+from pixeltable.service.db import db_deployment, default_image_mismatches, upload_project
 from pixeltable.utils.app_module import (
     check_report,
     check_udf_references,
@@ -27,7 +27,7 @@ def schema_diff(app_file: str, catalog_dir: PxtPath) -> SchemaPlan:
     """Return the plan that reconciles the tree under catalog_dir with app_file."""
     bases = _model_bases(app_file)
     _validate_udfs(app_file, bases)
-    return _schema_plan(_model_diffs(bases, catalog_dir), app_file, catalog_dir, _blocked_ops(catalog_dir, bases))
+    return _schema_plan(_model_diffs(bases, catalog_dir), app_file, catalog_dir, _project_ops(catalog_dir, bases))
 
 
 def schema_update(app_file: str, catalog_dir: PxtPath, *, allow_destructive: bool = False) -> SchemaPlan:
@@ -35,14 +35,19 @@ def schema_update(app_file: str, catalog_dir: PxtPath, *, allow_destructive: boo
     model_bases = _model_bases(app_file)
     _validate_udfs(app_file, model_bases)
 
-    blocked = _blocked_ops(catalog_dir, model_bases)
-    if len(blocked) > 0:
-        plan = _schema_plan(_model_diffs(model_bases, catalog_dir), app_file, catalog_dir, blocked)
+    project_ops = _project_ops(catalog_dir, model_bases)
+    if any(op.severity == 'blocked' for op in project_ops):
+        plan = _schema_plan(_model_diffs(model_bases, catalog_dir), app_file, catalog_dir, project_ops)
         for tbl in plan.tables:
             tbl.status = 'refused'
             for op in tbl.ops:
                 op.status = 'refused'
         return plan
+    if len(project_ops) > 0:
+        # the database runs the default image, and needs the udf sources before a column can call them
+        upload_project(catalog.Path.parse(catalog_dir, allow_empty_path=True).uri_str)
+        for op in project_ops:
+            op.status = 'applied'
 
     # only create catalog_dir when it names an in-catalog path; a bare catalog root (eg '' or 'pxt://org:db')
     # has no directory to create
@@ -68,7 +73,7 @@ def schema_update(app_file: str, catalog_dir: PxtPath, *, allow_destructive: boo
             raise
         applied.extend(diffs.values())
 
-    plan = _schema_plan(applied, app_file, catalog_dir, [])
+    plan = _schema_plan(applied, app_file, catalog_dir, project_ops)
     for tbl in plan.tables:
         tbl.status = 'skipped' if tbl.resolution == 'up_to_date' else 'applied'
         for op in tbl.ops:
@@ -142,25 +147,38 @@ def _model_diffs(bases: list[TableModelMeta], catalog_dir: PxtPath) -> list[Tabl
     return [diff for base in bases for diff in base.get_model_diff(catalog_dir).values()]
 
 
-def _blocked_ops(catalog_dir: PxtPath, bases: list[TableModelMeta]) -> list[SchemaChangeOp]:
-    """Return a blocked operation if a hosted target's project lacks a udf source file or holds an older copy."""
+def _project_ops(catalog_dir: PxtPath, bases: list[TableModelMeta]) -> list[SchemaChangeOp]:
+    """Return the operation that brings a hosted target's project up to date, if it lacks a udf source file or holds
+    an older copy: an upload, for a target that runs the default image, or else a blocked operation."""
     db_path = catalog.Path.parse(catalog_dir, allow_empty_path=True)
-    deployed = db_fingerprint(db_path)
-    if deployed is None:
-        # the target reads the udfs from the files on disk
+    deployment = db_deployment(db_path)
+    on_default = deployment is not None and deployment.image == 'default'
+    if deployment is None or (deployment.fingerprint is None and not on_default):
+        # the target reads the udfs from the files on disk, or runs the base image of a control plane that does not
+        # run projects on it
         return []
+    deployed = deployment.fingerprint.files if deployment.fingerprint is not None else {}
     project_root = Config.get().project_root
     assert project_root is not None
-    local = project_fingerprint(project_root, Config.get().get_database_config(db_path))
+    config = Config.get().get_database_config(db_path)
+    local = project_fingerprint(project_root, config)
     stale: list[str] = []
     for path in sorted(udf_source_files(bases)):
         # compare the file hashes
-        if path not in local.files or local.files[path] == deployed.files.get(path):
+        if path not in local.files or local.files[path] == deployed.get(path):
             continue
-        stale.append(f'{path} changed' if path in deployed.files else f'{path} added')
+        stale.append(f'{path} changed' if path in deployed else f'{path} added')
     if len(stale) == 0:
         return []
-    return [SchemaChangeOp.needs_db_update(stale, f'pxt db update {db_path.uri_str}')]
+    command = f'pxt db update {db_path.uri_str}'
+    if not on_default:
+        return [SchemaChangeOp.needs_db_update(stale, command)]
+    assert deployment is not None
+    if deployment.default_image is not None:
+        mismatches = default_image_mismatches(project_root, config, deployment.default_image)
+        if len(mismatches) > 0:
+            return [SchemaChangeOp.needs_project_image(mismatches, command)]
+    return [SchemaChangeOp.upload_project(stale, deployment.runtime)]
 
 
 def _schema_plan(diffs: list[TableDiff], app_file: str, catalog_dir: PxtPath, ops: list[SchemaChangeOp]) -> SchemaPlan:
