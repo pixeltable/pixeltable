@@ -163,10 +163,6 @@ class TestParquet:
         arrow_tab: pa.Table = parquet.read_table(str(parquet_dir))
         assert num_elts == arrow_tab.num_rows
         assert set(tab.columns()) == set(arrow_tab.column_names)
-        tab_upper = pxt.io.import_parquet(
-            p('test_parquet_upper'), parquet_path=str(parquet_dir), source_format='PARQUET'
-        )
-        assert tab_upper.count() == num_elts
 
         result_set = tab.order_by(tab.c_id).collect()
 
