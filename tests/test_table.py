@@ -2951,7 +2951,7 @@ class TestTable:
         assert t.where(t.c2 == 1).collect()[0]['c1'] == 'eins'
         assert t.where(t.c2 == 200).count() == 0
 
-        # unknown primary key: insert, which requires values for all non-nullable columns
+        # unknown primary key: insert
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c3, c4, c5, c6, c7\)'):
             t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert')
         assert t.count() == num_rows
