@@ -19,15 +19,27 @@ import requests
 import pixeltable
 from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
-from pixeltable.config import Config
+from pixeltable.catalog.model import schema as schema_module
+from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service import management_client, receipts
-from pixeltable.service.db import db_build_image, db_change_lifecycle, db_diff, db_retry, db_update
-from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
+from pixeltable.service.db import (
+    Deployment,
+    create_db_update_ops,
+    db_build_image,
+    db_change_lifecycle,
+    db_diff,
+    db_retry,
+    db_update,
+    default_image_mismatches,
+    upload_project,
+)
+from pixeltable.service.db_md import DatabaseResources, DatabaseStatus, ImageKind
 from pixeltable.service.management_protocol import (
     BlobUpload,
     DatabaseReport,
     DatabaseTarget,
     DbReceiptResponse,
+    DefaultImage,
     DeleteDbRequest,
     ExpectedGenerations,
     GetDbRequest,
@@ -42,7 +54,17 @@ from pixeltable.service.management_protocol import (
     SubmitUpdateRequest,
     SubmitUpdateResponse,
 )
-from pixeltable_cli.types import DbPlan, DbState, GenerationReceipt, ReceiptError, ReceiptOutcome, ResourcePhase
+from pixeltable.utils.project import ProjectFingerprint
+from pixeltable_cli.types import (
+    DbPlan,
+    DbState,
+    GenerationReceipt,
+    ReceiptError,
+    ReceiptOutcome,
+    ResourcePhase,
+    SchemaPlan,
+)
+from pixeltable_cli.utils import PxtPath as CliPath
 
 from ..utils import pxt_raises
 
@@ -339,6 +361,143 @@ class TestDbSubmission:
 
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match='replaced by a newer update'):
             db_update(_DB_URI)
+
+
+class TestDefaultImage:
+    """A database that never had `pxt db update` runs the default image, which gets the project's files alone."""
+
+    _IMAGE = DefaultImage(
+        pixeltable_version='0.7.24',
+        python_version='3.12',
+        packages={'openai': '3.54.0', 'sentence-transformers': '6.3.0', 'boto3': '1.40.0'},
+        system_packages=['ffmpeg'],
+    )
+
+    def test_upload(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The files go up with no size and no settings, which only `pxt db update` sends."""
+        # a development build that `pxt db update` refuses for an unpinned project: the default image installs nothing
+        monkeypatch.setattr(pixeltable, '__version__', '0.7.24.dev3+abc1234')
+        (project / 'pixeltable.toml').write_text(
+            f'[openai]\nbase_url = "https://example.com"\n\n[[pixeltable.database]]\nname = "{_DB_URI}"\ncpu = 8\n',
+            encoding='utf-8',
+        )
+        Config.init(reinit=True, project_root=project)
+        control_plane = _ControlPlane(generation=7, settled=_receipt(outcome=ReceiptOutcome.OBSERVED))
+        _serve(monkeypatch, control_plane)
+
+        settled = upload_project(_DB_URI)
+        assert [r.observed for r in settled] == [True]
+        (submitted,) = control_plane.submissions
+        target = submitted.database_target
+        assert target is not None and target.image == 'default'
+        assert target.capacity() == DatabaseResources().capacity(), 'the database keeps its size'
+        assert target.fingerprint is not None and target.fingerprint.config == {}, 'no settings'
+        assert set(target.fingerprint.files) >= {'app.py', 'requirements.txt'}
+        assert submitted.expected_generations.database == 7
+        assert submitted.blob is not None and submitted.blob.sha256 in control_plane.stored
+
+    def test_plan(self) -> None:
+        """Files alone are planned: no image build, no settings, no size."""
+        fingerprint = ProjectFingerprint(
+            files={'app.py': 'a'}, python_version='3.12', system_dependencies=[], pixeltable_version='0.7.24'
+        )
+        target = DatabaseResources(fingerprint=fingerprint, image='default')
+        assert [op.target for op in create_db_update_ops(target, None)] == ['archive']
+        on_default = DatabaseResources(fingerprint=None, image='default', cpu=2.0)
+        assert [op.target for op in create_db_update_ops(target, on_default)] == ['archive']
+        current = DatabaseResources(fingerprint=fingerprint, image='default', cpu=2.0)
+        assert create_db_update_ops(target, current) == [], 'the same files'
+        other = fingerprint.model_copy(update={'python_version': '3.13', 'config': {'openai': {'base_url': 'x'}}})
+        assert create_db_update_ops(target.model_copy(update={'fingerprint': other}), current) == [], (
+            'only the files count'
+        )
+        changed = fingerprint.model_copy(update={'files': {'app.py': 'b'}})
+        [op] = create_db_update_ops(target.model_copy(update={'fingerprint': changed}), current)
+        assert (op.target, op.details) == ('archive', {'changes': 'app.py changed'})
+
+        # `pxt db update` on the default image builds the project's image, whatever the files
+        project_target = DatabaseResources(fingerprint=fingerprint)
+        assert [op.target for op in create_db_update_ops(project_target, current)] == ['image', 'archive']
+
+    def test_mismatches(self, project: Path) -> None:
+        """What the project declares is checked by name against what the image installs."""
+        (project / 'requirements.txt').write_text(
+            '# providers\nOpenAI>=2  # any version\nsentence_transformers\npixeltable[serve]==0.7.15\n'
+            'torch\n--extra-index-url https://example.com/simple\nlocal-lib @ file:///tmp/local-lib\n',
+            encoding='utf-8',
+        )
+        (project / 'pyproject.toml').write_text(
+            '[project]\nname = "app"\ndependencies = ["boto3", "spacy>=3"]\n', encoding='utf-8'
+        )
+        config = DatabaseConfig(
+            name=_DB_URI, system_dependencies=['ffmpeg>=6', 'poppler'], python_version='3.11', uv_options='--x'
+        )
+        assert default_image_mismatches(project, config, self._IMAGE) == [
+            'torch (requirements.txt)',
+            "'--extra-index-url https://example.com/simple' in requirements.txt",
+            "'local-lib @ file:///tmp/local-lib' in requirements.txt",
+            'spacy (pyproject.toml)',
+            "system dependency 'poppler'",
+            'python_version 3.11 (the image runs 3.12)',
+            'uv_options',
+        ]
+        (project / 'requirements.txt').write_text('openai\n', encoding='utf-8')
+        (project / 'pyproject.toml').unlink()
+        assert default_image_mismatches(project, None, self._IMAGE) == []
+
+    @pytest.mark.parametrize(
+        ('image', 'database_files', 'expected'),
+        [
+            ('default', None, ('upload', 'additive', 'udfs.py added')),
+            ('default', {'udfs.py': 'old'}, ('upload', 'additive', 'udfs.py changed')),
+            ('default', 'local', None),
+            ('project', {'udfs.py': 'old'}, ('project', 'blocked', 'udfs.py changed')),
+            (None, None, None),
+        ],
+        ids=['default-new', 'default-older', 'default-current', 'project-older', 'base-of-an-older-control-plane'],
+    )
+    def test_schema_ops(
+        self,
+        project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        image: ImageKind | None,
+        database_files: dict[str, str] | str | None,
+        expected: tuple[str, str, str] | None,
+    ) -> None:
+        """`pxt schema update` uploads the udf sources a database on the default image lacks, and is blocked by them
+        on an image built from the project."""
+        (project / 'udfs.py').write_text('def f(): ...\n', encoding='utf-8')
+        (project / 'requirements.txt').write_text('openai\n', encoding='utf-8')
+        local = schema_module.project_fingerprint(project, None)
+        files = local.files if database_files == 'local' else database_files
+        fingerprint = None if files is None else local.model_copy(update={'files': files})
+        deployment = Deployment(fingerprint=fingerprint, image=image, default_image=self._IMAGE)
+        monkeypatch.setattr(schema_module, 'db_deployment', lambda db_path: deployment)
+        monkeypatch.setattr(schema_module, 'udf_source_files', lambda bases: {'udfs.py'})
+
+        ops = schema_module._project_ops(CliPath(_DB_URI), [])
+        if expected is None:
+            assert ops == []
+            return
+        [op] = ops
+        name, severity, change = expected
+        assert (op.name, op.severity) == (name, severity)
+        assert change in op.description
+        if severity == 'additive':
+            assert 'pixeltable 0.7.24, Python 3.12' in op.description
+        plan = SchemaPlan(app_file='app.py', catalog_dir=CliPath(_DB_URI), ops=ops)
+        assert not plan.in_agreement, 'a pending upload is a change'
+
+    def test_schema_ops_lacking_a_package(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (project / 'udfs.py').write_text('import torch\n', encoding='utf-8')
+        (project / 'requirements.txt').write_text('torch\n', encoding='utf-8')
+        deployment = Deployment(fingerprint=None, image='default', default_image=self._IMAGE)
+        monkeypatch.setattr(schema_module, 'db_deployment', lambda db_path: deployment)
+        monkeypatch.setattr(schema_module, 'udf_source_files', lambda bases: {'udfs.py'})
+        [op] = schema_module._project_ops(CliPath(_DB_URI), [])
+        assert op.severity == 'blocked'
+        assert 'torch (requirements.txt)' in op.description
+        assert op.details.command == f'pxt db update {_DB_URI}'
 
 
 class TestResend:

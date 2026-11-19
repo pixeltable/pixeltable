@@ -7,15 +7,19 @@ plane applies on its own; this module waits on the generation's receipt until it
 
 from __future__ import annotations
 
+import contextlib
 import time
-from typing import Sequence
+from pathlib import Path
+from typing import Iterator, Sequence
 
 import httpx
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
-from pixeltable.service import management_client, receipts
+from pixeltable.service import db, management_client, receipts
 from pixeltable.service.management_protocol import (
+    BlobRef,
+    DatabaseTarget,
     DeleteServiceInstanceRequest,
     DeleteServiceInstanceResponse,
     ExpectedGenerations,
@@ -28,6 +32,7 @@ from pixeltable.service.management_protocol import (
     LogRecord,
     PrepareUpdateRequest,
     PrepareUpdateResponse,
+    ReleasePin,
     RestartServiceInstanceRequest,
     RestartServiceInstanceResponse,
     ServiceGeneration,
@@ -94,6 +99,7 @@ class ServiceManagerProxy(ServiceManagerBase):
         otel: bool = False,
         port: int | None = None,
         keep_release: bool = False,
+        upload_project: bool = False,
         wait: bool = True,
     ) -> dict[str, ServiceInstance]:
         """Submit the named services in app_file as the desired specs of their instances at base_path, in one
@@ -103,6 +109,9 @@ class ServiceManagerProxy(ServiceManagerBase):
         unless keep_release is set, which keeps its current release. An available instance is not stopped: the
         control plane replaces its pods in place, and keeps the old ones serving until the new ones are ready.
 
+        upload_project: the database runs the default image; the same submission puts this project's files on it, and
+        every named instance runs the release that makes.
+
         The file sets the routes, the module and tracing, and the project config the resources it declares. The other
         resources and the description are kept from each instance's desired spec, as read with the generation the
         submission is made against.
@@ -110,9 +119,13 @@ class ServiceManagerProxy(ServiceManagerBase):
         expected_generations: by service name, the generation of the instance the caller's plan was computed against,
             0 for an absent one; a submission against an older one is refused. None submits against the generation
             read here.
-        wait: wait until every generation finishes, and raise for the first that fails or is superseded.
-            Otherwise each returned instance carries its generation's receipt.
+        wait: wait until every generation finishes, the database's included, and raise for the first that fails or
+            is superseded. Otherwise each returned instance carries its generation's receipt.
         """
+        if keep_release and upload_project:
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR, 'a service that keeps its release does not run new project files'
+            )
         if port is not None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -139,6 +152,14 @@ class ServiceManagerProxy(ServiceManagerBase):
         declared = {name: self._declared_resources(name, base_path) for name in expected_generations}
         routers = module_routers(module)
         app_module = module_name(app_file, subject='application file')
+
+        def pin(name: str) -> ReleasePin | None:
+            if upload_project:
+                return 'submission'
+            if not exists[name]:
+                return None
+            return 'keep' if keep_release else 'latest'
+
         mutations = {
             name: ServiceMutation(
                 service_name=name,
@@ -147,53 +168,74 @@ class ServiceManagerProxy(ServiceManagerBase):
                 app_module=app_module,
                 otel=otel,
                 resources=declared[name],
-                pin=('keep' if keep_release else 'latest') if exists[name] else None,
+                pin=pin(name),
             )
             for name in expected_generations
         }
-        prepared = PrepareUpdateResponse.model_validate(
-            management_client.api_call(
-                PrepareUpdateRequest(org=self._org, db=self._db, service_mutations=list(mutations.values()))
-            )
-        )
-        expected: list[ServiceGeneration] = []
-        for name, mutation in mutations.items():
-            generation = prepared.generations.service(name, base_path)
-            if (generation > 0) != exists[name]:
-                raise excs.ConcurrencyError(
-                    excs.ErrorCode.CONCURRENT_MODIFICATION,
-                    f'Service {name!r} was {"created" if generation > 0 else "deleted"} in '
-                    f'{self.catalog_uri.uri_str} since this command read it; run the command again',
-                )
-            desired = next((m for m in prepared.services if (m.service_name, m.base_path) == (name, base_path)), None)
-            if generation > 0 and desired is None:
-                raise excs.InternalError(
-                    excs.ErrorCode.INTERNAL_ERROR,
-                    f'Pixeltable Cloud reported service {name!r} at generation {generation} without its desired spec',
-                )
-            if desired is not None:
-                resources = ServiceResources(
-                    **(desired.resources.model_dump(exclude_none=True) | declared[name].model_dump(exclude_none=True))
-                )
-                mutations[name] = mutation.model_copy(
-                    update={'resources': resources, 'description': desired.description}
-                )
-            given = expected_generations[name]
-            expected.append(
-                ServiceGeneration(
-                    service_name=name, base_path=base_path, generation=generation if given is None else given
+        with self._packaged_project(upload_project) as project:
+            target, path, blob = (None, None, None) if project is None else project
+            prepared = PrepareUpdateResponse.model_validate(
+                management_client.api_call(
+                    PrepareUpdateRequest(
+                        org=self._org,
+                        db=self._db,
+                        database_target=target,
+                        service_mutations=list(mutations.values()),
+                        blob=blob,
+                    )
                 )
             )
-        request = SubmitUpdateRequest(
-            org=self._org,
-            db=self._db,
-            service_mutations=list(mutations.values()),
-            expected_generations=ExpectedGenerations(services=expected),
-        )
-        accepted = receipts.submit(self.catalog_uri, request)
+            expected: list[ServiceGeneration] = []
+            for name, mutation in mutations.items():
+                generation = prepared.generations.service(name, base_path)
+                if (generation > 0) != exists[name]:
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.CONCURRENT_MODIFICATION,
+                        f'Service {name!r} was {"created" if generation > 0 else "deleted"} in '
+                        f'{self.catalog_uri.uri_str} since this command read it; run the command again',
+                    )
+                desired = next(
+                    (m for m in prepared.services if (m.service_name, m.base_path) == (name, base_path)), None
+                )
+                if generation > 0 and desired is None:
+                    raise excs.InternalError(
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'Pixeltable Cloud reported service {name!r} at generation {generation} without its desired '
+                        'spec',
+                    )
+                if desired is not None:
+                    resources = ServiceResources(
+                        **(
+                            desired.resources.model_dump(exclude_none=True)
+                            | declared[name].model_dump(exclude_none=True)
+                        )
+                    )
+                    mutations[name] = mutation.model_copy(
+                        update={'resources': resources, 'description': desired.description}
+                    )
+                given = expected_generations[name]
+                expected.append(
+                    ServiceGeneration(
+                        service_name=name, base_path=base_path, generation=generation if given is None else given
+                    )
+                )
+            if path is not None and blob is not None:
+                db.upload_archive(prepared, path, blob)
+            request = SubmitUpdateRequest(
+                org=self._org,
+                db=self._db,
+                database_target=target,
+                service_mutations=list(mutations.values()),
+                blob=blob,
+                expected_generations=ExpectedGenerations(
+                    database=None if target is None else prepared.generations.database or 0, services=expected
+                ),
+            )
+            accepted = receipts.submit(self.catalog_uri, request)
         by_name = {name: self._receipt_of(name, base_path, accepted) for name in mutations}
         if wait:
-            settled = self._await(list(by_name.values()))
+            # the database's receipt too: a service on new project files needs the database to run them
+            settled = self._await(accepted)
             return {
                 name: self._after(name, base_path, [self._receipt_of(name, base_path, settled)]) for name in mutations
             }
@@ -206,6 +248,17 @@ class ServiceManagerProxy(ServiceManagerBase):
                 )
             submitted[name].record = submitted[name].record.model_copy(update={'receipt': receipt})
         return {name: submitted[name] for name in mutations}
+
+    @contextlib.contextmanager
+    def _packaged_project(self, upload: bool) -> Iterator[tuple[DatabaseTarget, Path, BlobRef] | None]:
+        """The target that puts this project's files on the database, with the packaged archive; None for no upload."""
+        if not upload:
+            yield None
+            return
+        config = Config.get().get_database_config(self.catalog_uri)
+        target = db.default_image_target(config)
+        with db.packaged_project(config, target) as (path, blob):
+            yield target, path, blob
 
     def _receipt_of(self, name: str, base_path: str, accepted: Sequence[GenerationReceipt]) -> GenerationReceipt:
         """The receipt of the named service's change among a submission's receipts."""

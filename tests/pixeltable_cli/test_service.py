@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import os
 import pathlib
@@ -19,6 +20,7 @@ import pixeltable as pxt
 from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service import management_client, receipts
 from pixeltable.service.management_protocol import (
+    BlobUpload,
     DatabaseReport,
     ExpectedGenerations,
     GetReceiptsRequest,
@@ -1782,12 +1784,14 @@ class TestServiceUpdateRunning:
         keep_release: bool = False,
         database_fingerprint: ProjectFingerprint | None = None,
         declared: ServiceResources | None = None,
+        app_fields: dict[str, Any] | None = None,
         **record_fields: Any,
     ) -> ServiceDiff:
         """The diff of a hosted instance of 'ingest' that serves app_file's definition and project, as recorded.
 
         database_fingerprint: the database's desired project; by default the local one.
         declared: the database entry's resources for 'ingest'.
+        app_fields: _AppInfo fields to override.
         """
         record = ServiceInstanceRecord(
             service_name='ingest',
@@ -1809,6 +1813,7 @@ class TestServiceUpdateRunning:
             target_db_fingerprint=fingerprint if database_fingerprint is None else database_fingerprint,
             local_fingerprint=fingerprint,
         )
+        app_info = dataclasses.replace(app_info, **(app_fields or {}))
         return serving_service._service_diff(
             'ingest',
             app_info.services['ingest'],
@@ -1902,6 +1907,59 @@ class TestServiceUpdateRunning:
             assert diff.resolution == 'update_additive'
             assert diff.generation == 5
 
+    @pytest.mark.parametrize(
+        ('database_files', 'ops', 'resolution'),
+        [
+            (None, [('upload', 'additive', {})], 'update_additive'),
+            ({}, [], 'up_to_date'),
+            ({'app.py': 'old'}, [('upload', 'additive', {'changes': 'app.py removed'})], 'update_additive'),
+        ],
+        ids=['no-files-yet', 'same-files', 'older-files'],
+    )
+    def test_hosted_default_image(
+        self, app_file: str, database_files: dict[str, str] | None, ops: list[tuple], resolution: Resolution
+    ) -> None:
+        """A database on the default image gets the project's files from the update itself, and only the files count:
+        its settings and its image stay until `pxt db update`."""
+        local = ProjectFingerprint(files={}, python_version='3.11', system_dependencies=[], pixeltable_version='test')
+        database = (
+            None
+            if database_files is None
+            # what an upload sends: no settings, and the environment of whichever machine uploaded it
+            else local.model_copy(update={'files': database_files, 'python_version': '3.13', 'config': {}})
+        )
+        diff = self._hosted_diff(
+            app_file,
+            app_fields={
+                'target_db_fingerprint': database,
+                'local_fingerprint': local.model_copy(update={'config': {'openai': {'base_url': 'x'}}}),
+                'target_db_image': 'default',
+                'default_image_runtime': 'pixeltable 0.7.24, Python 3.12',
+            },
+            fingerprint=database,
+        )
+        assert [(op.name, op.severity, op.details) for op in diff.ops] == ops
+        assert diff.resolution == resolution
+        if len(ops) > 0:
+            assert 'the default image (pixeltable 0.7.24, Python 3.12)' in diff.ops[0].description
+
+    def test_hosted_default_image_lacks_a_package(self, app_file: str) -> None:
+        """A project that declares a package the default image lacks needs an image of its own."""
+        diff = self._hosted_diff(
+            app_file,
+            app_fields={
+                'target_db_fingerprint': None,
+                'target_db_image': 'default',
+                'default_image_mismatches': ('torch (requirements.txt)',),
+            },
+        )
+        [op] = diff.ops
+        assert (op.severity, op.details) == (
+            'blocked',
+            {'missing': 'torch (requirements.txt)', 'command': 'pxt db update pxt://acme:main'},
+        )
+        assert diff.resolution == 'blocked'
+
     def test_hosted_keep_release_no_wait(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
         """--keep-release keeps the instance's code, and without waiting the change returns its receipt."""
         changed = ServiceChangeOp.otel(False, True)
@@ -1972,6 +2030,8 @@ class _SetControlPlane:
         self.sent: list[Any] = []  # every request but the listings
         self.held = {'ingest': 3}
         self.issued: list[GenerationReceipt] = []
+        self.db_generation = 5
+        self.uploads: list[bytes] = []
 
     def _record(self, name: str) -> ServiceInstanceRecord:
         return ServiceInstanceRecord(
@@ -1995,8 +2055,12 @@ class _SetControlPlane:
                 ServiceMutation(service_name=name, spec=ServiceSpec(name=name), app_module=self.app_module)
                 for name in self.held
             ]
+            generations.database = self.db_generation
+            upload = (
+                None if request.blob is None else BlobUpload(url=f'https://store.example.com/{request.blob.sha256}')
+            )
             return PrepareUpdateResponse(
-                generations=generations, report=DatabaseReport(db='main'), services=desired
+                generations=generations, report=DatabaseReport(db='main'), services=desired, upload=upload
             ).model_dump(mode='json')
         if isinstance(request, SubmitUpdateRequest):
             after = self.held.keys() | {m.service_name for m in request.service_mutations}
@@ -2020,6 +2084,11 @@ class _SetControlPlane:
                 )
                 for m in request.service_mutations
             ]
+            if request.database_target is not None:
+                self.db_generation += 1
+                self.issued.append(
+                    GenerationReceipt(kind='database', resource_id='db-uuid', generation=self.db_generation, db='main')
+                )
             return SubmitUpdateResponse(receipts=self.issued).model_dump(mode='json')
         assert isinstance(request, GetReceiptsRequest), type(request).__name__
         by_id = {r.resource_id: r for r in self.issued}
@@ -2119,6 +2188,38 @@ class TestServiceUpdateHostedSet:
             ('ingest', 3),
             ('reports', 0),
         ]
+
+    def test_a_set_carries_the_project_to_the_default_image(
+        self, monkeypatch: pytest.MonkeyPatch, app_file: str
+    ) -> None:
+        """On the default image, the project's files go in the services' submission, and every service in it runs the
+        release that makes; the update waits for the database too."""
+        control_plane = self._set(monkeypatch, app_file)
+        plan = serving_service.service_diff(app_file, PxtPath('pxt://acme:main'))
+        plan.services[1].ops = [ServiceChangeOp.upload_project(None, None)]
+
+        def put(request: Any, timeout: float) -> Any:
+            control_plane.uploads.append(request.data.read())
+            return Mock()
+
+        monkeypatch.setattr('urllib.request.urlopen', put)
+        serving_service.service_update(app_file, PxtPath('pxt://acme:main'))
+
+        prepared, submitted, awaited = control_plane.sent
+        assert isinstance(prepared, PrepareUpdateRequest) and isinstance(submitted, SubmitUpdateRequest)
+        target = submitted.database_target
+        assert target is not None and target.image == 'default' and target.cpu is None
+        assert target.fingerprint is not None and target.fingerprint.config == {}
+        assert prepared.database_target == target and prepared.blob == submitted.blob
+        assert len(control_plane.uploads) == 1
+        assert {m.service_name: m.pin for m in submitted.service_mutations} == {
+            'extra': 'submission',
+            'ingest': 'submission',
+            'reports': 'submission',
+        }
+        assert submitted.expected_generations.database == 5
+        assert isinstance(awaited, GetReceiptsRequest)
+        assert {r.kind for r in awaited.receipts} == {'service', 'database'}
 
     def test_a_set_submits_only_the_services_it_applies(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
         control_plane = self._set(

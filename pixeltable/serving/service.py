@@ -7,7 +7,8 @@ from typing import Literal, Sequence
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
-from pixeltable.service.db import db_fingerprint
+from pixeltable.service.db import db_deployment, default_image_mismatches
+from pixeltable.service.db_md import ImageKind
 from pixeltable.service.management_protocol import LogRecord, SpanRecord
 from pixeltable.service.resources import ServiceResources
 from pixeltable.service.service_md import LocalServiceInstanceRecord
@@ -22,7 +23,7 @@ from pixeltable.utils.app_module import (
     validate_models,
     visible_models,
 )
-from pixeltable.utils.project import ProjectFingerprint, project_fingerprint
+from pixeltable.utils.project import ProjectFingerprint, ProjectPart, project_fingerprint
 from pixeltable_cli.types import (
     CheckReport,
     OpStatus,
@@ -140,7 +141,7 @@ def service_update(
     hosted: dict[str, service_instance.ServiceInstance] = {}
     if isinstance(manager, ServiceManagerProxy) and len(to_apply) > 0:
         # one submission for the set, which the control plane accepts or refuses as a whole: a refusal (a plan
-        # limit) leaves every service as it was
+        # limit) leaves every service as it was; the project's files go with it, for a database on the default image
         hosted = manager.start_set(
             app_file,
             {d.name: (expected_generations or {}).get(d.name, d.generation) for d in to_apply},
@@ -148,6 +149,7 @@ def service_update(
             otel=otel,
             port=port,
             keep_release=keep_release,
+            upload_project=any(op.target == 'project' and op.name == 'upload' for d in to_apply for op in d.ops),
             wait=wait,
         )
     for diff in to_apply:
@@ -334,12 +336,21 @@ class _AppInfo:
     db_uri: str
 
     # the hosted target db's current fingerprint; None for a local target, and for a hosted
-    # database still on the base image
+    # database that holds no project files
     target_db_fingerprint: ProjectFingerprint | None
 
     # the project as it is on disk; a running instance reports the one it loaded, and a difference
     # between them restarts it
     local_fingerprint: ProjectFingerprint
+
+    # what the hosted target db runs; None for a local target, or a control plane that does not say
+    target_db_image: ImageKind | None = None
+
+    # on the default image: what the project declares that the image does not provide
+    default_image_mismatches: tuple[str, ...] = ()
+
+    # on the default image: what it runs, printable; None if the control plane does not say
+    default_image_runtime: str | None = None
 
 
 def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
@@ -357,6 +368,13 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
     assert project_root is not None  # load_app_module() refuses a file outside a project root
     catalog_path = catalog.Path.parse(target, allow_empty_path=True)
     db_config = Config.get().get_database_config(catalog_path)
+    deployment = db_deployment(catalog_path, desired=True)
+    on_default = deployment is not None and deployment.image == 'default'
+    mismatches = (
+        default_image_mismatches(project_root, db_config, deployment.default_image)
+        if on_default and deployment is not None and deployment.default_image is not None
+        else []
+    )
     return _AppInfo(
         app_file=app_file,
         services={
@@ -369,10 +387,13 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
         service_resources={} if db_config is None else db_config.service_resources(_base_path(target)),
         model_mismatch_reason=validate_models(needed, target),
         db_uri=catalog_path.uri_str,
-        target_db_fingerprint=db_fingerprint(catalog_path, desired=True),
+        target_db_fingerprint=None if deployment is None else deployment.fingerprint,
         local_fingerprint=project_fingerprint(
             project_root, db_config, project_config=Config.get().create_project_config(db_config)
         ),
+        target_db_image=None if deployment is None else deployment.image,
+        default_image_mismatches=tuple(mismatches),
+        default_image_runtime=None if deployment is None else deployment.runtime,
     )
 
 
@@ -411,21 +432,39 @@ def _service_diff(
     hosted = running is not None and not isinstance(running.record, LocalServiceInstanceRecord)
     keeping = hosted and keep_release
     target_db_fingerprint = None if keeping else app_info.target_db_fingerprint
-    if target_db_fingerprint is None and app_info.db_uri != '' and not keeping:
-        ops.append(ServiceChangeOp.needs_db_update(command=f'pxt db update {app_info.db_uri}'))
+    # the default image gets the project's files alone, from this command; its packages and settings stay
+    on_default = app_info.target_db_image == 'default'
+    compared = {ProjectPart.ARCHIVE} if on_default else set(ProjectPart)
+    db_update_command = f'pxt db update {app_info.db_uri}'
+    if on_default and not keeping:
+        if len(app_info.default_image_mismatches) > 0:
+            ops.append(
+                ServiceChangeOp.needs_db_update(db_update_command, missing=list(app_info.default_image_mismatches))
+            )
+        elif target_db_fingerprint is None:
+            ops.append(ServiceChangeOp.upload_project(None, app_info.default_image_runtime))
+        elif ProjectPart.ARCHIVE in app_info.local_fingerprint.compare(target_db_fingerprint):
+            changes = app_info.local_fingerprint.changes(target_db_fingerprint, {ProjectPart.ARCHIVE})
+            ops.append(ServiceChangeOp.upload_project(changes, app_info.default_image_runtime))
+    elif target_db_fingerprint is None and app_info.db_uri != '' and not keeping:
+        ops.append(ServiceChangeOp.needs_db_update(command=db_update_command))
     # a local target's services read the project files in place, so nothing has to be uploaded for them
-    changed = set() if target_db_fingerprint is None else app_info.local_fingerprint.compare(target_db_fingerprint)
-    if target_db_fingerprint is not None and len(changed) > 0:
+    changed = (
+        set() if target_db_fingerprint is None else app_info.local_fingerprint.compare(target_db_fingerprint) & compared
+    )
+    if on_default and any(op.target == 'project' for op in ops):
+        # the upload restarts the service on the new files, or the project needs an image built first
+        pass
+    elif target_db_fingerprint is not None and len(changed) > 0:
         # this requires a pxt db update
         ops.append(
             ServiceChangeOp.fingerprint_changed(
-                app_info.local_fingerprint.changes(target_db_fingerprint, changed),
-                command=f'pxt db update {app_info.db_uri}',
+                app_info.local_fingerprint.changes(target_db_fingerprint, changed), command=db_update_command
             )
         )
     elif running is not None and running.record.fingerprint is not None:
         # a hosted instance reports none until its pod loads one; there is nothing to compare against yet
-        stale = app_info.local_fingerprint.compare(running.record.fingerprint)
+        stale = app_info.local_fingerprint.compare(running.record.fingerprint) & compared
         if len(stale) > 0:
             changes = app_info.local_fingerprint.changes(running.record.fingerprint, stale)
             ops.append(
