@@ -356,6 +356,20 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
             _ = t.order_by(t.c1.upper).collect()
 
+    def test_order_by_unselected_json_and_array(self, db_root: DatabaseRoot) -> None:
+        """order_by() on a Json or Array column gives the same order whether or not the column is selected."""
+        t = pxt.create_table(
+            db_root.make_catalog_path('order_by_unselected'),
+            {'id': pxt.Int, 'j': pxt.Json, 'a': pxt.Array[(2,), pxt.Int]},
+        )
+        t.insert([{'id': i, 'j': {'k': 10 - i}, 'a': np.array([10 - i, i])} for i in range(4)])
+
+        for col in (t.j, t.a):
+            for asc in (True, False):
+                expected = [3, 2, 1, 0] if asc else [0, 1, 2, 3]
+                assert t.order_by(col, asc=asc).select(t.id, col).collect()['id'] == expected
+                assert t.order_by(col, asc=asc).select(t.id).collect()['id'] == expected
+
     def test_expr_unique_id(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # Multiple constants with the same string representation but different types must be unique (Expr._expr_id)
