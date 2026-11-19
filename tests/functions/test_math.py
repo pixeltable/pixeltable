@@ -98,6 +98,108 @@ class TestMath:
             else:
                 raise AssertionError()
 
+    def test_to_int(self, uses_db: None) -> None:
+        """to_int() truncates toward zero and returns the same values from Python and from Postgres."""
+        floats = [0.0, 2.5, 3.5, 2.7, -2.7, 3e9, 9.2e18]
+        ints = [0, 5, -5, 2**31, 2**53 + 1, 2**62 + 1, -(2**62) - 1]
+        bools = [i == 0 for i in ints]
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'x': pxt.Float, 'i': pxt.Int, 'b': pxt.Bool})
+        t.add_computed_column(x_before=t.x.to_int())
+        t.add_computed_column(i_before=pxtf.math.to_int(t.i))
+        t.insert({'id': row_id, 'x': x, 'i': i, 'b': b} for row_id, (x, i, b) in enumerate(zip(floats, ints, bools)))
+        t.add_computed_column(x_after=t.x.to_int())
+        t.add_computed_column(i_after=pxtf.math.to_int(t.i))
+        assert t.x.to_int().col_type.is_int_type()
+
+        res = (
+            t.select(
+                t.x_before,
+                t.x_after,
+                t.i_before,
+                t.i_after,
+                x_sql=t.x.to_int(),
+                i_sql=pxtf.math.to_int(t.i),
+                # a non-SQLizable identity function forces evaluation in Python
+                x_py=t.x.apply(lambda x: x, col_type=pxt.Float).to_int(),
+                i_py=pxtf.math.to_int(t.i.apply(lambda i: i, col_type=pxt.Int)),
+                i_abs=pxtf.math.to_int(t.i.abs()),
+                b_col=pxtf.math.to_int(t.b),
+                b_pred=pxtf.math.to_int(t.i == 0),
+            )
+            .order_by(t.id)
+            .collect()
+        )
+        for col in ('x_before', 'x_after', 'x_sql', 'x_py'):
+            assert res[col] == [int(x) for x in floats], col
+            assert all(type(val) is int for val in res[col]), col
+        for col in ('i_before', 'i_after', 'i_sql', 'i_py'):
+            assert res[col] == ints, col
+        assert res['i_abs'] == [abs(i) for i in ints]
+        assert res['b_col'] == res['b_pred'] == [int(b) for b in bools]
+
+        assert t.where(t.x.to_int() == 2).select(t.x).order_by(t.id).collect()['x'] == [2.5, 2.7]
+
+        # the other rounding modes
+        res = (
+            t.where((t.x == 2.7) | (t.x == -2.7))
+            .select(floor=t.x.floor().to_int(), ceil=t.x.ceil().to_int(), round=t.x.round().to_int())
+            .order_by(t.id)
+            .collect()
+        )
+        assert res['floor'] == [2, -3]
+        assert res['ceil'] == [3, -2]
+        assert res['round'] == [3, -3]
+
+        # update() and delete() accept only a filter that runs in Postgres
+        status = t.update({'x': 1.5}, where=pxtf.math.to_int(t.b) == 1)
+        assert status.num_rows == 1
+        assert t.where(t.id == 0).select(t.x, t.x_before, t.x_after).collect()[0] == {
+            'x': 1.5,
+            'x_before': 1,
+            'x_after': 1,
+        }
+        filters = [
+            (pxtf.math.to_int(t.i.abs()) == 2**62 + 1, 2),
+            ((t.x // 2).to_int() == -2, 1),
+            (t.x.pow(2).to_int() == 7, 1),
+            (t.x.abs().to_int() == 2, 1),
+            (pxtf.math.to_int(t.i // 2) == -3, 1),
+            ((t.x**2).to_int() == 2, 1),
+        ]
+        for where, num_rows in filters:
+            assert t.delete(where=where).num_rows == num_rows, where
+        assert t.count() == 0
+
+        t = pxt.create_table('json_tbl', {'id': pxt.Int, 'j': pxt.Json})
+        t.insert({'id': row_id, 'j': j} for row_id, j in enumerate([[1.0, 2.0], [0.5, 0.25], [2.5, 5.0], [7.5, 8.5]]))
+        filters = [
+            (pxtf.math.to_int(pxtf.json.sum(t.j)) == 3, 0),
+            (pxtf.math.to_int(pxtf.json.max(t.j)) == 5, 2),
+            (pxtf.math.to_int(pxtf.json.min(t.j)) == 7, 3),
+            (pxtf.math.to_int(pxtf.json.mean(t.j)) == 0, 1),
+        ]
+        for where, row_id in filters:
+            assert t.where(where).select(t.id).collect()['id'] == [row_id], where
+            assert t.delete(where=where).num_rows == 1, where
+        assert t.count() == 0
+
+        # values without an Int equivalent
+        t = pxt.create_table('errors_tbl', {'id': pxt.Int, 'x': pxt.Float})
+        t.add_computed_column(out=t.x.to_int())
+        status = t.insert(
+            ({'id': row_id, 'x': x} for row_id, x in enumerate([math.inf, math.nan, 1e19, -1e19])), on_error='ignore'
+        )
+        assert status.num_excs == 4
+        res = t.select(t.out, errormsg=t.out.errormsg).order_by(t.id).collect()
+        assert res['out'] == [None] * 4
+        expected_msgs = [
+            'cannot convert float infinity to integer',
+            'cannot convert float NaN to integer',
+            '1e+19 is outside the range of Int',
+            '-1e+19 is outside the range of Int',
+        ]
+        assert all(expected in msg for expected, msg in zip(expected_msgs, res['errormsg'])), res['errormsg']
+
     def test_pow(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'i': pxt.Int | None, 'f': pxt.Float | None})
         t.insert([{'i': 2, 'f': 1.5}, {'i': 5, 'f': 0.25}])

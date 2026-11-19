@@ -42,7 +42,7 @@ class PxtPlugin(Plugin):
     # APIs that accept a schema dict; see `mark_schema_dict_values`. Methods are matched on their unqualified
     # name, so that `Table` subclasses (`InsertableTable`, `TableProxy`, ...) are covered too.
     __SCHEMA_FUNCTION_FULLNAMES: ClassVar[frozenset[str]] = frozenset(
-        f'{pxt.__name__}.globals.{name}' for name in ('create_table', 'create_view', 'create_snapshot')
+        f'{pxt.__name__}.api.{name}' for name in ('create_table', 'create_view', 'create_snapshot')
     )
     __SCHEMA_METHOD_NAMES: ClassVar[frozenset[str]] = frozenset(('add_columns',))
 
@@ -53,8 +53,6 @@ class PxtPlugin(Plugin):
         if fullname in self.__FULLNAME_MAP:
             subst_name = self.__FULLNAME_MAP[fullname]
             return lambda ctx: self.adjust_pxt_type(ctx, subst_name)
-        if fullname == _REQUIRED_FULLNAME:
-            return adjust_required_type
         return None
 
     def get_base_class_hook(self, fullname: str) -> Callable[[ClassDefContext], None] | None:
@@ -115,7 +113,6 @@ _AGGREGATOR_FULLNAME = f'{pxt.Aggregator.__module__}.{pxt.Aggregator.__name__}'
 _PXTITERATOR_FULLNAME = f'{pxt.PxtIterator.__module__}.{pxt.PxtIterator.__name__}'
 _FN_CALL_FULLNAME = f'{exprs.Expr.__module__}.{exprs.Expr.__name__}'
 _PXT_TYPE_FULLNAME = f'{_PxtType.__module__}.{_PxtType.__name__}'
-_REQUIRED_FULLNAME = f'{pxt.Required.__module__}.{pxt.Required.__name__}'
 _TABLE_MODEL_META_FULLNAME = f'{TableModelMeta.__module__}.{TableModelMeta.__name__}'
 
 
@@ -127,10 +124,6 @@ def make_pxt_type_subscriptable(ctx: ClassDefContext) -> None:
     type-check (as `Any`) in value positions such as schema dicts, we synthesize a metaclass whose
     `__getitem__(item) -> Any` mypy resolves the subscript through (only a *metaclass* `__getitem__` is honored for
     `Class[...]`; `__class_getitem__` and instance/classmethod `__getitem__` are not).
-
-    `Required` additionally must appear non-generic: while generic, mypy parses its argument as a type, so
-    `Required[Image[(300, 300)]]` fails ("Type expected within [...]") on the tuple before any hook runs. We clear
-    its type variables here; `adjust_required_type` keeps `Required[...]` working in annotation positions.
     """
     info = ctx.cls.info
     meta = ctx.api.basic_new_typeinfo('_PxtSubscriptMeta', ctx.api.named_type('builtins.type'), ctx.cls.line)
@@ -152,21 +145,6 @@ def make_pxt_type_subscriptable(ctx: ClassDefContext) -> None:
     meta_inst = Instance(meta, [])
     info.metaclass_type = meta_inst
     info.declared_metaclass = meta_inst
-    if info.fullname == _REQUIRED_FULLNAME:
-        info.type_vars = []
-        info.defn.type_vars = []
-        info.add_type_vars()
-
-
-def adjust_required_type(ctx: AnalyzeTypeContext) -> Type:
-    """
-    In an annotation position, resolve `Required[T]` to `T` (the marker only signifies non-nullability, which has no
-    bearing on mypy's view); a bare `Required` resolves to `Any`. This complements `make_pxt_type_subscriptable`,
-    which makes `Required` non-generic (so mypy no longer interprets `Required[...]` natively).
-    """
-    if ctx.type.args:
-        return ctx.api.analyze_type(ctx.type.args[0])
-    return AnyType(TypeOfAny.special_form)
 
 
 def create_model_base_class(ctx: DynamicClassDefContext) -> None:

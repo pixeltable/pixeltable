@@ -60,10 +60,14 @@ class Path:
 
     @classmethod
     def dir_prefix(cls, catalog_dir: str) -> str:
-        """Validate and fold a directory path into the form a child path is appended to (empty, or ending in '/')."""
-        p = cls.parse(catalog_dir.rstrip('/'), allow_empty_path=True)
+        """Validate and fold catalog_dir, and return the prefix for its child paths (see prefix)."""
+        return cls.parse(catalog_dir.rstrip('/'), allow_empty_path=True).prefix
+
+    @property
+    def prefix(self) -> str:
+        """Prefix for this directory's child paths: '' for the local root, otherwise the path followed by '/'."""
         # the local root is the only directory with an empty prefix; a remote root still carries its pxt:// URI
-        return '' if p.is_root and p.is_local else f'{p}/'
+        return '' if self.is_root and self.is_local else f'{self}/'
 
     @classmethod
     def parse(cls, path: str, *, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:
@@ -171,6 +175,9 @@ class Path:
 
     def append(self, name: str) -> Path:
         return dataclasses.replace(self, components=(*self.components, name), version=None)
+
+    def with_catalog(self, catalog_uri: Path) -> Path:
+        return dataclasses.replace(self, org=catalog_uri.org, db=catalog_uri.db)
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """

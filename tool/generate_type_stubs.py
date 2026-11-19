@@ -50,7 +50,7 @@ def merge_stubs() -> None:
         'from pixeltable import Query, ResultCursor, ResultSet, TableMetadata, UpdateStatus, VersionMetadata\n',
         'from pixeltable import type_system as ts\n',
         'from pixeltable.exprs import ColumnRef\n',
-        'from pixeltable.globals import TableDataSource\n',
+        'from pixeltable.api import TableDataSource\n',
         'from pixeltable.query_clauses import JoinType\n',
         *model_stub[: class_defn_idx + 1],
         *defns_to_merge,

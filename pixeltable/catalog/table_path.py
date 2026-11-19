@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import pixeltable.exceptions as excs
-from pixeltable.func.globals import resolve_symbol
+from pixeltable.func.symbols import resolve_symbol
 from pixeltable.index import IndexBase
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime

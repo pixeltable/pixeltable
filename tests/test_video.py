@@ -2121,7 +2121,7 @@ class TestVideo:
                 for i in range(len(row['scenes']) - 1)
             )
 
-        # make sure the output is usable for the VideoSplitter
+        # make sure the output is usable for video_splitter()
         v = pxt.create_view(
             'scenes_view', t, iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate')
         )
@@ -2220,7 +2220,7 @@ class TestVideo:
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:
-        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)
+        result = av_utils.run_ffmpeg(['-version'])
         print(f'ffmpeg -version:\n{result.stdout}')
 
         default_encoder = Env.get().default_video_encoder
@@ -2317,20 +2317,8 @@ class TestVideo:
     def test_mix_audio_duration_modes(self, uses_db: None, tmp_path: Path) -> None:
         def make_audio(duration: float, name: str) -> str:
             out = tmp_path / f'{name}.m4a'
-            subprocess.run(
-                [
-                    'ffmpeg',
-                    '-f',
-                    'lavfi',
-                    '-i',
-                    f'sine=frequency=220:duration={duration}',
-                    '-c:a',
-                    'aac',
-                    '-y',
-                    str(out),
-                ],
-                capture_output=True,
-                check=True,
+            av_utils.run_ffmpeg(
+                ['-f', 'lavfi', '-i', f'sine=frequency=220:duration={duration}', '-c:a', 'aac', '-y', str(out)]
             )
             return str(out)
 
@@ -2637,6 +2625,30 @@ class TestVideo:
         validate_update_status(u2.insert([{'v1': v_long, 'v2': v_short}]), expected_rows=1)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'transition duration.*exceeds duration'):
             u2.select(transition(u2.v1, u2.v2, duration=1.0)).collect()
+
+    def test_run_ffmpeg_ignores_stdin(self, tmp_path: Path) -> None:
+        """ffmpeg's overwrite prompt must neither read nor wait on the caller's stdin."""
+        output_path = tmp_path / 'existing.mp4'
+        output_path.touch()
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, b'y\n')
+        os.close(write_fd)
+        saved_stdin = os.dup(0)
+        os.dup2(read_fd, 0)
+        try:
+            # a refused overwrite exits with status 1 before ffmpeg 6.1 and 0 from 6.1 on
+            stderr = av_utils.run_ffmpeg(
+                ['-i', get_video_files()[0], '-c', 'copy', str(output_path)], timeout=60
+            ).stderr
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr
+        finally:
+            os.dup2(saved_stdin, 0)
+            os.close(saved_stdin)
+        assert 'already exists' in stderr
+        assert output_path.stat().st_size == 0
+        assert os.read(read_fd, 2) == b'y\n'
+        os.close(read_fd)
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_ffmpeg_filter(self, uses_db: None) -> None:

@@ -27,6 +27,7 @@ from pixeltable.utils.object_stores import ObjectOps
 from .column import Column
 from .globals import (
     _ROWID_COLUMN_NAME,
+    PY_RERUN_HINT,
     IndexSpec,
     MediaValidation,
     fold_identifier,
@@ -800,7 +801,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs)  # add_columns
+        row_counts = RowCountStats(updated_rows=row_count, num_excs=num_excs)  # add_columns
         return UpdateStatus(cols_with_excs=self._cols_with_excs_names(cols_with_excs), row_count_stats=row_counts)
 
     def _own_col_refs(self, value_expr_dict: dict[str, Any] | None) -> set[int]:
@@ -946,7 +947,7 @@ class TableVersion:
         if self.schema_version != expected_schema_version:
             raise excs.ConcurrencyError(
                 excs.ErrorCode.CONCURRENT_MODIFICATION,
-                f'Table {self.name!r} was modified since update_all() computed its changes; re-run update_all().',
+                f'Table {self.name!r} was modified while this update was in progress. {PY_RERUN_HINT}',
             )
 
         self._validate_idx_drops(dropped_idx_ids)
@@ -1113,31 +1114,28 @@ class TableVersion:
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def alter_column(self, col: Column, type_: ts.ColumnType) -> None:
-        """Alter the type of a column. Currently only supports widening a value column to nullable."""
-        assert self.is_mutable
-        assert not col.is_computed
-        assert not col.is_pk
-        if type_ == col.col_type:
-            # no-op
-            return
-
-        valid_change = type_.matches(col.col_type) and not col.col_type.nullable and type_.nullable
-        if not valid_change:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Column {col.name!r} type cannot be changed from {col.col_type} to {type_}',
-            )
-
-        # alter column type from required to nullable
+        """Change the type of a data column as a new schema version."""
         old_type = col.col_type
-        col.col_type = type_
-        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
+        self.alter_col_type_in_version(col, type_)
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(
             f'Altered column {col.name!r} type from {old_type} to {type_} in table {self.name}, new version: '
             f'{self.version}'
         )
+
+    def alter_col_type_in_version(self, col: Column, type_: ts.ColumnType) -> None:
+        """Change the type of a data column within the current schema version, without writing the metadata."""
+        assert self.is_mutable
+        assert not col.is_computed and not col.is_pk
+        # the only supported change makes the column nullable
+        assert not col.col_type.nullable and type_ == col.col_type.copy(nullable=True)
+        cat = get_runtime().catalog
+        cat.mark_modified_tv(self.handle)
+        # the expressions that reference col keep its old type
+        cat.invalidate_after_xact(self)
+        col.col_type = type_
+        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
 
     def _alter_value_expr_in_version(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Replace a computed column's value expression within the current schema version."""
@@ -1258,7 +1256,6 @@ class TableVersion:
         """Replace the value expression of a computed column, optionally recomputing its stored values."""
         assert self.is_mutable
         assert col.is_computed
-        assert not recompute or self.is_data_versioned
         if col.value_expr_dict == new_value_expr.as_dict():
             # no-op: return early and do not create a new schema version
             return UpdateStatus()
@@ -1271,14 +1268,19 @@ class TableVersion:
         get_runtime().catalog.record_column_dependencies(self)
         self.path.clear_cached_md()
         _logger.info(
-            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr} to '
-            f'{new_value_expr}, new version: {self.version}'
+            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr!s} to '
+            f'{new_value_expr!s}, new version: {self.version}'
         )
 
         if not recompute:
             self._write_md(new_version=True, new_schema_version=True)
             return UpdateStatus()
-        return self.recompute_columns([col.name], cascade=cascade, bump_version=False)
+        status = self.recompute_columns([col.name], cascade=cascade, bump_version=False)
+        # recompute_columns on a data-versioned table ends with table md write
+        if not self.is_data_versioned:
+            self.set_version_update_status(status)
+            self._write_md(new_version=True, new_schema_version=True)
+        return status
 
     def set_comment(self, new_comment: str | None) -> None:
         _logger.info(f'[{self.name}] Updating comment: {new_comment}')
@@ -1293,14 +1295,17 @@ class TableVersion:
 
     def insert(
         self,
-        source: list[dict[str, Any]] | SqlDataSource | None,
+        source: Iterable[dict[str, Any]] | SqlDataSource | None,
         query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
+        skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """
-        Insert rows into this table from an explicit list of dicts, a Query, or a SqlDataSource.
+        Insert rows into this table from a stream of row dicts, a Query, or a SqlDataSource.
+
+        With skip_existing_keys, a row whose primary key is already in the table is not inserted.
         """
         from pixeltable.plan import Planner
 
@@ -1309,9 +1314,13 @@ class TableVersion:
         assert (source is None) != (query is None)
         with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             if query is not None:
-                plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
+                plan = Planner.create_query_insert_plan(
+                    self, query, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
+                )
             else:
-                plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
+                plan = Planner.create_insert_plan(
+                    self, source, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
+                )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
 
         rowid_gen: Iterator[int] | None = None
@@ -1335,6 +1344,7 @@ class TableVersion:
                 rowids=rowid_gen,
                 abort_on_exc=fail_on_exception,
                 return_rows=return_rows,
+                skip_existing_keys=skip_existing_keys,
             )
             return result
 
@@ -1347,6 +1357,7 @@ class TableVersion:
         print_stats: bool = False,
         abort_on_exc: bool = False,
         return_rows: bool = False,
+        skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         if self.is_data_versioned:
@@ -1354,7 +1365,11 @@ class TableVersion:
             self.bump_version(timestamp, bump_schema_version=False)
         exec_plan.ctx.title = self.display_str()
         cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
-            exec_plan, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
+            exec_plan,
+            rowids=rowids,
+            abort_on_exc=abort_on_exc,
+            return_rows=return_rows,
+            skip_existing_keys=skip_existing_keys,
         )
         result = UpdateStatus(
             cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows, row_count_stats=row_counts
@@ -1416,16 +1431,7 @@ class TableVersion:
                 return_rows=return_rows,
             )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
-        if self.is_data_versioned:
-            timestamp = time.time()
-            self.bump_version(timestamp, bump_schema_version=False)
-            result = self._propagate_update_plan(
-                update_plan, list(update_spec.keys()), timestamp, cascade, return_rows=return_rows
-            )
-        else:
-            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
-
-        return result + UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
+        return self._apply_update_plan(update_plan, list(update_spec.keys()), cascade, return_rows=return_rows)
 
     def batch_update(
         self,
@@ -1452,15 +1458,7 @@ class TableVersion:
                 self.path, batch, rowids, cascade=cascade, return_rows=return_rows
             )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
-        if self.is_data_versioned:
-            timestamp = time.time()
-            self.bump_version(timestamp, bump_schema_version=False)
-            result = self._propagate_update_plan(
-                update_plan, update_plan.updated_cols, timestamp, cascade, return_rows=return_rows
-            )
-        else:
-            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
-        result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
+        result = self._apply_update_plan(update_plan, update_plan.updated_cols, cascade, return_rows=return_rows)
 
         assert update_plan.row_update_node is not None
         unmatched_rows = update_plan.row_update_node.unmatched_rows()
@@ -1473,7 +1471,7 @@ class TableVersion:
                 insert_status = self.insert(
                     unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
                 )
-                result += insert_status.to_cascade()
+                result += insert_status
         return result
 
     def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
@@ -1579,7 +1577,6 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_mutable
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
@@ -1609,32 +1606,35 @@ class TableVersion:
             )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
 
-        timestamp = time.time()
-        if bump_version:
-            self.bump_version(timestamp, bump_schema_version=False)
-        result = self._propagate_update_plan(update_plan, target_columns, timestamp, cascade)
-        result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
-        return result
+        return self._apply_update_plan(update_plan, target_columns, cascade, bump_version=bump_version)
 
-    def _propagate_update_plan(
+    def _apply_update_plan(
         self,
         update_plan: UpdatePlan,
         modified_cols: list[Column],
-        timestamp: float,
         cascade: bool,
         return_rows: bool = False,
+        bump_version: bool = True,
     ) -> UpdateStatus:
-        assert update_plan.soft_delete_where_clause is not None
-        return self._propagate_update(
-            [update_plan.root],
-            update_plan.soft_delete_where_clause,
-            update_plan.recomputed_cols,
-            modified_cols=modified_cols,
-            base_versions=[],
-            timestamp=timestamp,
-            cascade=cascade,
-            return_rows=return_rows,
-        )
+        """Executes update_plan"""
+        if self.is_data_versioned:
+            assert update_plan.soft_delete_where_clause is not None
+            timestamp = time.time()
+            if bump_version:
+                self.bump_version(timestamp, bump_schema_version=False)
+            result = self._propagate_update(
+                [update_plan.root],
+                update_plan.soft_delete_where_clause,
+                update_plan.recomputed_cols,
+                modified_cols=modified_cols,
+                base_versions=[],
+                timestamp=timestamp,
+                cascade=cascade,
+                return_rows=return_rows,
+            )
+        else:
+            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
+        return result + UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
 
     def _propagate_update(
         self,
@@ -1773,7 +1773,7 @@ class TableVersion:
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter!s}'
             )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
@@ -1791,14 +1791,14 @@ class TableVersion:
 
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
         if self.is_data_versioned:
-            del_rows = self.store_tbl.soft_delete_rows(
+            deleted_rows = self.store_tbl.soft_delete_rows(
                 self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
             )
         else:
-            del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
-        row_counts = RowCountStats(del_rows=del_rows)  # delete
+            deleted_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
+        row_counts = RowCountStats(deleted_rows=deleted_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
-        if del_rows == 0:
+        if deleted_rows == 0:
             # self.version belongs to an earlier operation, and the views would match that operation's retired rows
             return result
 

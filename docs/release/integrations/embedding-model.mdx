@@ -45,8 +45,11 @@ Application code declares indexes in `__indexes__`. In a notebook or a test, cal
 ship, write the UDF yourself. The return type fixes the dimension, and the index requires it:
 
 ```python
+import numpy as np
+
+
 @pxt.udf
-def my_embed(text: str) -> pxt.Array[(768,), pxt.Float]:
+def my_embed(text: str) -> pxt.Array[(1024,), np.float32]:
     return _model().encode(text)
 ```
 
@@ -67,6 +70,8 @@ module scope so the cost is paid once per process:
 ```python
 import functools
 
+import numpy as np
+
 
 @functools.cache
 def _model():
@@ -76,7 +81,7 @@ def _model():
 
 
 @pxt.udf
-def my_embed(text: str) -> pxt.Array[(768,), pxt.Float]:
+def my_embed(text: str) -> pxt.Array[(1024,), np.float32]:
     return _model().encode(text)
 ```
 
@@ -86,11 +91,12 @@ Embedding models are much faster on a batch than on single rows. A batched UDF t
 `Batch`, and Pixeltable groups rows for you up to `batch_size`:
 
 ```python
+import numpy as np
 from pixeltable.func import Batch
 
 
 @pxt.udf(batch_size=32)
-def my_embed(texts: Batch[str]) -> Batch[pxt.Array[(768,), pxt.Float]]:
+def my_embed(texts: Batch[str]) -> Batch[pxt.Array[(1024,), np.float32]]:
     return list(_model().encode(list(texts)))
 ```
 

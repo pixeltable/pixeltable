@@ -18,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
+from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -30,7 +30,15 @@ from pixeltable.utils.object_stores import PXT_BUCKETS_DIR
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, fold_identifier
+from .globals import (
+    PY_RERUN_HINT,
+    DirEntry,
+    IfExistsParam,
+    IfNotExistsParam,
+    IndexSpec,
+    MediaValidation,
+    fold_identifier,
+)
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
 from .locking import (
@@ -48,7 +56,7 @@ from .locking import (
 from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
-from .table_path import TablePath, TableVersionPath
+from .table_path import TableMdPath, TablePath, TableVersionPath
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
@@ -61,6 +69,7 @@ if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
 
     from .. import exprs
+    from .table_metadata import TableMetadata
 
 
 _logger = logging.getLogger(__name__)
@@ -168,8 +177,6 @@ def _retry_loop(request: LockRequest) -> Callable[[Callable[..., T]], Callable[.
             cat = get_runtime().catalog
             # a retry loop is reentrant
             if cat._in_retry_loop:
-                # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all
-                # required locks.
                 return op(*args, **kwargs)
             num_retries = 0
             while True:
@@ -196,7 +203,7 @@ def _retry_loop(request: LockRequest) -> Callable[[Callable[..., T]], Callable[.
                     if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
-                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}: {e.orig}')
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
                             raise excs.ConcurrencyError(
@@ -277,6 +284,9 @@ class Catalog(CatalogBase):
     # locks of the current transaction attempt; None outside a transaction
     _xact_locks: XactLocks | None
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
+    _tvs_to_invalidate: set[
+        TableVersionHandle
+    ]  # TableVersion instances to drop from the cache when the transaction ends
     # Ids of Tables that have pending TableOps, in the order they must be finalized.
     _roll_forward_ids: list[UUID]
     _in_retry_loop: bool
@@ -300,6 +310,7 @@ class Catalog(CatalogBase):
         self._in_write_xact = False
         self._xact_locks = None
         self._modified_tvs = set()
+        self._tvs_to_invalidate = set()
         self._roll_forward_ids = []
         self._in_retry_loop = False
         self._tbl_md_read_allowed = False
@@ -367,6 +378,12 @@ class Catalog(CatalogBase):
         assert get_runtime().in_xact
         self._modified_tvs.add(handle)
 
+    def invalidate_after_xact(self, tbl_version: TableVersion) -> None:
+        """Drop tbl_version and its mutable views from the cache when the current transaction ends."""
+        assert get_runtime().in_xact
+        self._tvs_to_invalidate.add(tbl_version.handle)
+        self._tvs_to_invalidate.update(view_tv.handle for view_tv in self._mutable_view_tvs(tbl_version))
+
     @contextmanager
     def _allow_tbl_md_read(self) -> Iterator[None]:
         """Context manager that sets self._tbl_md_read_allowed and thus allows reading new table metadata."""
@@ -380,17 +397,23 @@ class Catalog(CatalogBase):
         finally:
             self._tbl_md_read_allowed = False
 
+    @classmethod
     @contextmanager
-    def freeze(self) -> Iterator[None]:
-        """Prevent write transactions in this thread.
+    def freeze(cls) -> Iterator[None]:
+        """Prevent catalog write transactions in this thread.
 
-        Unaffected: reads and writes from other threads.
+        Unaffected: reads, writes from other threads, finishing a crashed schema change, and writes through
+        Runtime.begin_xact(), such as database setup and create_user().
         """
         token = _frozen.set(True)
         try:
             yield
         finally:
             _frozen.reset(token)
+
+    @classmethod
+    def is_frozen(cls) -> bool:
+        return _frozen.get()
 
     @contextmanager
     def begin_md_read_xact(self, *, tbl_keys: Collection[TableVersionKey] | None = None) -> Iterator[sql.Connection]:
@@ -419,17 +442,22 @@ class Catalog(CatalogBase):
 
     @contextmanager
     def begin_data_write_xact(
-        self, *, read_tbl_keys: Collection[TableVersionKey] | None = None, tvps: Collection[TableVersionPath]
+        self,
+        *,
+        read_tbl_keys: Collection[TableVersionKey] | None = None,
+        tvps: Collection[TableVersionPath],
+        read_committed: bool = False,
     ) -> Iterator[sql.Connection]:
         """Open a transaction to insert, update, or delete rows.
 
         Lock each target and all its mutable views, since writes propagate to those views. `read_tbl_keys` identifies
-        additional tables read by the operation, such as the source of an insert from a query.
+        additional tables read by the operation, such as the source of an insert from a query. With `read_committed`,
+        a new transaction runs at READ COMMITTED instead of the default isolation level.
         """
         request = LockRequest(
             TblOpClass.DATA_WRITE, read_tbl_keys=read_tbl_keys, write_tvps=tvps, lock_mutable_tree=True
         )
-        with self._begin_xact(request) as conn:
+        with self._begin_xact(request, read_committed=read_committed) as conn:
             yield conn
 
     @contextmanager
@@ -469,7 +497,12 @@ class Catalog(CatalogBase):
 
     @contextmanager
     def _begin_xact(
-        self, request: LockRequest, *, convert_db_excs: bool = True, finalize_pending_ops: bool = True
+        self,
+        request: LockRequest,
+        *,
+        convert_db_excs: bool = True,
+        finalize_pending_ops: bool = True,
+        read_committed: bool = False,
     ) -> Iterator[sql.Connection]:
         """Open or join a catalog transaction and yield its connection after lock setup.
 
@@ -482,13 +515,13 @@ class Catalog(CatalogBase):
 
         When `convert_db_excs` is True, translate supported database errors to Pixeltable exceptions. Errors during
         the caller's work are propagated; use a retry_*_loop() decorator if the whole operation needs to restart.
+
+        When `read_committed` is True, a new transaction runs at READ COMMITTED instead of the default isolation level.
         """
         for_write = request.for_write
-        if for_write and _frozen.get():
+        if for_write and request.op_class is not TblOpClass.FINALIZE and _frozen.get():
             raise ProhibitedWriteError()
         if get_runtime().in_xact:
-            # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all
-            # required locks.
             yield get_runtime().conn
             return
 
@@ -529,10 +562,13 @@ class Catalog(CatalogBase):
                 self._in_write_xact = for_write
                 self._xact_locks = xact_locks
                 self._modified_tvs = set()
+                self._tvs_to_invalidate = set()
                 self._column_dependents = None
                 has_exc = False
 
-                with get_runtime().begin_xact(for_write=for_write) as conn:
+                with get_runtime().begin_xact(
+                    for_write=for_write, isolation_level='READ COMMITTED' if read_committed else None
+                ) as conn:
                     with self._allow_tbl_md_read():
                         try:
                             xact_locks.acquire()
@@ -556,7 +592,7 @@ class Catalog(CatalogBase):
                             # Handle retriable errors
                             has_exc = True
                             if _is_retryable_exc(e) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
-                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
+                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}: {e.orig}')
                                 num_retries += 1
                                 time.sleep(random.uniform(0.1, 0.5))
                                 # attempt failed -- don't try to commit the transaction before retrying
@@ -645,9 +681,12 @@ class Catalog(CatalogBase):
                     # Clear potentially corrupted cached metadata
                     for tvp in [*request.write_tvps, *request.read_tvps]:
                         tvp.clear_cached_md()
+                for handle in self._tvs_to_invalidate:
+                    self._clear_tv_cache(handle.key)
 
                 self._evict_caches()
                 self._modified_tvs.clear()
+                self._tvs_to_invalidate.clear()
 
     def _try_rollback(self, conn: sql.Connection) -> None:
         """Roll back the transaction, ignoring database errors if the connection is already unusable."""
@@ -1342,7 +1381,7 @@ class Catalog(CatalogBase):
         self._column_dependencies[tbl_version.id] = dependencies
 
     def get_column_dependents(self, tbl_id: UUID, col_id: int) -> set[Column]:
-        """Return all Columns that transitively depend on the given column."""
+        """Return all Columns that directly depend on the given column."""
         assert self._column_dependents is not None
         dependents = self._column_dependents[QColumnId(tbl_id, col_id)]
         result: set[Column] = set()
@@ -1351,6 +1390,13 @@ class Catalog(CatalogBase):
             col = tv.cols_by_id[dependent.col_id]
             result.add(col)
         return result
+
+    def get_non_nullable_dependents(self, col: Column) -> list[str]:
+        """Return the qualified names of the non-nullable computed columns that directly depend on col."""
+        # TODO: return only the dependents whose value expression becomes nullable when col becomes nullable
+        # an iterator column also depends on col, but an iterator never receives None for a non-nullable parameter
+        dependents = self.get_column_dependents(col.get_tbl().id, col.id)
+        return sorted(c.qualified_name for c in dependents if c.is_computed and not c.col_type.nullable)
 
     def _mutable_view_tvs(self, tbl_version: TableVersion) -> Iterator[TableVersion]:
         """Return the TableVersions of all transitive mutable views of the given table."""
@@ -1388,14 +1434,21 @@ class Catalog(CatalogBase):
 
     @retry_md_read_loop()
     def get_dir_contents(
-        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False, with_base_paths: bool = False
     ) -> dict[str, DirEntry]:
         dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
         error_counts = self._table_error_counts() if with_error_counts else None
-        return self._get_dir_contents(dir._id, recursive=recursive, error_counts=error_counts)
+        return self._get_dir_contents(
+            dir._id, recursive=recursive, error_counts=error_counts, with_base_paths=with_base_paths
+        )
 
     def _get_dir_contents(
-        self, dir_id: UUID, recursive: bool = False, *, error_counts: dict[UUID, int] | None = None
+        self,
+        dir_id: UUID,
+        recursive: bool = False,
+        *,
+        error_counts: dict[UUID, int] | None = None,
+        with_base_paths: bool = False,
     ) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
         conn = get_runtime().conn
@@ -1407,7 +1460,9 @@ class Catalog(CatalogBase):
             dir = schema.Dir(**row._mapping)
             dir_contents: dict[str, DirEntry] = {}
             if recursive:
-                dir_contents = self._get_dir_contents(dir.id, recursive=True, error_counts=error_counts)
+                dir_contents = self._get_dir_contents(
+                    dir.id, recursive=True, error_counts=error_counts, with_base_paths=with_base_paths
+                )
             result[dir.md['name']] = DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(active_tbl_clause(dir_id=dir_id))
@@ -1415,7 +1470,19 @@ class Catalog(CatalogBase):
         for row in rows:
             tbl = schema.Table(**row._mapping)
             err_count = error_counts.get(tbl.id, 0) if error_counts is not None else None
-            result[tbl.md['name']] = DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
+
+            base_path: Path | None = None
+            if with_base_paths and tbl.md['view_md'] is not None:
+                base_id, base_version = tbl.md['view_md']['base_versions'][0]
+                base_q = sql.select(schema.Table.dir_id, schema.Table.md['name'].astext).where(
+                    schema.Table.id == UUID(base_id)
+                )
+                base_dir_id, base_name = conn.execute(base_q).one()
+                base_path = dataclasses.replace(lookup_dir_path(base_dir_id).append(base_name), version=base_version)
+
+            result[tbl.md['name']] = DirEntry(
+                dir=None, dir_entries={}, table=tbl, table_error_count=err_count, base_path=base_path
+            )
 
         return result
 
@@ -1981,8 +2048,8 @@ class Catalog(CatalogBase):
                 if tbl is None:
                     raise excs.ConcurrencyError(
                         excs.ErrorCode.CONCURRENT_MODIFICATION,
-                        f'Table {str(change_set["path"])!r} was dropped since update_all() computed its changes; '
-                        'please re-run update_all().',
+                        f'Table {str(change_set["path"])!r} was dropped while this update was in progress. '
+                        f'{PY_RERUN_HINT}',
                     )
 
             # make sure that the tables to which we're applying the schema changes still have the same schema as
@@ -1992,9 +2059,21 @@ class Catalog(CatalogBase):
                 if tbl._tbl_version_path.schema_versions() != change_set['schema_versions']:
                     raise excs.ConcurrencyError(
                         excs.ErrorCode.CONCURRENT_MODIFICATION,
-                        f'Table {str(change_set["path"])!r} saw schema changes since update_all() computed '
-                        'its changes; re-run update_all().',
+                        f'Table {str(change_set["path"])!r} saw schema changes while this update was in progress. '
+                        f'{PY_RERUN_HINT}',
                     )
+
+                for name, (spec, _) in change_set['altered_columns'].items():
+                    # an entry without 'value' is a data column that becomes nullable
+                    if 'value' in spec:
+                        continue
+                    dependents = self.get_non_nullable_dependents(tbl._tbl_version.get().cols_by_name[name])
+                    if len(dependents) > 0:
+                        raise excs.ConcurrencyError(
+                            excs.ErrorCode.CONCURRENT_MODIFICATION,
+                            f'Column {name!r} of table {str(change_set["path"])!r} gained non-nullable dependents '
+                            f'while this update was in progress: {", ".join(dependents)}. {PY_RERUN_HINT}',
+                        )
 
             # (tbl_version_path, tbl_version, TableSchemaChangeSet) tuple for each table in the model update
             tbl_info = list(
@@ -2014,6 +2093,12 @@ class Catalog(CatalogBase):
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
+                # a data column's new type comes first: a column reference resolved below takes the type of its column
+                for name, (spec, _) in change_set['altered_columns'].items():
+                    if 'value' not in spec:
+                        col_type = spec['type']
+                        assert isinstance(col_type, ts.ColumnType)
+                        tv.alter_col_type_in_version(tv.cols_by_name[name], col_type)
                 added_cols, added_idxs, altered_exprs = prepare_model_updates(
                     tvp,
                     tv.display_str(),
@@ -2030,7 +2115,7 @@ class Catalog(CatalogBase):
                 _logger.info(
                     f'Applying model updates to {tv.name!r} (id={tv.id}, schema_versions={expected_schema_version}): '
                     f'add columns {[col.name for col in added_cols]}, '
-                    f'alter columns {[col.name for col, _ in altered_cols]}, '
+                    f'alter columns {list(change_set["altered_columns"])}, '
                     f'drop columns {change_set["dropped_columns"]}, '
                     f'add indexes {[spec.idx_name for spec in added_idxs]}, '
                     f'drop indexes {change_set["dropped_idxs"]}'
@@ -2070,12 +2155,22 @@ class Catalog(CatalogBase):
             verb = 'was' if len(missing) == 1 else 'were'
             raise excs.ConcurrencyError(
                 excs.ErrorCode.CONCURRENT_MODIFICATION,
-                f'{subject} {verb} dropped or replaced since update_all() computed its changes; re-run update_all().',
+                f'{subject} {verb} dropped or replaced while this update was in progress. {PY_RERUN_HINT}',
             ) from e
 
-    def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
-        @retry_md_write_loop(tvps=[tbl], lock_mutable_tree=False)
-        def add_fn() -> None:
+    def add_columns(self, tbl: TableVersionPath, cols_fn: Callable[[], list[Column]]) -> None:
+        """Add the columns returned by cols_fn().
+
+        cols_fn() runs in the transaction that writes the new columns, so its existence checks against the table's
+        columns still hold at the time of the write.
+        """
+
+        # lock_mutable_tree=True: cols_fn() may drop existing columns, which requires locking the tree
+        @retry_md_write_loop(tvps=[tbl], lock_mutable_tree=True)
+        def add_fn() -> bool:
+            cols = cols_fn()
+            if len(cols) == 0:
+                return False
             tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
             md, ops = tv.add_columns_ops(cols)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
@@ -2087,8 +2182,10 @@ class Catalog(CatalogBase):
                 schema_version_md=md.schema_version_md,
                 pending_ops=ops,
             )
+            return True
 
-        add_fn()
+        if not add_fn():
+            return
         # force a reload in order to see the new columns/idxs
         self._clear_tv_cache(TableVersionKey(tbl.tbl_id, None))
         self._roll_forward()
@@ -2116,6 +2213,26 @@ class Catalog(CatalogBase):
         # by another process.
         obj._tbl_version_path.clear_cached_md()
         return obj
+
+    def get_table_paths_md(self, paths: Sequence[Path]) -> list[tuple[TableMdPath, TableMetadata] | None]:
+        result: list[tuple[TableMdPath, TableMetadata] | None] = []
+        for export in self.get_table_paths_md_export(paths):
+            if export is None:
+                result.append(None)
+            else:
+                md, tbl_md = export
+                result.append((TableMdPath.from_md(md, is_anon_snapshot=False, catalog_uri=ROOT_PATH), tbl_md))
+        return result
+
+    @retry_md_read_loop()
+    def get_table_paths_md_export(
+        self, paths: Sequence[Path]
+    ) -> list[tuple[list[TableVersionMd], TableMetadata] | None]:
+        result: list[tuple[list[TableVersionMd], TableMetadata] | None] = []
+        for path in paths:
+            tbl = self.get_table(path, if_not_exists=IfNotExistsParam.IGNORE)
+            result.append(None if tbl is None else (self.read_md_for_export(tbl), tbl.get_metadata()))
+        return result
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         @retry_md_write_loop(paths=[path], lock_path_subtree=True)
@@ -2506,6 +2623,7 @@ class Catalog(CatalogBase):
 
     def _move_dir(self, dir_id: UUID, new_name: str, new_parent_id: UUID) -> None:
         """Update parent_id/name for dir_id."""
+        assert self._is_dir_locked(new_parent_id), (dir_id, new_parent_id, self._xact_locks)
         stmt = (
             sql.update(schema.Dir)
             .where(schema.Dir.id == dir_id)
@@ -2934,6 +3052,7 @@ class Catalog(CatalogBase):
 
     def delete_current_tbl_version_md(self, tbl_id: UUID) -> None:
         """Removes 'current_version' from stored metadata for table and resets the table to current_version - 1"""
+        assert self._is_tbl_locked(tbl_id, TblLockMode.EXCLUSIVE), (tbl_id, self._xact_locks)
         conn = get_runtime().conn
         q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
         tbl_md = conn.execute(q).one()[0]
@@ -2983,7 +3102,7 @@ class Catalog(CatalogBase):
 
     def store_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
         """Update the TableVersion.md.update_status field"""
-        assert self._in_write_xact
+        assert self._is_tbl_locked(tbl_id, TblLockMode.EXCLUSIVE), (tbl_id, self._xact_locks)
         conn = get_runtime().conn
 
         stmt = (
@@ -3181,7 +3300,7 @@ class Catalog(CatalogBase):
                         excs.ErrorCode.SERIALIZATION_FAILURE, f'Serialization retry limit ({_MAX_RETRIES}) exceeded'
                     ) from e
                 num_retries += 1
-                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}: {e.orig}')
                 time.sleep(random.uniform(0.1, 0.5))
 
     def _handle_path_collision(

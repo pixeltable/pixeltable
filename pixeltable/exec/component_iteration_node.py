@@ -76,7 +76,10 @@ class ComponentIterationNode(ExecNode):
                 for input_row in input_batch:
                     # usually computed by the input plan, which then garbage-collected the intermediates they depend on
                     if not input_row.has_val[self.iterator_args_expr.slot_idx]:
-                        self.row_builder.eval(input_row, self.iterator_args_ctx)
+                        self.row_builder.eval(input_row, self.iterator_args_ctx, ignore_errors=self.ctx.ignore_errors)
+                    if input_row.has_exc(self.iterator_args_expr.slot_idx):
+                        # an iterator argument failed to evaluate: this base row produces no output rows
+                        continue
                     iterator_args = input_row[self.iterator_args_expr.slot_idx]
                     assert isinstance(iterator_args, dict)
                     # We need to ensure that all of the required (non-nullable) parameters of the iterator are

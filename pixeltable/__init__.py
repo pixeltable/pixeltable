@@ -2,10 +2,8 @@
 Core Pixeltable API for table operations, data processing, and UDF management.
 """
 
-# ruff: noqa: F401
-
 from ._query import Query, ResultCursor, ResultSet
-from ._version import __version__
+from ._version import __version__ as __version__
 from .catalog import (
     ColumnMetadata,
     IndexMetadata,
@@ -48,32 +46,6 @@ from .func import (
     uda,
     udf,
 )
-from .globals import (
-    DirContents,
-    DirectoryNode,
-    TableKind,
-    TableNode,
-    TreeNode,
-    array,
-    create_dir,
-    create_snapshot,
-    create_table,
-    create_view,
-    drop_dir,
-    drop_table,
-    get_dir_contents,
-    get_dir_tree,
-    get_table,
-    home,
-    init,
-    list_dirs,
-    list_functions,
-    list_tables,
-    ls,
-    move,
-    tool,
-    tools,
-)
 from .row import CellError, Row, RowBatch
 from .type_system import (
     UUID,
@@ -87,35 +59,135 @@ from .type_system import (
     Image,
     Int,
     Json,
-    Required,
     String,
     Timestamp,
     Video,
 )
+from .types import FunctionKind, FunctionList, FunctionMetadata
+
+# isort: split
+from .api import (
+    DirContents,
+    DirectoryNode,
+    TableKind,
+    TableNode,
+    TreeNode,
+    array,
+    create_dir,
+    create_snapshot,
+    create_table,
+    create_view,
+    drop_dir,
+    drop_table,
+    eval_udf,
+    get_dir_contents,
+    get_dir_tree,
+    get_table,
+    home,
+    init,
+    list_dirs,
+    list_functions,
+    list_tables,
+    ls,
+    move,
+    tool,
+    tools,
+)
 
 # This import must go last to avoid circular imports.
-from . import functions, io, iterators  # isort: skip
+from . import functions, io, telemetry  # isort: skip
 
-# This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
-# stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
-
-__default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
-__removed_symbols = {
-    '_query',
-    'catalog',
-    'env',
-    'exceptions',
-    'exec',
-    'exprs',
-    'func',
-    'globals',
-    'index',
-    'metadata',
-    'plan',
-    'type_system',
-    'utils',
-}
-__all__ = sorted(__default_dir - __removed_symbols)
+__all__ = [
+    'URI',
+    'UUID',
+    'Aggregator',
+    'AlreadyExistsError',
+    'Array',
+    'Audio',
+    'AuthorizationError',
+    'Binary',
+    'Bool',
+    'BtreeIndex',
+    'CellError',
+    'Column',
+    'ColumnMetadata',
+    'ConcurrencyError',
+    'ConfigVar',
+    'Date',
+    'DirContents',
+    'DirectoryNode',
+    'Document',
+    'EmbeddingIndex',
+    'Error',
+    'ErrorCode',
+    'ExternalServiceError',
+    'Float',
+    'Function',
+    'FunctionKind',
+    'FunctionList',
+    'FunctionMetadata',
+    'Image',
+    'IndexMetadata',
+    'InsertableTable',
+    'Int',
+    'Json',
+    'NotFoundError',
+    'PixeltableWarning',
+    'PxtIterator',
+    'Query',
+    'RequestError',
+    'ResultCursor',
+    'ResultSet',
+    'Row',
+    'RowBatch',
+    'ServiceUnavailableError',
+    'String',
+    'Table',
+    'TableKind',
+    'TableMetadata',
+    'TableNode',
+    'Timestamp',
+    'Tool',
+    'ToolChoice',
+    'Tools',
+    'TreeNode',
+    'UpdateStatus',
+    'UserError',
+    'VersionMetadata',
+    'Video',
+    'View',
+    'array',
+    'create_dir',
+    'create_snapshot',
+    'create_table',
+    'create_view',
+    'drop_dir',
+    'drop_table',
+    'eval_udf',
+    'expr_udf',
+    'functions',
+    'get_dir_contents',
+    'get_dir_tree',
+    'get_table',
+    'home',
+    'init',
+    'io',
+    'iterator',
+    'list_dirs',
+    'list_functions',
+    'list_tables',
+    'ls',
+    'mcp_udfs',
+    'model_base',
+    'move',
+    'query',
+    'retrieval_udf',
+    'telemetry',
+    'tool',
+    'tools',
+    'uda',
+    'udf',
+]
 
 
 def __dir__() -> list[str]:

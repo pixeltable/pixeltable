@@ -8,8 +8,8 @@ from pixeltable import exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .globals import ArithmeticOperator
 from .literal import Literal
+from .operators import ArithmeticOperator
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
@@ -46,15 +46,15 @@ class ArithmeticExpr(Expr):
         if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,
-                f'{self}: {operator} requires numeric types, but left operand has type `{op1.col_type}`',
+                f'{self!s}: {operator} requires numeric types, but left operand has type `{op1.col_type}`',
             )
         if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,
-                f'{self}: {operator} requires numeric types, but right operand has type `{op2.col_type}`',
+                f'{self!s}: {operator} requires numeric types, but right operand has type `{op2.col_type}`',
             )
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def _op1(self) -> Expr:
@@ -66,8 +66,8 @@ class ArithmeticExpr(Expr):
 
     def __repr__(self) -> str:
         # add parentheses around operands that are ArithmeticExprs to express precedence
-        op1_str = f'({self._op1})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)
-        op2_str = f'({self._op2})' if isinstance(self._op2, ArithmeticExpr) else str(self._op2)
+        op1_str = f'({self._op1!s})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)
+        op2_str = f'({self._op2!s})' if isinstance(self._op2, ArithmeticExpr) else str(self._op2)
         return f'{op1_str} {self.operator} {op2_str}'
 
     def _equals(self, other: ArithmeticExpr) -> bool:
@@ -104,7 +104,10 @@ class ArithmeticExpr(Expr):
                 # Avoid division by zero errors by converting any zero divisor to NULL.
                 zero = sql.cast(0, self._op2.col_type.to_sa_type())
                 nullif1 = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
-                return left % nullif1
+                # Postgres' % takes the sign of the dividend (truncated division), Python's takes the sign of the
+                # divisor (floored division); adjust the remainder so that the result matches Python's %.
+                rem = left % nullif1
+                return sql.case((sql.and_(rem != 0, (rem < 0) != (nullif1 < 0)), rem + nullif1), else_=rem)
             if self.col_type.is_float_type():
                 # Postgres does not support modulus for floats
                 return None
@@ -118,7 +121,8 @@ class ArithmeticExpr(Expr):
             # Avoid division by zero errors by converting any zero divisor to NULL.
             zero = sql.cast(0, self._op2.col_type.to_sa_type())
             nullif = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
-            return sql.func.floor(sql.cast(left, self.col_type.to_sa_type()) / nullif)
+            # without type_, SQLAlchemy leaves the element's type as NullType
+            return sql.func.floor(sql.cast(left, self.col_type.to_sa_type()) / nullif, type_=self.col_type.to_sa_type())
 
         if self.operator == ArithmeticOperator.POW:
             if not self.col_type.is_float_type():
@@ -126,7 +130,8 @@ class ArithmeticExpr(Expr):
                 # supertype an integer would lose precision for large values (Python's arbitrary-precision ** is exact)
                 # TODO: is there a workaround?
                 return None
-            return sql.func.pow(sql.cast(left, self.col_type.to_sa_type()), right)
+            # without type_, SQLAlchemy leaves the element's type as NullType
+            return sql.func.pow(sql.cast(left, self.col_type.to_sa_type()), right, type_=self.col_type.to_sa_type())
         raise AssertionError()
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

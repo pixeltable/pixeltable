@@ -18,7 +18,6 @@ import abc
 import json
 import logging
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -37,8 +36,8 @@ from pixeltable.env import Env
 from pixeltable.service.management_protocol import LogRecord, SpanRecord
 from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
 from pixeltable.utils.app_module import load_app_module, module_name, services_by_name
-from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 from pixeltable.utils.project import ProjectFingerprint
+from pixeltable_cli.process import find_process, is_pid, process_timestamp, terminate_and_wait
 
 from .service_instance import ServiceInstance
 
@@ -239,38 +238,10 @@ class ServiceManager(ServiceManagerBase):
 
     def stop(self, instance: ServiceInstance) -> None:
         record = self._local_record(instance.record)
-        pid: int | None = record.pid
-        assert pid is not None  # a record this manager wrote names its process
-        if not self._is_live(record):
-            # the recorded process is gone; its pid may belong to something else by now
-            self.remove(record)
-            return
-
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            # POSIX raises ProcessLookupError once the process is gone; Windows raises PermissionError or OSError
-            # from TerminateProcess for an already-exited process. In every case there is nothing left to wait on.
-            pid = None
-
-        if pid is not None:
-            deadline = time.monotonic() + self._STOP_TIMEOUT
-            while time.monotonic() < deadline and self._is_live(record):
-                # reap promptly if the service is our own child, so its zombie isn't mistaken for a live process;
-                # a no-op when another process launched it, in which case init reaps it
-                if hasattr(os, 'WNOHANG'):
-                    try:
-                        os.waitpid(pid, os.WNOHANG)
-                    except (ChildProcessError, OSError):
-                        pass
-                time.sleep(0.05)
-            if self._is_live(record):
-                # graceful shutdown overran the timeout; SIGKILL is absent on Windows, where os.kill() already
-                # terminates unconditionally
-                try:
-                    os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
+        assert record.pid is not None  # a record this manager wrote names its process
+        proc = find_process(record.pid, record.process_started_at)
+        if proc is not None:
+            terminate_and_wait(proc, self._STOP_TIMEOUT)
         self.remove(record)
 
     def create(
@@ -474,11 +445,7 @@ class ServiceManager(ServiceManagerBase):
         behind by a crash would otherwise report whichever process inherited it.
         """
         assert record.pid is not None
-        if not pid_alive(record.pid):
-            return False
-        if record.process_started_at is None:
-            return True  # nothing to compare against: the platform reported no creation time when writing
-        return process_timestamp(record.pid) == record.process_started_at
+        return find_process(record.pid, record.process_started_at) is not None
 
     def _health_ok(self, record: LocalServiceInstanceRecord) -> bool:
         try:

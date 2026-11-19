@@ -25,7 +25,6 @@ from pixeltable import env, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import is_retryable_error
 from pixeltable.utils.image import default_format, to_base64, to_bytes
 from pixeltable.utils.local_store import TempStore
@@ -780,7 +779,7 @@ def _bedrock_response_to_pxt_tool_calls(response: dict) -> dict | None:
     return pxt_tool_calls
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['converse', 'embed', 'invoke_model', 'invoke_tools']
 
 
 def __dir__() -> list[str]:

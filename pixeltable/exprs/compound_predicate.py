@@ -9,7 +9,7 @@ from pixeltable import type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .globals import LogicalOperator
+from .operators import LogicalOperator
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
@@ -28,12 +28,12 @@ class CompoundPredicate(Expr):
             for operand in operands:
                 self._merge_operand(operand)
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         if self.operator == LogicalOperator.NOT:
-            return f'~({self.components[0]})'
-        return f' {self.operator} '.join([f'({e})' for e in self.components])
+            return f'~({self.components[0]!s})'
+        return f' {self.operator} '.join([f'({e!s})' for e in self.components])
 
     @classmethod
     def make_conjunction(cls, operands: list[Expr | None]) -> Expr | None:

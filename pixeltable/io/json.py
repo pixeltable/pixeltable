@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import pixeltable as pxt
-from pixeltable.io.utils import atomic_write, replace_media_with_fileurl
+from pixeltable.io.export import replace_media_with_fileurl
+from pixeltable.utils.file_io import atomic_write
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt

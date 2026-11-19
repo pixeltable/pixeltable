@@ -11,7 +11,6 @@ import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 from .openai import _openai_response_to_pxt_tool_calls
 
@@ -103,7 +102,7 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
     return tools._invoke(_openai_response_to_pxt_tool_calls(response))
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'invoke_tools']
 
 
 def __dir__() -> list[str]:

@@ -14,7 +14,6 @@ import math
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf(is_method=True)
@@ -29,7 +28,8 @@ def abs(self: float) -> float:
 
 @abs.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.abs(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.abs(self, type_=self.type)
 
 
 @pxt.udf(is_method=True)
@@ -51,15 +51,16 @@ def ceil(self: float) -> float:
 
 @ceil.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.ceiling(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.ceiling(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
 def floor(self: float) -> float:
     """
-    Return the ceiling of the given number.
+    Return the floor of the given number.
 
-    Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/library/math.html#math.ceil) if `self`
+    Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/library/math.html#math.floor) if `self`
     is finite, or `self` itself if `self` is infinite. (This is slightly different from the default behavior of
     `math.floor(self)`, which always returns an `int` and raises an error if `self` is infinite. The behavior of
     Pixeltable generalizes the Python operator and is chosen to align with the SQL standard.)
@@ -73,7 +74,8 @@ def floor(self: float) -> float:
 
 @floor.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.floor(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.floor(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -92,7 +94,8 @@ def round(self: float, digits: int | None = None) -> float:
 @round.to_sql
 def _(self: sql.ColumnElement, digits: sql.ColumnElement | None = None) -> sql.ColumnElement:
     if digits is None:
-        return sql.func.round(self)
+        # without type_, SQLAlchemy leaves the element's type as NullType
+        return sql.func.round(self, type_=sql.Float)
     else:
         return sql.cast(sql.func.round(sql.cast(self, sql.Numeric), sql.cast(digits, sql.Integer)), sql.Float)
 
@@ -109,7 +112,8 @@ def pow(self: float, other: float) -> float:
 
 @pow.to_sql
 def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.pow(self, other)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.pow(self, other, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -124,7 +128,8 @@ def sqrt(self: float) -> float:
 
 @sqrt.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.sqrt(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.sqrt(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -139,7 +144,8 @@ def exp(self: float) -> float:
 
 @exp.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.exp(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.exp(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -154,7 +160,8 @@ def log(self: float) -> float:
 
 @log.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.ln(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.ln(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -169,7 +176,8 @@ def log10(self: float) -> float:
 
 @log10.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.log10(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.log10(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -225,14 +233,31 @@ def to_int(self: float) -> int:
     """
     Convert a float to an integer by truncating toward zero.
 
-    Equivalent to Python [`int(self)`](https://docs.python.org/3/library/functions.html#int).
+    Equivalent to Python [`int(self)`](https://docs.python.org/3/library/functions.html#int). Raises an error for
+    infinity, NaN, and values outside the range of `Int`.
+
+    To round down, up or to the nearest integer instead, apply [`floor()`][pixeltable.functions.math.floor],
+    [`ceil()`][pixeltable.functions.math.ceil] or [`round()`][pixeltable.functions.math.round] first, as in
+    `t.x.floor().to_int()`.
     """
-    return builtins.int(self)
+    result = builtins.int(self)
+    if not -(2**63) <= result < 2**63:
+        raise OverflowError(f'{self} is outside the range of Int')
+    return result
 
 
 @to_int.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.cast(self, sql.Integer)
+def _(self: sql.ColumnElement) -> sql.ColumnElement | None:
+    if isinstance(self.type, sql.Integer):
+        return sql.cast(self, sql.BigInteger)
+    # sql.Float is a subclass of sql.Numeric in SQLAlchemy 2.0, but not in 2.1
+    if isinstance(self.type, (sql.Numeric, sql.Float)):
+        return sql.cast(sql.func.trunc(self), sql.BigInteger)
+    if isinstance(self.type, sql.Boolean):
+        # Postgres casts a boolean only to integer
+        return sql.cast(sql.cast(self, sql.Integer), sql.BigInteger)
+    # trunc() converts an untyped BIGINT to DOUBLE PRECISION, which is inexact above 2**53
+    return None
 
 
 @pxt.udf(is_method=True)
@@ -250,7 +275,22 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.cast(self, sql.Float)
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'abs',
+    'bitwise_and',
+    'bitwise_or',
+    'bitwise_xor',
+    'ceil',
+    'exp',
+    'floor',
+    'log',
+    'log10',
+    'pow',
+    'round',
+    'sqrt',
+    'to_float',
+    'to_int',
+]
 
 
 def __dir__() -> list[str]:

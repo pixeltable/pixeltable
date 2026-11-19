@@ -11,8 +11,8 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 TEST_IMAGE_PATH = TESTS_DIR / 'data' / 'images' / 'sewing-threads-smaller.jpg'
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.expensive
+@pytest.mark.skip_merge_queue
 @pytest.mark.skip(reason='[PXT-1111] Out of credits')
 @rerun_on_network_error()
 class TestBfl:

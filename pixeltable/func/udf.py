@@ -10,8 +10,8 @@ from pixeltable.utils.system import is_interactive_env
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
 from .function_registry import FunctionRegistry
-from .globals import validate_symbol_path
 from .signature import Parameter, Signature
+from .symbols import validate_symbol_path
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -75,7 +75,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         substitute_fn = kwargs.pop('substitute_fn', None)
         is_method = kwargs.pop('is_method', None)
         is_property = kwargs.pop('is_property', None)
-        is_deterministic = kwargs.pop('is_deterministic', None)
+        is_deterministic = kwargs.pop('is_deterministic', True)
         resource_pool = kwargs.pop('resource_pool', None)
         type_substitutions = kwargs.pop('type_substitutions', None)
         display_name = kwargs.pop('display_name', None)
@@ -375,7 +375,7 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
             assert name not in result_dict, f'Column name is not unique: {name}'
             if col.is_computed:
                 # Computed column. Apply any existing substitutions and add the new expression to the subst dict.
-                new_expr = col.value_expr.copy().substitute(subst)
+                new_expr = col.value_expr.substitute(subst)
                 subst[t[name]] = new_expr  # Substitute new_expr for ColumnRefs to this column
                 result_dict[name] = new_expr
             else:
@@ -393,7 +393,7 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
         return_value = exprs.InlineDict(result_dict)
     else:
         return_value = exprs.Expr.from_object(return_value)
-        return_value = return_value.copy().substitute(subst)
+        return_value = return_value.substitute(subst)
 
     if description is None:
         # Default description is the table comment

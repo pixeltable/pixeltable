@@ -194,7 +194,7 @@ class ResultSet:
             else:
                 col_name = self._col_names[index[1]]
             return self._rows[index[0]][col_name]
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Bad index: {index}')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Bad index: {index!s}')
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         return (self._row_to_dict(i) for i in range(len(self)))
@@ -484,14 +484,6 @@ class Query(QueryBase):
     def _create_query_plan(self) -> exec.ExecPlan:
         assert self._from_clause.is_local
         tvps = self._from_clause.tvps
-        has_operational_tbl = any(not tbl.tbl_version.get().is_data_versioned for tbl in tvps)
-        if has_operational_tbl:
-            # For now, we only support queries of the simplest form on operational tables
-            assert len(self._from_clause.tbls) == 1, 'TODO: implement for operational tables [PXT-1101]'
-            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for operational tables [PXT-1101]'
-            assert self.grouping_tbl_key is None, 'TODO: implement for operational tables [PXT-1101]'
-            assert self.group_by_clause is None, 'TODO: implement for operational tables [PXT-1101]'
-            assert self.sample_clause is None, 'TODO: implement for operational tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause = self.group_by_clause

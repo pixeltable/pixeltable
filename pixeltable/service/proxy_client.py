@@ -35,6 +35,7 @@ from tenacity import (
 )
 
 from pixeltable import exceptions as excs
+from pixeltable.catalog.catalog import Catalog, ProhibitedWriteError
 from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
@@ -51,7 +52,6 @@ from pixeltable.utils.object_stores import ObjectPath, StorageTarget
 from . import proxy_protocol
 from .management_client import Credential, is_refusal, refusal, retry_after_seconds
 from .proxy_protocol import (
-    KEEP_ALIVE_S,
     InlinePartSink,
     MediaPath,
     PartSink,
@@ -142,7 +142,9 @@ class Transport(abc.ABC):
         return self._http.request(method, path, content=content, headers=headers)
 
 
-_MAX_IDLE_S = KEEP_ALIVE_S - 1.0  # so no connection is reused as the daemon closes it
+# Below the 5 s keep-alive of daemons from earlier releases, which a newer client can still reach, so no connection is
+# reused as the daemon closes it.
+_MAX_IDLE_S = 4.0
 
 
 class HttpTransport(Transport):
@@ -592,6 +594,7 @@ class ProxyClient:
             args=wire_args,
             path_key=None if path_key is None else path_key.as_dict(),
             snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
+            catalog_frozen=Catalog.is_frozen(),
         )
         body = encode_body(request.model_dump_json().encode(), parts)
         response_head, response_parts = decode_body(self._transport.post(body))
@@ -615,6 +618,8 @@ class ProxyClient:
 
         A daemon from before those fields leaves the two numbers only in the sentence.
         """
+        if response.get('prohibited_write', False):
+            raise ProhibitedWriteError()
         error = response.get('error')
         if not isinstance(error, dict):
             if error is not None:

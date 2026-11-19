@@ -17,11 +17,10 @@ import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import Expr
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 from pixeltable.utils.local_store import TempStore
 
-from . import util
+from . import media_metadata as util
 
 
 @pxt.udf(is_method=True)
@@ -729,7 +728,40 @@ def to_video(
     )
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'alpha_composite',
+    'b64_encode',
+    'blend',
+    'composite',
+    'convert',
+    'crop',
+    'effect_spread',
+    'entropy',
+    'get_metadata',
+    'getbands',
+    'getbbox',
+    'getchannel',
+    'getcolors',
+    'getextrema',
+    'getpalette',
+    'getpixel',
+    'getprojection',
+    'height',
+    'histogram',
+    'mode',
+    'point',
+    'quantize',
+    'reduce',
+    'resize',
+    'rotate',
+    'size',
+    'stitch_tiles',
+    'thumbnail',
+    'tile_iterator',
+    'to_video',
+    'transpose',
+    'width',
+]
 
 
 def __dir__() -> list[str]:

@@ -16,12 +16,29 @@ from ..utils import (
     rerun_on_network_error,
     skip_test_if_no_config,
     skip_test_if_not_installed,
+    validate_update_status,
 )
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestJson:
+    def test_loads(self, uses_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'n': pxt.Int, 's': pxt.String | None})
+        rows = [
+            {'n': 0, 's': '{"a": [1, 2], "b": null}'},
+            {'n': 1, 's': 'null'},
+            {'n': 2, 's': '{'},
+            {'n': 3, 's': None},
+        ]
+        t.insert(rows)
+        status = t.add_computed_column(parsed=pxtf.json.loads(t.s), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.parsed, err=t.parsed.errormsg).order_by(t.n).collect()
+        assert res['parsed'] == [{'a': [1, 2], 'b': None}, None, None, None]
+        assert 'Expecting property name' in res['err'][2]
+        assert t.select(a=t.parsed.a[1]).order_by(t.n).collect()['a'] == [2, None, None, None]
+
     def test_list_iterator(self, uses_db: None) -> None:
         schema = {
             'id': pxt.Int | None,
@@ -96,6 +113,23 @@ class TestJson:
         res = v5.order_by(v5.id, v5.pos).collect()
         assert res['my_int'] == [j for i in range(50) for j in range(i + 1)]
         assert res['my_str'] == [f'string_{j}' if j < i else None for i in range(50) for j in range(i + 1)]
+
+    def test_list_iterator_null(self, uses_db: None) -> None:
+        schema = {'id': pxt.Int, 'col_1': pxt.Json[[{'a': pxt.Int}]] | None, 'col_2': pxt.Json[[int]] | None}
+        t = pxt.create_table('test_table', schema)
+        t.insert([{'id': 0, 'col_1': [{'a': 0}, {'a': 1}], 'col_2': [0, 1]}, {'id': 1, 'col_1': None, 'col_2': None}])
+        v1 = pxt.create_view('test_view_1', t, iterator=pxtf.json.list_iterator(t.col_1))
+        v2 = pxt.create_view('test_view_2', t, iterator=pxtf.json.list_iterator(x=t.col_2, mode='padded'))
+        validate_update_status(
+            t.insert([{'id': 2, 'col_1': None, 'col_2': None}, {'id': 3, 'col_1': [{'a': 3}], 'col_2': [3]}]),
+            expected_rows=4,
+        )
+        res = v1.order_by(v1.id, v1.pos).select(v1.id, v1.a).collect()
+        assert res['id'] == [0, 0, 3]
+        assert res['a'] == [0, 1, 3]
+        res = v2.order_by(v2.id, v2.pos).select(v2.id, v2.x).collect()
+        assert res['id'] == [0, 0, 3]
+        assert res['x'] == [0, 1, 3]
 
     def test_list_iterator_type_cast(self, uses_db: None) -> None:
         """Iterator args that cast paths into untyped json with astype()."""
@@ -530,7 +564,8 @@ class TestJson:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'merge\(\) is only defined for two JSON objects'):
             tn.where(tn.a != None).select(o=tn.a.merge(tn.b)).collect()
 
-    @pytest.mark.very_expensive  # Downloads a Hugging Face model
+    @pytest.mark.skip_merge_queue  # Downloads a Hugging Face model
+    @pytest.mark.xdist_group('large_model')
     @rerun_on_network_error()
     def test_list_iterator_appl(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         """
