@@ -404,10 +404,13 @@ class TestGatewayOrigin:
             monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
         assert Env.get().gateway_origin('acme', 'main') == expected
 
-    def test_gateway_origin_rejects_a_port(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A PIXELTABLE_CLOUD_HOST with a port is refused: the gateway is always on port 443."""
-        monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', 'pxt.run:9000')
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='expected a domain without a port'):
+    @pytest.mark.parametrize('cloud_host', ['pxt.run:9000', 'https://dev.pxt.run'])
+    def test_gateway_origin_rejects_a_scheme_or_port(
+        self, cloud_host: str, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A PIXELTABLE_CLOUD_HOST with a scheme or a port is refused: the gateway is always https:// on port 443."""
+        monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='expected a domain without a scheme or port'):
             Env.get().gateway_origin('acme', 'main')
 
 

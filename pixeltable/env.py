@@ -749,7 +749,7 @@ class Env:
         if ':' in domain:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'Invalid PIXELTABLE_CLOUD_HOST value {domain!r}: expected a domain without a port, '
+                f'Invalid PIXELTABLE_CLOUD_HOST value {domain!r}: expected a domain without a scheme or port, '
                 'such as dev.pxt.run.',
             )
         # each Cloud deployment, such as dev or prod, serves its gateway under svc.<domain>

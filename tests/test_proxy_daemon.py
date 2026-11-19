@@ -7,6 +7,7 @@ import pathlib
 import re
 import shutil
 import socket
+import ssl
 import tarfile
 import threading
 import time
@@ -1206,7 +1207,7 @@ class TestGatewayRetries:
     @pytest.mark.parametrize(
         'answer',
         [
-            # the daemon itself, alive and answering; a rollout can produce one
+            # a load balancer that does not pass the request on
             httpx.Response(503, content=b'unavailable'),
             # a 429 without the gateway's envelope, from a load balancer
             httpx.Response(429, content=b'slow down'),
@@ -1413,7 +1414,7 @@ class TestGatewayRetries:
         ):
             transport.post(b'body')
         assert len(requests) == 1
-        assert requests[0].headers['Authorization'] == 'Bearer key'
+        assert requests[0].headers['X-api-key'] == 'key'
 
     def test_a_key_without_access_to_the_database_is_refused(self) -> None:
         answer = _gateway_answer(403, 'INSUFFICIENT_PRIVILEGES', 'This API key is not permitted to call this service.')
@@ -1425,26 +1426,51 @@ class TestGatewayRetries:
         assert len(requests) == 1
 
     @pytest.mark.parametrize(
-        ('answer', 'error_code', 'message'),
+        'answer',
         [
-            (httpx.Response(404, content=b'nope'), 'PROVIDER_BAD_REQUEST', 'refused this request: Not Found.'),
+            # the daemon's answer for a missing media file
+            httpx.Response(404, json={'detail': 'not found'}),
             # JSON that is not an object
-            (httpx.Response(404, json=['nope']), 'PROVIDER_BAD_REQUEST', 'refused this request: Not Found.'),
-            # not sent again, although CONCURRENT_MODIFICATION tells the user that a retry can succeed
-            (httpx.Response(409, content=b'conflict'), 'CONCURRENT_MODIFICATION', 'refused this request: Conflict.'),
+            httpx.Response(404, json=['nope']),
+            # a firewall's own page, which says nothing about the credential
+            httpx.Response(403, content=b'<html>Access denied</html>'),
+            httpx.Response(409, content=b'conflict'),
             # httpx does not follow redirects
-            (
-                httpx.Response(302, headers={'Location': 'https://elsewhere/'}),
-                'PROVIDER_UNEXPECTED_RESPONSE',
-                'pxt://org1:db1 sent an unexpected answer (HTTP 302).',
-            ),
+            httpx.Response(302, headers={'Location': 'https://elsewhere/'}),
         ],
     )
-    def test_an_unexpected_answer_is_not_retried(self, answer: httpx.Response, error_code: str, message: str) -> None:
+    def test_an_unexpected_answer_is_not_retried(self, answer: httpx.Response) -> None:
+        """Only the gateway's own refusals read as a refused credential."""
         transport, requests = _gateway([answer] * 2)
-        with pxt_raises(excs.ErrorCode[error_code], match=re.escape(message)):
+        with pxt_raises(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            match=re.escape(f'A request to pxt://org1:db1 got an unexpected answer (HTTP {answer.status_code}).'),
+        ):
             transport.post(b'body')
         assert len(requests) == 1
+
+    def test_a_certificate_that_does_not_verify_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A proxy or firewall that inspects TLS presents the same certificate on every try."""
+        handshakes: list[socket.socket] = []
+
+        def refuse_certificate(context: ssl.SSLContext, sock: socket.socket, *args: Any, **kwargs: Any) -> None:
+            handshakes.append(sock)
+            raise ssl.SSLCertVerificationError(
+                1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in chain'
+            )
+
+        monkeypatch.setattr(ssl.SSLContext, 'wrap_socket', refuse_certificate)
+        with socket.create_server(('127.0.0.1', 0)) as inspecting_proxy:
+            origin = f'https://127.0.0.1:{inspecting_proxy.getsockname()[1]}'
+            transport = GatewayTransport('org1', 'db1', lambda: _KEY, origin)
+            with pxt_raises(
+                excs.ErrorCode.DATABASE_UNAVAILABLE,
+                match=r'Cannot reach pxt://org1:db1: the TLS certificate did not verify .*\n'
+                r'A proxy or firewall on this network may inspect TLS: have it pass .* through uninspected, or set '
+                r'SSL_CERT_FILE to a file with its CA certificate\.',
+            ):
+                transport.post(b'body')
+        assert len(handshakes) == 1
 
     def test_daemon_media_is_fetched_with_the_credential(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """The gateway checks every request, so a media download goes through the transport, not fetch_url();
@@ -1455,12 +1481,24 @@ class TestGatewayRetries:
         assert fetched.suffix == '.jpg'
         assert fetched.read_bytes() == b'jpeg bytes'
         [request] = requests
-        assert (request.method, request.url.path, request.headers['Authorization']) == (
-            'GET',
-            '/db/media/a/b.jpg',
-            'Bearer key',
-        )
+        assert (request.method, request.url.path, request.headers['X-api-key']) == ('GET', '/db/media/a/b.jpg', 'key')
         assert transport.fetch('https://elsewhere/x.jpg') == pathlib.Path('/fetchedhttps://elsewhere/x.jpg')
+
+    @pytest.mark.parametrize(
+        'failure',
+        [
+            httpx.ReadError('Connection reset by peer'),
+            # a load balancer's 502 when a gateway pod dies during the request
+            httpx.Response(502, content=b'<html>502 Bad Gateway</html>'),
+        ],
+    )
+    def test_a_media_download_that_fails_midway_is_retried(
+        self, failure: httpx.Response | BaseException, init_env: None
+    ) -> None:
+        """A GET changes nothing, so it can go again after the daemon received it."""
+        transport, requests = _gateway([failure, httpx.Response(200, content=b'jpeg bytes')])
+        assert transport.fetch(transport.media_url('a/b.jpg')).read_bytes() == b'jpeg bytes'
+        assert len(requests) == 2
 
 
 class _SigningPlane:

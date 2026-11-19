@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import shutil
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,7 +20,7 @@ import weakref
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 from uuid import UUID
 
 import httpx
@@ -50,7 +51,7 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectPath, StorageTarget
 
 from . import proxy_protocol
-from .management_client import Credential, is_refusal, refusal, retry_after_seconds
+from .management_client import Credential, refusal, retry_after_seconds
 from .proxy_protocol import (
     InlinePartSink,
     MediaPath,
@@ -219,14 +220,17 @@ def _gateway_detail(response: httpx.Response) -> dict[str, Any] | None:
     return detail
 
 
-def _denied(exc: BaseException) -> PermissionError | None:
-    """Return the PermissionError in the chain of exc, or None.
+_E = TypeVar('_E', bound=BaseException)
 
-    httpcore raises its connect error 'from None', so the OS error is in __context__, not in __cause__.
+
+def _find_cause(exc: BaseException, exc_type: type[_E]) -> _E | None:
+    """Return the first exception of exc_type in the chain of exc, or None.
+
+    httpcore raises its connect error 'from None', so the OS or TLS error is in __context__, not in __cause__.
     """
     cause = exc.__cause__ or exc.__context__
     while cause is not None:
-        if isinstance(cause, PermissionError):
+        if isinstance(cause, exc_type):
             return cause
         cause = cause.__cause__ or cause.__context__
     return None
@@ -321,13 +325,15 @@ class GatewayTransport(Transport):
         connection, the request could not be written, or the HTTPS proxy answered 5xx or 429) is retried with backoff.
         So is an error the gateway marks retryable, or a 429 or 503 without the gateway's error body, after its
         Retry-After. Retries stop after _RETRY_MAX_DELAY, or after _START_MAX_DELAY once the gateway has answered that
-        the database is starting. A refused credential, a connection the OS refuses, a proxy that refuses the
-        connection and any other answer are not retried.
+        the database is starting. A refused credential, a connection the OS refuses, a TLS certificate that does not
+        verify, a proxy that refuses the connection and any other answer are not retried.
 
-        A failure after the daemon received the request is not retried: the request may have crashed the daemon, and
-        a write may already be applied.
+        A failure after the daemon received the request, a broken connection or a 5xx without the gateway's error
+        body, is retried only for a GET, which changes nothing. Any other request may have crashed the daemon, and a
+        write may already be applied.
         """
         uri = f'pxt://{self._org}:{self._db}'
+        idempotent = method == 'GET'
 
         @retry(
             retry=retry_if_exception_type(ConnectionError)
@@ -339,11 +345,11 @@ class GatewayTransport(Transport):
             retry_error_callback=lambda retry_state: retry_state.outcome.result(),
         )
         def _attempt() -> bytes | excs.Error:
-            """Return the content, or the error of an answer that allows a retry. Raise any other error."""
+            """Return the content, or an error that allows a retry. Raise any other error."""
             # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
             credential = self._credential_cb()
             try:
-                response = self._send(method, path, body, {'Authorization': f'Bearer {credential.value}'})
+                response = self._send(method, path, body, credential.header())
             except httpx.ProxyError as exc:
                 # the message is the proxy's answer to CONNECT, such as '502 Bad Gateway'. A 5xx or 429 can pass on a
                 # retry, and a refusal cannot.
@@ -352,15 +358,29 @@ class GatewayTransport(Transport):
                     raise ConnectionError(f'the HTTPS proxy answered {exc}') from exc
                 raise self._proxy_refusal(uri, str(exc)) from exc
             except _UNDELIVERED_EXC as exc:
-                denied = _denied(exc)
+                denied = _find_cause(exc, PermissionError)
                 if denied is not None:
                     raise denied from exc
+                cert_error = _find_cause(exc, ssl.SSLCertVerificationError)
+                if cert_error is not None:
+                    # a proxy or firewall that inspects TLS presents the same certificate on every try
+                    raise excs.ServiceUnavailableError(
+                        excs.ErrorCode.DATABASE_UNAVAILABLE,
+                        f'Cannot reach {uri}: the TLS certificate did not verify ({cert_error}).\n'
+                        f'A proxy or firewall on this network may inspect TLS: have it pass {self._host_wildcard} '
+                        'through uninspected, or set SSL_CERT_FILE to a file with its CA certificate.',
+                    ) from exc
                 raise ConnectionError(f'{method} {path}: {exc}') from exc
             except _UNANSWERED_EXC as exc:
-                raise _unanswered(uri) from exc
+                if not idempotent:
+                    raise _unanswered(uri) from exc
+                return excs.ServiceUnavailableError(
+                    excs.ErrorCode.DATABASE_UNAVAILABLE,
+                    f'The connection to {uri} failed during {method} {path}: {exc}.',
+                )
             if response.status_code == 200:
                 return response.content
-            error, allows_retry = self._answer_error(response, credential)
+            error, allows_retry = self._answer_error(response, credential, idempotent)
             if not allows_retry:
                 raise error
             return error
@@ -400,32 +420,29 @@ class GatewayTransport(Transport):
             f'Allow {self._host_wildcard} on port 443 in the proxy, or exempt it with NO_PROXY.',
         )
 
-    def _answer_error(self, response: httpx.Response, sent: Credential) -> tuple[excs.Error, bool]:
+    def _answer_error(self, response: httpx.Response, sent: Credential, idempotent: bool) -> tuple[excs.Error, bool]:
         """Return the error for an answer other than 200, and whether the request can be sent again.
 
         An error the gateway marks retryable, or a 429 or 503 without the gateway's error body, allows a retry: each
-        comes before the request reaches the daemon. The daemon or a load balancer can send any other 5xx after the
-        daemon received the request.
+        comes before the request reaches the daemon. Any other 5xx without that body allows a retry only for an
+        idempotent request, because the daemon or a load balancer can send it after the daemon received the request.
         """
         uri = f'pxt://{self._org}:{self._db}'
         status = response.status_code
         detail = _gateway_detail(response)
         if detail is not None:
             reason = detail.get('message', '')
-        else:
-            reason = response.reason_phrase or f'HTTP {status}'
-        # a refused credential reads like one the control plane refused, and says where the credential came from
-        if status in (401, 403) or (detail is None and is_refusal(status)):
-            # refusal() adds its own final period
-            return refusal(status, reason.rstrip('.'), sent, f'connect to {uri}'), False
-        if detail is not None:
+            if status in (401, 403):
+                # a refused credential reads like one the control plane refused, and says where the credential came
+                # from. refusal() adds its own final period.
+                return refusal(status, reason.rstrip('.'), sent, f'connect to {uri}'), False
             # every retryable error of the gateway comes with a Retry-After header, but not always with a retry_after
             error = excs.Error.from_dict(
                 {**detail, 'message': f'{uri}: {reason}', 'retry_after': retry_after_seconds(response)}
             )
             return error, detail.get('retryable') is True
-        if status in (429, 503):
-            # throttled or unavailable before handling the request: the daemon during a rollout, or a load balancer
+        if status in (429, 503) or (idempotent and status >= 500):
+            # a load balancer answers 429 or 503 without passing the request on, and a GET can go again after any 5xx
             error = excs.ServiceUnavailableError(
                 excs.ErrorCode.DATABASE_UNAVAILABLE,
                 f'{uri} is unavailable (HTTP {status}).',
@@ -434,10 +451,11 @@ class GatewayTransport(Transport):
             return error, True
         if status >= 500:
             return _unanswered(uri), False
-        # httpx does not follow redirects, so a 3xx ends here too
+        # a 4xx from something other than the gateway, such as a proxy or the daemon, or a 3xx, since httpx does not
+        # follow redirects
         error = excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-            f'{uri} sent an unexpected answer (HTTP {status}).',
+            f'A request to {uri} got an unexpected answer (HTTP {status}).',
             provider='pixeltable_cloud',
             status_code=status,
         )
