@@ -54,7 +54,7 @@ LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(
 
 T = TypeVar('T')
 
-_DEFAULT_PROXY_DOMAIN = 'pxt.run'
+_DEFAULT_CLOUD_HOST = 'pxt.run'
 
 
 def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, default: int) -> None:
@@ -703,11 +703,12 @@ class Env:
     def gateway_origin(self, org: str, db: str) -> str:
         """Return the HTTPS origin of the Cloud gateway for pxt://org:db."""
         # cloud_host is deliberately not a registered config option: PIXELTABLE_CLOUD_HOST is the only override
-        domain = Config.get().get_string_value('cloud_host') or _DEFAULT_PROXY_DOMAIN
+        domain = Config.get().get_string_value('cloud_host') or _DEFAULT_CLOUD_HOST
         if ':' in domain:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'Invalid PIXELTABLE_CLOUD_HOST value {domain!r}: the gateway is reached on port 443.',
+                f'Invalid PIXELTABLE_CLOUD_HOST value {domain!r}: expected a domain without a port, '
+                'such as dev.pxt.run.',
             )
         # each Cloud deployment, such as dev or prod, serves its gateway under svc.<domain>
         return f'https://{org}-{db}.svc.{domain}'

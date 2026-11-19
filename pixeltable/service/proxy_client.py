@@ -183,21 +183,25 @@ _UNDELIVERED_EXC = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout,
 _UNANSWERED_EXC = (httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError)
 
 
-def _https_proxy(origin: str) -> str | None:
-    """Return the proxy in HTTPS_PROXY for origin, or None for a direct connection.
+def _https_proxy(host: str) -> urllib.parse.SplitResult | None:
+    """Return the proxy in HTTPS_PROXY for host, or None for a direct connection.
 
-    NO_PROXY can exempt the host of origin. A proxy other than http:// or https://, such as socks5://, is not used,
-    because httpx needs the optional socksio package for it.
+    NO_PROXY can exempt host. A proxy other than http:// or https://, such as socks5://, is not used, because httpx
+    needs the optional socksio package for it.
     """
-    proxy = urllib.request.getproxies_environment().get('https')
-    host = urllib.parse.urlsplit(origin).hostname or ''
-    # with a proxy in the environment, proxy_bypass() reads NO_PROXY there too, not in the system settings
-    if proxy is None or urllib.request.proxy_bypass(host):
+    url = urllib.request.getproxies_environment().get('https')
+    # with a proxy in the environment, proxy_bypass() reads NO_PROXY there too, not in the system settings. Given
+    # host:443, it matches an entry for the host, for one of its domains, or for the host and that port.
+    if url is None or urllib.request.proxy_bypass(f'{host}:443'):
         return None
-    # a proxy without a scheme is an http:// one, such as 'proxy.example.com:3128'
-    if '://' not in proxy:
-        proxy = f'http://{proxy}'
-    return proxy if urllib.parse.urlsplit(proxy).scheme in ('http', 'https') else None
+    try:
+        # a proxy without a scheme is an http:// one, such as 'proxy.example.com:3128'
+        proxy = urllib.parse.urlsplit(url if '://' in url else f'http://{url}')
+        _ = proxy.port  # raises ValueError for a port outside 0-65535, which httpx would accept
+    except ValueError:
+        # urlsplit()'s error repeats the netloc, which can contain the proxy password
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, 'HTTPS_PROXY is not a valid URL.') from None
+    return proxy if proxy.scheme in ('http', 'https') else None
 
 
 def _gateway_detail(response: httpx.Response) -> dict[str, Any] | None:
@@ -252,15 +256,26 @@ def _wait(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=0.5, max=5.0)(retry_state)
 
 
-def _stop(retry_state: RetryCallState) -> bool:
-    """Stop after _RETRY_MAX_DELAY, or after _START_MAX_DELAY while the database is starting."""
-    error = _last_answer_error(retry_state)
-    # a request to a database that was stopped for being idle starts it, and the gateway answers DATABASE_UNAVAILABLE
-    # with a Retry-After until it is up
-    starting = (
-        error is not None and error.error_code == excs.ErrorCode.DATABASE_UNAVAILABLE and error.retry_after is not None
-    )
-    return stop_after_delay(_START_MAX_DELAY if starting else _RETRY_MAX_DELAY)(retry_state)
+class _RetryBudget:
+    """Decide when to stop retrying one request: after _RETRY_MAX_DELAY, or after _START_MAX_DELAY once the gateway
+    has answered that the database is starting. Each request needs its own instance."""
+
+    _starting: bool
+
+    def __init__(self) -> None:
+        self._starting = False
+
+    def __call__(self, retry_state: RetryCallState) -> bool:
+        error = _last_answer_error(retry_state)
+        # a request to a database that was stopped for being idle starts it, and the gateway answers
+        # DATABASE_UNAVAILABLE with a Retry-After until it is up. A failed connection in between keeps the longer wait.
+        if (
+            error is not None
+            and error.error_code == excs.ErrorCode.DATABASE_UNAVAILABLE
+            and error.retry_after is not None
+        ):
+            self._starting = True
+        return stop_after_delay(_START_MAX_DELAY if self._starting else _RETRY_MAX_DELAY)(retry_state)
 
 
 class GatewayTransport(Transport):
@@ -271,53 +286,58 @@ class GatewayTransport(Transport):
     _db: str
     # read per request: a session renewed while this client lives reaches the next request
     _credential_cb: Callable[[], Credential]
+    # the wildcard that covers the gateway host of every database, such as '*.svc.pxt.run'
+    _host_wildcard: str
+    _proxy: urllib.parse.SplitResult | None
 
     def __init__(self, org: str, db: str, credential_cb: Callable[[], Credential], origin: str):
         self._org = org
         self._db = db
         self._credential_cb = credential_cb
-        # the gateway forwards /db/rpc and /db/media/{ref} to the daemon; media URLs are formed against it (see fetch())
+        host = urllib.parse.urlsplit(origin).hostname or ''
+        # the gateway host is <org>-<db>.svc.<domain>, so its domain without the first label covers every database
+        self._host_wildcard = f'*.{host.partition(".")[2]}'
+        self._proxy = _https_proxy(host)
+        # the gateway forwards /db/rpc and /db/media/{ref} to the daemon
         endpoint = f'{origin}/db'
         transport = httpx.HTTPTransport(
-            proxy=_https_proxy(origin),
+            proxy=None if self._proxy is None else self._proxy.geturl(),
             limits=httpx.Limits(max_connections=_MAX_POOL_SIZE, keepalive_expiry=_MAX_GATEWAY_IDLE_S),
             # probes keep a NAT or firewall from dropping the connection during a long request, in which the daemon
             # sends nothing until it is done
             socket_options=tcp_keepalive_options(),
         )
         http = httpx.Client(
-            base_url=endpoint,
-            timeout=httpx.Timeout(_RPC_TIMEOUT, connect=_CONNECT_TIMEOUT),
-            transport=transport,
-            # so that httpx does not add a proxy from the environment ahead of transport
-            trust_env=False,
+            base_url=endpoint, timeout=httpx.Timeout(_RPC_TIMEOUT, connect=_CONNECT_TIMEOUT), transport=transport
         )
         super().__init__(endpoint, http)
 
     def _request(self, method: str, path: str, body: bytes | None = None) -> bytes:
-        """Issue one request with the current credential and return the raw body; a body is an encoded /rpc request.
+        """Issue one request with the current credential and return the raw body.
 
-        A failure that leaves the request undelivered (no connection, the request could not be written, or the HTTPS
-        proxy answered 5xx or 429) is retried with backoff, as is an answer with a retryable error, after its
-        Retry-After. Retries stop after _RETRY_MAX_DELAY, or after _START_MAX_DELAY while the database is starting.
-        A refused credential, a connection the OS refuses, a stopped database and any other 4xx are not retried.
+        body is an encoded /rpc request, or None for a GET. A failure that leaves the request undelivered (no
+        connection, the request could not be written, or the HTTPS proxy answered 5xx or 429) is retried with backoff.
+        So is an error the gateway marks retryable, or a 429 or 503 without the gateway's error body, after its
+        Retry-After. Retries stop after _RETRY_MAX_DELAY, or after _START_MAX_DELAY once the gateway has answered that
+        the database is starting. A refused credential, a connection the OS refuses, a proxy that refuses the
+        connection and any other answer are not retried.
 
-        A failure after the daemon received the request is treated as a server crash and is not retried; retries
-        in this scenario can inadvertently DOS the pod. A 502 or 504 of the gateway is one: the daemon may have
-        received the request.
+        A failure after the daemon received the request is not retried: the request may have crashed the daemon, and
+        a write may already be applied.
         """
         uri = f'pxt://{self._org}:{self._db}'
 
         @retry(
             retry=retry_if_exception_type(ConnectionError)
-            | retry_if_result(lambda result: isinstance(result, excs.Error) and result.is_retryable),
+            | retry_if_result(lambda result: isinstance(result, excs.Error)),
             wait=_wait,
-            stop=_stop,
+            stop=_RetryBudget(),
             before_sleep=before_sleep_log(_logger, logging.DEBUG),
             # the last try's content or error, or the exception it raised
             retry_error_callback=lambda retry_state: retry_state.outcome.result(),
         )
         def _attempt() -> bytes | excs.Error:
+            """Return the content, or the error of an answer that allows a retry. Raise any other error."""
             # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
             credential = self._credential_cb()
             try:
@@ -328,10 +348,7 @@ class GatewayTransport(Transport):
                 status = str(exc).partition(' ')[0]
                 if status == '429' or status.startswith('5'):
                     raise ConnectionError(f'the HTTPS proxy answered {exc}') from exc
-                raise excs.ServiceUnavailableError(
-                    excs.ErrorCode.DATABASE_UNAVAILABLE,
-                    f'Cannot reach {uri}: the HTTPS proxy refused the connection ({exc}).',
-                ) from exc
+                raise self._proxy_refusal(uri, str(exc)) from exc
             except _UNDELIVERED_EXC as exc:
                 denied = _denied(exc)
                 if denied is not None:
@@ -341,47 +358,88 @@ class GatewayTransport(Transport):
                 raise _unanswered(uri) from exc
             if response.status_code == 200:
                 return response.content
-            return self._answer_error(response, credential)
+            error, allows_retry = self._answer_error(response, credential)
+            if not allows_retry:
+                raise error
+            return error
 
         try:
             result = _attempt()
         except ConnectionError as exc:
-            # every try within the budget failed; every gateway host is <org>-<db>.<domain>, so allowing *.<domain>
-            # covers every database
-            domain = (urllib.parse.urlsplit(self._endpoint).hostname or '').partition('.')[2]
+            # every try within the budget failed to reach the gateway
             raise excs.ServiceUnavailableError(
                 excs.ErrorCode.DATABASE_UNAVAILABLE,
-                f'Cannot reach {uri}: {exc}.\nIf this network limits outbound HTTPS, allow *.{domain} on port 443, '
-                'or set HTTPS_PROXY to the proxy it uses.',
+                f'Cannot reach {uri}: {exc}.\nIf this network limits outbound HTTPS, allow {self._host_wildcard} on '
+                'port 443, or set HTTPS_PROXY to the proxy it uses.',
             ) from exc
         if isinstance(result, excs.Error):
             raise result
         return result
 
-    def _answer_error(self, response: httpx.Response, sent: Credential) -> excs.Error:
-        """Return the error for an answer other than 200, from the gateway or from the daemon itself."""
+    def _proxy_refusal(self, uri: str, answer: str) -> excs.Error:
+        """Return the error for an HTTPS proxy that refused the connection with answer, such as '403 Forbidden'."""
+        if answer.startswith('407 '):
+            # httpx raises ProxyError only for a connection through the proxy
+            assert self._proxy is not None
+            if self._proxy.username is None:
+                fix = (
+                    'Put the proxy credentials in HTTPS_PROXY, as '
+                    f'{self._proxy.scheme}://user:password@{self._proxy.netloc}.'
+                )
+            else:
+                fix = 'Check the proxy credentials in HTTPS_PROXY.'
+            return excs.ServiceUnavailableError(
+                excs.ErrorCode.DATABASE_UNAVAILABLE,
+                f'Cannot reach {uri}: the HTTPS proxy requires authentication ({answer}).\n{fix}',
+            )
+        return excs.ServiceUnavailableError(
+            excs.ErrorCode.DATABASE_UNAVAILABLE,
+            f'Cannot reach {uri}: the HTTPS proxy refused the connection ({answer}).\n'
+            f'Allow {self._host_wildcard} on port 443 in the proxy, or exempt it with NO_PROXY.',
+        )
+
+    def _answer_error(self, response: httpx.Response, sent: Credential) -> tuple[excs.Error, bool]:
+        """Return the error for an answer other than 200, and whether the request can be sent again.
+
+        An error the gateway marks retryable, or a 429 or 503 without the gateway's error body, allows a retry: each
+        comes before the request reaches the daemon. The daemon or a load balancer can send any other 5xx after the
+        daemon received the request.
+        """
         uri = f'pxt://{self._org}:{self._db}'
+        status = response.status_code
         detail = _gateway_detail(response)
         if detail is not None:
             reason = detail.get('message', '')
         else:
-            reason = response.reason_phrase or f'HTTP {response.status_code}'
+            reason = response.reason_phrase or f'HTTP {status}'
         # a refused credential reads like one the control plane refused, and says where the credential came from
-        if response.status_code in (401, 403) or (detail is None and is_refusal(response.status_code)):
-            return refusal(response.status_code, reason, sent, f'connect to {uri}')
+        if status in (401, 403) or (detail is None and is_refusal(status)):
+            # refusal() adds its own final period
+            return refusal(status, reason.rstrip('.'), sent, f'connect to {uri}'), False
         if detail is not None:
             # every retryable error of the gateway comes with a Retry-After header, but not always with a retry_after
-            return excs.Error.from_dict(
+            error = excs.Error.from_dict(
                 {**detail, 'message': f'{uri}: {reason}', 'retry_after': retry_after_seconds(response)}
             )
-        if response.status_code == 429 or response.status_code >= 500:
-            # the daemon itself, or a load balancer, which is alive and answering
-            return excs.ServiceUnavailableError(
+            return error, detail.get('retryable') is True
+        if status in (429, 503):
+            # throttled or unavailable before handling the request: the daemon during a rollout, or a load balancer
+            error = excs.ServiceUnavailableError(
                 excs.ErrorCode.DATABASE_UNAVAILABLE,
-                f'{uri} is unavailable (HTTP {response.status_code}).',
+                f'{uri} is unavailable (HTTP {status}).',
                 retry_after=retry_after_seconds(response),
             )
-        return _unanswered(uri)
+            return error, True
+        if status >= 500:
+            return _unanswered(uri), False
+        # httpx does not follow redirects, so a 3xx ends here too
+        error = excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'{uri} sent an unexpected answer (HTTP {status}).',
+            provider='pixeltable_cloud',
+            status_code=status,
+        )
+        return error, False
 
     def post(self, body: bytes) -> bytes:
         return self._request('POST', '/rpc', body)

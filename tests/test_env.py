@@ -341,9 +341,9 @@ class TestGatewayOrigin:
         assert Env.get().gateway_origin('acme', 'main') == expected
 
     def test_gateway_origin_rejects_a_port(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A PIXELTABLE_CLOUD_HOST with a port is refused: the gateway is reached on port 443."""
+        """A PIXELTABLE_CLOUD_HOST with a port is refused: the gateway is always on port 443."""
         monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', 'pxt.run:9000')
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the gateway is reached on port 443'):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='expected a domain without a port'):
             Env.get().gateway_origin('acme', 'main')
 
 
