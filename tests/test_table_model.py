@@ -2975,6 +2975,13 @@ class TestTableModel:
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
         assert rows == [['alpha', 'beta'], ['beta']]
 
+        t = pxt.create_table(f'{target}/t', {'cutoff': pxt.Int})
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match='A query over model `Docs` can only be used in a TableModel'
+        ):
+            t.add_computed_column(matches=titles_after(t.cutoff))
+        assert 'matches' not in t.columns()
+
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_udf_column_shapes(self, db_root: DatabaseRoot) -> None:
