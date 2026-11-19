@@ -609,7 +609,7 @@ class Catalog(CatalogBase):
 
             except LockNotAvailableError as e:
                 has_exc = True
-                # NOWAIT can fail when a schema change holds a conflicting lock or is queued ahead of us.
+                # A short lock wait times out when a schema change holds a conflicting lock or is queued ahead of us.
                 attempt_exc = e
                 raise excs.ConcurrencyError(
                     excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS,
@@ -1136,7 +1136,7 @@ class Catalog(CatalogBase):
                 raise
 
             except excs.ConcurrencyError as e:
-                # Finalization itself waits for locks, but its work may call a NOWAIT operation on another table.
+                # Finalization itself waits for locks, but its work may call a fail-fast operation on another table.
                 # Propagate the error without treating it as a failure that requires rolling back the schema change.
                 _logger.debug(f'Finalize pending ops({tbl_id}): op reported a concurrency error: {e}')
                 raise
