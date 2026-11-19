@@ -2441,15 +2441,39 @@ class TestTable:
             t.insert(json_col_2={'z': None})
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
-            match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
+            match=r"Column 'json_col_2': the value .* has type .*, which is not compatible with the column type",
         ):
             t.update({'json_col_2': {'a': 'mangoes', 'z': 1}})
 
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
-            match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
+            match=r"Column 'json_col_2': the value .* has type .*, which is not compatible with the column type",
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
+
+    def test_update_expr_type_mismatch(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        counts = pxt.create_table(p('acct_counts'), {'acct': pxt.String, 'n': pxt.Int})
+        counts.insert([{'acct': 'a', 'n': 3}])
+        accts = pxt.create_table(p('accts'), {'acct': pxt.String, 'n': pxt.Int | None})
+        accts.insert([{'acct': 'a'}])
+
+        @pxt.query
+        def acct_counts(acct: str) -> pxt.Query:
+            return counts.where(counts.acct == acct).select(counts.n)
+
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"Column 'n': the value acct_counts\(acct\) has type `Json\[\(Int, \.\.\.\)\]`, which is not "
+            r'compatible with the column type `Int \| None`$',
+        ):
+            accts.update({'n': acct_counts(accts.acct)})
+
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"Column 'n': the value acct has type `String`, which is not compatible with the column type",
+        ):
+            accts.update({'n': accts.acct})
 
     def test_update_json_expr(self, db_root: DatabaseRoot) -> None:
         # An update expression's values aren't validated, so its type may declare no keys that the column's doesn't
@@ -2461,7 +2485,9 @@ class TestTable:
         t.insert(s='x')
         t.update({'j': {'a': t.s}})  # omitting an optional key is fine
         assert t.collect()['j'] == [{'a': 'x'}]
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"is not compatible with the type.*of column 'j'"):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r"Column 'j': the value .* is not compatible with the column type"
+        ):
             t.update({'j': {'a': t.s, 'z': t.s}})
 
     def test_insert_pydantic_json(self, db_root: DatabaseRoot) -> None:

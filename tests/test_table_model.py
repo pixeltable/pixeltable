@@ -2636,11 +2636,32 @@ class TestTableModel:
             class SecondDup(TableModel, name='dup_name'):
                 id: pxt.Int | None
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must define `type` or `value`, but not both'):
+        neither = r"Column specification for 'bad' defines neither `type` nor `value`; pass `type=` to Column\(\)"
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
 
             class BadColSpec(TableModel, name='bad_col_spec'):
                 id: pxt.Int | None
                 bad = Column()
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
+
+            class BadPkColSpec(TableModel, name='bad_pk_col_spec'):
+                bad = Column(primary_key=True)
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
+
+            class AnnotatedPkColSpec(TableModel, name='annotated_pk_col_spec'):
+                bad: pxt.UUID = Column(primary_key=True)  # type: ignore[assignment]
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column specification for 'both' cannot define both `type` and `value`: a computed column "
+            r'takes its type from `value`; to change it, cast the value with `.astype\(\)`$',
+        ):
+
+            class BothColSpec(TableModel, name='both_col_spec'):
+                id: pxt.Int | None
+                both = Column(type=pxt.Int, value=1)
 
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).

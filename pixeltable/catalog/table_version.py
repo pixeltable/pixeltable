@@ -1563,8 +1563,8 @@ class TableVersion:
                 if not closed_type.is_supertype_of(value_expr.col_type.with_closed_dicts(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
-                        f'The literal value {val!r} is not compatible with the type '
-                        f'`{col.col_type}` of column {col_name!r}',
+                        f'Column {col_name!r}: the value {value_expr!s} has type `{value_expr.col_type}`, which is not '
+                        f'compatible with the column type `{col.col_type}`',
                     ) from exc
             update_targets[col] = value_expr
 

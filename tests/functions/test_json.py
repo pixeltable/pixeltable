@@ -607,6 +607,7 @@ class TestJson:
                 'col_3': pxt.String | None,  # primitive type
                 'col_4': pxt.Json | None,  # untyped json
                 'col_5': pxt.Json[list] | None,  # typed json, but with an untyped subscript
+                'col_6': pxt.Json[list[str]] | None,
             },
         )
 
@@ -622,13 +623,36 @@ class TestJson:
         ):
             pxtf.json.list_iterator(t.col_1, my_int=t.col_2)
 
-        invalid_type_cases = (t.col_2, t.col_3, t.col_4, t.col_5)
-        for expr in invalid_type_cases:
+        for expr in (t.col_2, t.col_6):
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                match=r'list_iterator\(\): Expected a type for `elements` matching `list\[dict\]`',
+                match=r'list_iterator\(\): a list of values that are not dicts needs the keyword form, which names the '
+                rf'output column: `list_iterator\(value={expr!s}\)`',
             ):
                 pxtf.json.list_iterator(expr)
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'list_iterator\(\): `elements` needs a Json list of dicts'
+        ):
+            pxtf.json.list_iterator(t.col_3)
+        for expr in (t.col_4, t.col_5):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=r'cast an untyped value with `.astype\(pxt.Json\[list\[Item\]\] \| None\)`',
+            ):
+                pxtf.json.list_iterator(expr)
+
+        # the form the error message suggests works on untyped json
+        class Item(TypedDict):
+            a: int
+
+        t.insert([{'col_2': [7], 'col_4': {'stops': [{'a': 1}, {'a': 2}]}, 'col_6': ['fault']}])
+        v = pxt.create_view(
+            'test_view', t, iterator=pxtf.json.list_iterator(t.col_4.stops.astype(pxt.Json[list[Item]] | None))
+        )
+        assert v.order_by(v.pos).collect()['a'] == [1, 2]
+        v2 = pxt.create_view('test_view_2', t, iterator=pxtf.json.list_iterator(value=t.col_2, code=t.col_6))
+        assert v2.collect()['value'] == [7]
+        assert v2.collect()['code'] == ['fault']
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'list_iterator\(\): No inputs provided'):
             pxtf.json.list_iterator()
@@ -640,6 +664,7 @@ class TestJson:
         for expr in invalid_type_cases_2:
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                match=r'list_iterator\(\): Expected a type for `my_int` matching `list`',
+                match=r'list_iterator\(\): `my_int` needs a typed Json list, such as `pxt.Json\[list\[str\]\]`; '
+                r'cast an untyped value with `.astype\(pxt.Json\[list\[str\]\] \| None\)`',
             ):
                 pxtf.json.list_iterator(my_int=expr)
