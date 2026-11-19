@@ -2957,8 +2957,16 @@ class TestTable:
         assert t.where(t.c2 == 200).count() == 0
 
         # unknown primary key: insert
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c3, c4, c5, c6, c7\)'):
+            t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert')
+        assert t.count() == num_rows
+        assert t.where(t.c2 == 2).collect()[0]['c1'] != 'zwei'
+
+        vals = {'c3': 2.0, 'c4': True, 'c5': datetime.datetime(2024, 7, 1), 'c6': {}, 'c7': {}}
         validate_update_status(
-            t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
+            t.batch_update(
+                [{'c1': 'zwei', 'c2': 2, **vals}, {'c1': 'zweihundert', 'c2': 200, **vals}], if_not_exists='insert'
+            ),
             expected_row_counts=RowCountStats(inserted_rows=1, updated_rows=1),
             expected_cascade_row_counts=RowCountStats(),
         )
