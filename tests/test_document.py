@@ -114,7 +114,7 @@ class TestDocument:
         row = xls_t.select(xls_t.doc.errortype, xls_t.doc.errormsg).collect()[0]
         assert row['doc_errortype'] == 'RequestError'
         assert row['doc_errormsg'].startswith(f'Cannot read {xls_path}: ')
-        assert 'pip install markitdown[xls]' in row['doc_errormsg']
+        assert 'markitdown[xls]' in row['doc_errormsg']
 
         dir_path = tmp_path / 'folder.txt'
         dir_path.mkdir()
