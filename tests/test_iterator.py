@@ -424,13 +424,15 @@ class TestIterator:
 
         with pxt_raises(
             pxt.ErrorCode.INVALID_CONFIGURATION,
-            match=r"'class' is reserved and cannot be the name of an iterator output.",
+            match=r"'insert' is reserved and cannot be the name of an iterator output.",
         ):
-            KeywordRow = TypedDict('KeywordRow', {'class': int})
+
+            class InsertRow(TypedDict):
+                insert: int
 
             @pxt.iterator
-            class reserved_keyword_iterator(pxt.PxtIterator[KeywordRow]):
-                def __next__(self) -> KeywordRow:
+            class reserved_insert_iterator(pxt.PxtIterator[InsertRow]):
+                def __next__(self) -> InsertRow:
                     raise StopIteration
 
     def test_create_view_schema_errors(self, db_root: DatabaseRoot) -> None:
