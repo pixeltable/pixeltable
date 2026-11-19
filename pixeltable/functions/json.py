@@ -575,6 +575,40 @@ def list_iterator(
             yield dict(zip(kwargs_.keys(), el, strict=True))
 
 
+def _list_iterator_elements_schema(elements: exprs.Expr) -> dict[str, ts.ColumnType]:
+    el_col_type = elements.col_type
+    json_schema = el_col_type.type_schema if isinstance(el_col_type, ts.JsonType) else None
+    variadic_element_type = json_schema.variadic_type if json_schema is not None else None
+    if (
+        json_schema is not None
+        and isinstance(json_schema.type_spec, list)
+        and builtins.len(json_schema.type_spec) == 0
+        and isinstance(variadic_element_type, ts.JsonType)
+        and variadic_element_type.type_schema is not None
+        and isinstance(variadic_element_type.type_schema.type_spec, dict)
+    ):
+        return variadic_element_type.type_schema.type_spec
+
+    if not isinstance(el_col_type, ts.JsonType):
+        hint = '`elements` needs a Json list of dicts'
+    elif (
+        json_schema is not None
+        and isinstance(json_schema.type_spec, list)
+        and not any(isinstance(el_type, ts.JsonType) for el_type in [*json_schema.type_spec, json_schema.variadic_type])
+    ):
+        hint = (
+            'a list of values that are not dicts needs the keyword form, which names the output column: '
+            f'`list_iterator(value={elements!s})`'
+        )
+    else:
+        hint = (
+            '`elements` needs a list-of-dicts type with known keys, such as `pxt.Json[list[Item]]` for a '
+            'TypedDict `Item`; cast an untyped value with `.astype(pxt.Json[list[Item]] | None)`, or use the '
+            'keyword form for a list of values that are not dicts'
+        )
+    raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'list_iterator(): {hint}. Got `{el_col_type}`')
+
+
 @list_iterator.conditional_output_schema
 def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
     if bound_args.get('elements') is not None:
@@ -587,34 +621,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'list_iterator(): Cannot specify both `elements` and keyword arguments',
             )
-        elements = bound_args['elements']
-
-        el_col_type = elements.col_type
-
-        def type_error() -> excs.RequestError:
-            return excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'list_iterator(): `elements` needs a list-of-dicts type with known keys, such as '
-                '`pxt.Json[list[Item]]` for a TypedDict `Item`; cast an untyped value with '
-                f'`.astype(pxt.Json[list[Item]])`. Got `{el_col_type}`',
-            )
-
-        if (
-            not isinstance(el_col_type, ts.JsonType)
-            or el_col_type.type_schema is None
-            or not isinstance(el_col_type.type_schema.type_spec, list)
-            or builtins.len(el_col_type.type_schema.type_spec) != 0
-        ):
-            raise type_error()
-        dict_type = el_col_type.type_schema.variadic_type
-        if (
-            not isinstance(dict_type, ts.JsonType)
-            or dict_type.type_schema is None
-            or not isinstance(dict_type.type_schema.type_spec, dict)
-        ):
-            raise type_error()
-
-        return dict_type.type_schema.type_spec  # type: ignore[return-value]
+        return _list_iterator_elements_schema(bound_args['elements'])  # type: ignore[return-value]
 
     else:  # bound_args.get('element') is None
         mode = bound_args.get('mode')
@@ -632,7 +639,8 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             ):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'list_iterator(): Expected a type for `{name}` matching `list`; got `{expr.col_type}`',
+                    f'list_iterator(): `{name}` needs a typed Json list, such as `pxt.Json[list[str]]`; cast an '
+                    f'untyped value with `.astype(pxt.Json[list[str]] | None)`. Got `{expr.col_type}`',
                 )
             type_schema = expr.col_type.type_schema
             relevant_types = type_schema.type_spec
