@@ -435,6 +435,15 @@ class TestIterator:
                 def __next__(self) -> InsertRow:
                     raise StopIteration
 
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match=r"Invalid iterator output name: '_hidden'"):
+
+            class HiddenRow(TypedDict):
+                _hidden: int
+
+            @pxt.iterator
+            def invalid_name_iterator(x: int) -> Iterator[HiddenRow]:
+                yield from []
+
     def test_create_view_schema_errors(self, db_root: DatabaseRoot) -> None:
         """Iterator output schema errors surface at call time, in both local and proxy mode."""
         p = db_root.make_catalog_path

@@ -5,13 +5,18 @@ import collections.abc
 import inspect
 import typing
 from dataclasses import dataclass
-from keyword import iskeyword
 from textwrap import dedent
 from types import MethodType
 from typing import Any, Callable, ClassVar, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys, is_system_column_name
+from pixeltable.catalog.globals import (
+    _POS_COLUMN_NAME,
+    fold_identifier,
+    fold_mapping_keys,
+    is_reserved_column_name,
+    is_valid_identifier,
+)
 from pixeltable.exprs.expr import ValidationError
 from pixeltable.func.symbols import import_error_msg, resolve_symbol
 from pixeltable.types import FunctionKind, FunctionMetadata
@@ -67,10 +72,12 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
 
 def _check_output_name(name: str) -> None:
     folded_name = fold_identifier(name)
-    if folded_name == _POS_COLUMN_NAME or is_system_column_name(folded_name) or iskeyword(folded_name):
+    if folded_name == _POS_COLUMN_NAME or is_reserved_column_name(folded_name):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'{name!r} is reserved and cannot be the name of an iterator output.'
         )
+    if not is_valid_identifier(name):
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid iterator output name: {name!r}')
 
 
 def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[str]) -> dict[str, 'IteratorOutput']:
