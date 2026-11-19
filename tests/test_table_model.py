@@ -2969,7 +2969,9 @@ class TestTableModel:
         assert rows == [['alpha', 'beta'], ['beta']]
 
         t = pxt.create_table(f'{target}/t', {'cutoff': pxt.Int})
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='A query over model `Docs` cannot be stored'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match='A query over model `Docs` can only be used in a TableModel'
+        ):
             t.add_computed_column(matches=titles_after(t.cutoff))
         assert 'matches' not in t.columns()
 

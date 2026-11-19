@@ -42,8 +42,9 @@ class ModelQuery(QueryBase):
         """
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'A query over model `{self.model_cls.__name__}` cannot be stored or sent to a hosted catalog; '
-            'query the table that the model is bound to instead.',
+            f'A query over model `{self.model_cls.__name__}` can only be used in a TableModel or a query route; '
+            'to use it elsewhere, write the query over a table (for example `pxt.get_table(...)`) '
+            'instead of the model.',
         )
 
     @property
