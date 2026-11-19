@@ -266,7 +266,10 @@ def lookup_dir_path(dir_id: UUID) -> Path:
     assert isinstance(dir_id, UUID)
     conn = get_runtime().conn
     names: list[str] = []
+    visited: set[UUID] = set()
     while True:
+        assert dir_id not in visited, f'cycle in the parent chain of directory {dir_id}'
+        visited.add(dir_id)
         q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
         row = conn.execute(q).one()
         dir = schema.Dir(**row._mapping)

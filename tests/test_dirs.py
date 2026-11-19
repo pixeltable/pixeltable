@@ -294,6 +294,14 @@ class TestDirs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='into its own subdirectory'):
             pxt.create_dir(p('dir2/sub1/subsub1'))
             pxt.move(p('dir2/sub1'), p('dir2/sub1/subsub1'))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='into its own subdirectory'):
+            pxt.move(p('dir2/sub1'), p('dir2/sub1/x'))
+        assert sorted(pxt.list_dirs(p('dir2'), recursive=True)) == [
+            p('dir2/dir1'),
+            p('dir2/dir1/sub1'),
+            p('dir2/sub1'),
+            p('dir2/sub1/subsub1'),
+        ]
 
         # new client: force loading from store
         reload_catalog()
