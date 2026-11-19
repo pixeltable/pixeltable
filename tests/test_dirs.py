@@ -4,6 +4,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import catalog
+from pixeltable.catalog.catalog_proxy import CatalogProxy
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 
@@ -297,20 +298,6 @@ class TestDirs:
             pxt.create_dir(p('dir2/sub1/subsub1'))
             pxt.move(p('dir2/sub1'), p('dir2/sub1/subsub1'))
 
-        # the catalog enforces the same rules for callers that bypass pxt.move(), such as proxy clients
-        src = catalog.Path.parse(p('dir2/sub1'))
-        cat = get_runtime().get_catalog(src)
-        for dest in ('dir2/sub1', 'dir2/sub1/x', 'dir2/sub1/subsub1/x'):
-            match = 'cannot be identical' if dest == 'dir2/sub1' else 'into its own subdirectory'
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
-                cat.move(src, catalog.Path.parse(p(dest)), catalog.IfExistsParam.ERROR, catalog.IfNotExistsParam.ERROR)
-        assert sorted(pxt.list_dirs(p('dir2'), recursive=True)) == [
-            p('dir2/dir1'),
-            p('dir2/dir1/sub1'),
-            p('dir2/sub1'),
-            p('dir2/sub1/subsub1'),
-        ]
-
         # new client: force loading from store
         reload_catalog()
         assert pxt.list_tables(p('dir2')) == [p('dir2/dir1/sub1/t2')]
@@ -365,6 +352,29 @@ class TestDirs:
         listing = pxt.list_dirs(p(''), recursive=True)
         all_dirs.append('dir1/dir2/dir3/dir4')
         assert listing == [p(d) for d in all_dirs]
+
+    @pytest.mark.db_roots('proxy', reason='sends a move request to the proxy daemon without going through pxt.move()')
+    def test_move_into_itself_on_daemon(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('dir1'))
+        pxt.create_dir(p('dir1/sub1'))
+        src = catalog.Path.parse(p('dir1'))
+        proxy_catalog = get_runtime().get_catalog(src)
+        assert isinstance(proxy_catalog, CatalogProxy)
+        for dest, match in (
+            ('dir1', 'cannot be identical'),
+            ('dir1/x', 'into its own subdirectory'),
+            ('dir1/sub1/x', 'into its own subdirectory'),
+        ):
+            args = {
+                'path': src,
+                'new_path': catalog.Path.parse(p(dest)),
+                'if_exists': catalog.IfExistsParam.ERROR,
+                'if_not_exists': catalog.IfNotExistsParam.ERROR,
+            }
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+                proxy_catalog.client.send_request('CatalogBase', 'move', args)
+        assert pxt.list_dirs(p('dir1'), recursive=True) == [p('dir1/sub1')]
 
     @pytest.mark.db_roots('local', 'proxy', reason="names the catalog root, which a cloud test's directory is not")
     def test_buckets_not_reserved_locally(self, db_root: DatabaseRoot) -> None:

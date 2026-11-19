@@ -14,7 +14,7 @@ import psycopg
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
-from pixeltable import exceptions as excs, telemetry
+from pixeltable import telemetry
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -264,8 +264,7 @@ def lookup_dir_path(dir_id: UUID) -> Path:
     names: list[str] = []
     visited: set[UUID] = set()
     while True:
-        if dir_id in visited:
-            raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'Cycle in the parent chain of directory {dir_id}')
+        assert dir_id not in visited, f'cycle in the parent chain of directory {dir_id}'
         visited.add(dir_id)
         q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
         row = conn.execute(q).one()
