@@ -171,7 +171,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
     if trigger in ('pull_request', 'merge_group'):
         configs = [cfg._replace(pytest_markers=f'{cfg.pytest_markers} and not skip_merge_queue') for cfg in configs]
 
-    configs.sort(key=lambda cfg: cfg.display_name)
+    configs.sort(key=lambda cfg: cfg.display_name.replace('+', ''))
     return configs
 
 

@@ -1101,8 +1101,13 @@ class TestTable:
     def test_validate_on_read_with_computed_col(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
-        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        schema: dict[str, Any] = {'media': pxt.Video | None, 'is_bad_media': pxt.Bool | None, 'stage': pxt.Int}
+        rows = [{'id': i, 'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for i, f in enumerate(files)]
+        schema: dict[str, Any] = {
+            'id': pxt.Int,
+            'media': pxt.Video | None,
+            'is_bad_media': pxt.Bool | None,
+            'stage': pxt.Int,
+        }
 
         # we are testing a nonsensical scenario: a computed column that references a read-validated media column,
         # which forces validation
@@ -1118,7 +1123,7 @@ class TestTable:
             on_read_tbl.select(
                 on_read_tbl.media, *path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media, on_read_tbl.md
             )
-            .order_by(on_read_tbl.media)
+            .order_by(on_read_tbl.id)
             .collect()
         )
 
@@ -1132,7 +1137,7 @@ class TestTable:
             .select(
                 on_read_tbl.media, *path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media, on_read_tbl.md
             )
-            .order_by(on_read_tbl.media)
+            .order_by(on_read_tbl.id)
             .collect()
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
@@ -2602,6 +2607,23 @@ class TestTable:
         res = t.select(video=t.video.localpath, clip=t.clip.localpath).collect()
         assert Path(res[0]['video']).exists()
         assert Path(res[0]['clip']).exists()
+
+    def test_temp_dir_file_in_two_rows(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'img': pxt.Image})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            img_file = get_image_files()[0]
+            img_path = Path(tmp_dir) / Path(img_file).name
+            shutil.copy(img_file, img_path)
+            validate_update_status(t.insert([{'id': 0, 'img': str(img_path)}, {'id': 1, 'img': str(img_path)}]), 2)
+
+        res = t.select(img=t.img.localpath).collect()
+        assert len(res) == 2
+        paths = [Path(row['img']) for row in res]
+        assert all(path.read_bytes() == Path(img_file).read_bytes() for path in paths)
+        # locally both rows wait on one save; through the proxy, the client sends each row's file separately
+        if db_root.id == 'local':
+            assert paths[0] == paths[1]
 
     @pytest.mark.skipif(
         'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,

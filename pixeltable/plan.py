@@ -113,7 +113,15 @@ class Analyzer:
             self.stratify_exprs = [e.resolve_computed_cols() for e in sample_clause.stratify_exprs]
         else:
             self.stratify_exprs = []
-        self.order_by_clause = [OrderByItem(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
+
+        self.order_by_clause = []
+        for orig_expr, asc in order_by_clause:
+            e = orig_expr.resolve_computed_cols()
+            # fix up ordering by on-read validated media cols: we order by the unvalidated stored value
+            if isinstance(e, exprs.ColumnRef) and e.perform_validation:
+                e = e.components[0]
+            self._validate_order_by_expr(e, orig_expr)
+            self.order_by_clause.append(OrderByItem(e, asc))
 
         self.sql_where_clause = None
         self.filter = None
@@ -210,6 +218,7 @@ class Analyzer:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION,
                     f'Invalid grouping expression, needs to be expressible in SQL: {e!s}. '
+                    f'No SQL translation: {", ".join(self._no_sql_subexprs(e))}. '
                     'Store the value in a computed column of a scalar type (cast with .astype() if needed) '
                     'and use that column with distinct() or group_by().',
                 )
@@ -217,6 +226,39 @@ class Analyzer:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e!s}'
                 )
+
+    def _validate_order_by_expr(self, e: exprs.Expr, orig_expr: exprs.Expr) -> None:
+        """Raise if e, an order_by() expr after substitutions, has no SQL translation.
+
+        orig_expr is the expr passed to order_by() and needed for the error message.
+        """
+        # SimilarityExpr is turned into SQL by as_order_by_clause()
+        if isinstance(e, exprs.SimilarityExpr) or self.sql_elements.contains(e):
+            return
+        if e.contains_(cls=exprs.FunctionCall, filter=lambda fn_call: bool(fn_call.is_agg_fn_call)):
+            # an aggregate cannot be a computed column
+            workaround = 'As a workaround, you can sort the collected rows.'
+        else:
+            workaround = (
+                'As a workaround, you can add the value as a stored computed column of a scalar type '
+                '(cast with .astype() if needed) and use that column with order_by().'
+            )
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_EXPRESSION,
+            f'Invalid order_by() expression, needs to be expressible in SQL: {orig_expr!s}. '
+            f'No SQL translation: {", ".join(self._no_sql_subexprs(e))}. {workaround}',
+        )
+
+    def _no_sql_subexprs(self, e: exprs.Expr) -> list[str]:
+        """Return the printed form of the smallest subexprs of e without a SQL translation."""
+        # a dict removes duplicate printed forms and keeps their order
+        return list(
+            dict.fromkeys(
+                str(s)
+                for s in e.subexprs()
+                if not self.sql_elements.contains(s) and self.sql_elements.contains_all(s.components)
+            )
+        )
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
         """Determine whether expr is the input to or output of an aggregate function.
@@ -231,14 +273,14 @@ class Analyzer:
                 if not is_input:
                     raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e!s}')
             return True, False
-        elif isinstance(e, (exprs.Literal, exprs.Variable)):
-            return True, True
         elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
             # we already know that this isn't a grouping expr
             return False, True
+        elif len(e.components) == 0:
+            # e does not reference a table column
+            return True, True
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
-            assert len(e.components) > 0
             statuses: list[tuple[bool, bool]] = [self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
             is_output = all(out for out, _ in statuses)
             is_input = all(inp for _, inp in statuses)
@@ -264,15 +306,19 @@ class Analyzer:
         row_builder.set_slot_idxs(self.agg_fn_calls)
         row_builder.set_slot_idxs(self.agg_order_by)
 
-    def get_window_fn_ob_clause(self) -> OrderByClause | None:
-        clause: list[OrderByClause] = []
+    def get_window_fn_orderings(self) -> list[OrderByClause]:
+        """Return the ordering required by each window function."""
+        orderings: list[OrderByClause] = []
         for fn_call in self.window_fn_calls:
             # window functions require ordering by the group_by/order_by clauses
             group_by_exprs, order_by_exprs = fn_call.get_window_sort_exprs()
-            clause.append(
+            orderings.append(
                 [OrderByItem(e, None) for e in group_by_exprs] + [OrderByItem(e, True) for e in order_by_exprs]
             )
-        return combine_order_by_clauses(clause)
+        return orderings
+
+    def get_window_fn_ob_clause(self) -> OrderByClause | None:
+        return combine_order_by_clauses(self.get_window_fn_orderings())
 
     def has_agg(self) -> bool:
         """True if there is any kind of aggregation in the query"""
@@ -1108,31 +1154,10 @@ class Planner:
                 )
 
     @classmethod
-    def _create_combined_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> OrderByClause | None:
-        """Verify that the various ordering requirements don't conflict and return a combined ordering"""
-        ob_clauses: list[OrderByClause] = [analyzer.order_by_clause.copy()]
-
-        if verify_agg:
-            ordering: OrderByClause
-            for fn_call in analyzer.window_fn_calls:
-                # window functions require ordering by the group_by/order_by clauses
-                gb, ob = fn_call.get_window_sort_exprs()
-                ordering = [OrderByItem(e, None) for e in gb] + [OrderByItem(e, True) for e in ob]
-                ob_clauses.append(ordering)
-            for fn_call in analyzer.agg_fn_calls:
-                # agg functions with an ordering requirement are implicitly ascending
-                ordering = [OrderByItem(e, None) for e in analyzer.group_by_clause] + [
-                    OrderByItem(e, True) for e in fn_call.get_agg_order_by()
-                ]
-                ob_clauses.append(ordering)
-
-        if len(ob_clauses) == 0:
-            return None
-        elif len(ob_clauses) == 1:
-            return ob_clauses[0]
-
-        combined_ordering = ob_clauses[0]
-        for ordering in ob_clauses[1:]:
+    def _combine_orderings(cls, orderings: list[OrderByClause]) -> OrderByClause:
+        """Return an ordering that satisfies all orderings; raises if they conflict."""
+        combined_ordering: OrderByClause = []
+        for ordering in orderings:
             combined = combine_order_by_clauses([combined_ordering, ordering])
             if combined is None:
                 raise excs.RequestError(
@@ -1142,6 +1167,38 @@ class Planner:
                 )
             combined_ordering = combined
         return combined_ordering
+
+    @classmethod
+    def _create_agg_input_ordering(cls, analyzer: Analyzer) -> OrderByClause:
+        """
+        Combine the ordering requirements of the order_by() clause, the window functions, the grouping exprs and
+        the aggregate functions into the ordering of the AggregationNode input.
+
+        Raises if they conflict.
+        """
+        # AggregationNode only needs equal grouping values to be adjacent: order the grouping exprs like the
+        # order_by() clause, followed by the remaining ones
+        order_by_ids = [item.expr._expr_id for item in analyzer.order_by_clause]
+        grouping_exprs_by_id = {e._expr_id: e for e in analyzer.group_by_clause}
+        ordered_exprs = [grouping_exprs_by_id[expr_id] for expr_id in order_by_ids if expr_id in grouping_exprs_by_id]
+        ordered_exprs.extend(e for e in analyzer.group_by_clause if e._expr_id not in order_by_ids)
+        grouping_ordering = [OrderByItem(e, None) for e in ordered_exprs]
+        if combine_order_by_clauses([analyzer.order_by_clause, grouping_ordering]) is None:
+            # TODO(PXT-1827): sort the output of AggregationNode instead of raising
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot order by {print_order_by_clause(analyzer.order_by_clause)}: '
+                f'order_by() is limited to the grouping expressions '
+                f'({", ".join(str(e) for e in analyzer.group_by_clause)}) when part of an aggregate query '
+                'cannot run in SQL. As a workaround, you can sort the collected rows.',
+            )
+        orderings = [analyzer.order_by_clause, *analyzer.get_window_fn_orderings(), grouping_ordering]
+        # agg functions with an ordering requirement are implicitly ascending
+        orderings.extend(
+            grouping_ordering + [OrderByItem(e, True) for e in fn_call.get_agg_order_by()]
+            for fn_call in analyzer.agg_fn_calls
+        )
+        return cls._combine_orderings(orderings)
 
     @classmethod
     def _add_save_node(cls, input_node: exec.ExecNode) -> exec.ExecNode:
@@ -1291,12 +1348,10 @@ class Planner:
         if deleted_at_current_version is None:
             deleted_at_current_version = []
         sql_elements = analyzer.sql_elements
-        is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
-            analyzer.window_fn_calls
-        )
         ctx = exec.ExecContext(row_builder)
 
-        combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
+        # raises if the order_by() clause and the window functions require conflicting orderings
+        _ = cls._combine_orderings([analyzer.order_by_clause, *analyzer.get_window_fn_orderings()])
         cls._verify_join_clauses(analyzer)
 
         # materialized in SQL, by the SqlScanNode or SqlJoinNode:
@@ -1423,9 +1478,9 @@ class Planner:
                     plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
                     plan.set_gc(False)
 
-                assert combined_ordering is not None
+                # AggregationNode starts a new group whenever the grouping exprs change value
                 input_sql_node = plan.get_node(exec.SqlNode)
-                input_sql_node.set_order_by(combined_ordering)
+                input_sql_node.set_order_by(cls._create_agg_input_ordering(analyzer))
                 plan = exec.AggregationNode(
                     tbl.tbl_version,
                     row_builder,

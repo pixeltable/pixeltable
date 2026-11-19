@@ -110,9 +110,10 @@ as `standard+`, `standard++` and `resource-intensive`.
 
 `pip-install-tests` tests the latest release as pip installs it, on Mondays, Wednesdays and Fridays. Its Python 3.11
 jobs install different optional packages, and each runs the `expensive` tests for its packages, and every third Monday
-the `very_expensive` ones, so each test runs once. `TestBedrock` needs only core dependencies, so it runs in one job. One isolated
-notebook job runs the `expensive` notebooks, and every third Monday the `very_expensive` ones. No job runs the
-`resource_intensive` ones.
+the `very_expensive` ones, so each test runs once. `TestBedrock` needs only core dependencies, so it runs in one job.
+The `resource_intensive` tests run only in one job on a large runner, with the `transformers` packages, which runs
+nothing else. One isolated notebook job runs the `expensive` notebooks, and every third Monday the `very_expensive`
+ones. No notebook job runs the `resource_intensive` ones.
 
 Locally, `make test` runs only the tests with none of these markers, and `make fullpytest` runs all of them. To choose
 tiers, pass `-m`: for example, `pytest -m 'not resource_intensive' tests/functions/test_openai.py`.
