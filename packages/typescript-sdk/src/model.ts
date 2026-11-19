@@ -63,6 +63,19 @@ export abstract class ModelBase {
         `${handle.uri} has no column(s) ${missing.join(', ')} that ${model.name} defines; run 'pxt schema update'`,
       );
     }
+    for (const [field, expr] of l.fields) {
+      if (expr.node.kind !== 'col') continue;
+      const expected = expr.node.def.type;
+      const actual = handle.column(field)?.type;
+      if (actual?.type !== expected.type || actual.nullable !== expected.nullable) {
+        const expectedType = `${expected.type}${expected.nullable ? ' | null' : ''}`;
+        const actualType = actual === undefined ? 'an unsupported type' : `${actual.type}${actual.nullable ? ' | null' : ''}`;
+        throw new PixeltableError(
+          'SCHEMA_MISMATCH',
+          `${handle.uri}.${field} expects ${expectedType}, but the table has ${actualType}; check 'pxt schema diff'`,
+        );
+      }
+    }
     const table = withColumns(new Table(handle, new Map(l.fields), (e) => l.names.get(e)));
     modelTables.set(model, { handle, table });
     return table as ModelTable<M>;

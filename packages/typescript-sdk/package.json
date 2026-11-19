@@ -9,13 +9,19 @@
     "node": ">=22.18"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./functions": "./src/functions/index.ts",
-    "./export": "./src/export.ts",
-    "./register": "./src/register.ts"
+    ".": "./dist/index.js",
+    "./functions": "./dist/functions/index.js",
+    "./export": "./dist/export.js",
+    "./register": "./dist/register.js"
   },
+  "files": ["dist"],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "typecheck": "tsc -p .",
     "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3"
   }
 }

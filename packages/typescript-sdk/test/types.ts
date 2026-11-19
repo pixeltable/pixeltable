@@ -1,7 +1,7 @@
 // Compile-time checks only: `tsc -p .` must report no errors, and each @ts-expect-error must catch one. Never run.
 
 import * as pxt from '../src/index.ts';
-import { Films, type Film, type NewFilm } from '../examples/films/app.tsx';
+import { Films, type Film, type NewFilm } from '../examples/films/app.ts';
 
 type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
 function assertType<T extends true>(): T | void {}

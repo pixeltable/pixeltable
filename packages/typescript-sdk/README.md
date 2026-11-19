@@ -22,8 +22,8 @@ type Film = pxt.Row<Films>; // { title: string; budget: number | null; ...; prof
 The `pxt` CLI applies a TypeScript schema file the same way it applies a Python one:
 
 ```bash
-pxt schema diff app.tsx pxt://org:db
-pxt schema update app.tsx pxt://org:db
+pxt schema diff app.ts pxt://org:db
+pxt schema update app.ts pxt://org:db
 ```
 
 The CLI runs Node.js once to evaluate the file. `src/export.ts` prints each exported model as data: its columns in
@@ -54,8 +54,8 @@ const hits = await f.where(f.is_hit).select({ title: f.title, roi: f.margin.mul(
 ```
 
 It is a method because TypeScript types a static method, but not a static property, by the class it is called on.
-A base learns which class extends `TableModel('films')` only when that class first asks for its table, so a field
-missing from the table is reported then; a missing table is reported by `bindAll()`.
+A missing table is reported by `bindAll()`. The first call to `Films.table()` checks that the model's columns are
+present and that declared base columns match the catalog's types and nullability.
 
 The client keeps each table's metadata, as the Python client does: the column ids its queries refer to, and the
 table version a write is checked against. The daemon refuses a write against an older version and returns the current
@@ -63,27 +63,53 @@ metadata, and the client retries. A local proxy is `pxt://local:<db>`; a hosted 
 same TLS tunnel as from Python, with `PIXELTABLE_API_KEY`. `examples/films/demo.ts` runs both forms:
 
 ```bash
-node --import @pixeltable/sdk/register demo.ts pxt://org:db
+node demo.ts pxt://org:db
 ```
 
-`@pixeltable/sdk/register` lets Node import `app.tsx`.
+## Test an installed package
+
+From `packages/typescript-sdk`, build the archive and install it in a fresh project:
+
+```bash
+npm ci
+project=$(mktemp -d)
+npm pack --pack-destination "$project"
+cp examples/films/app.ts examples/films/smoke.ts "$project/"
+cd "$project"
+printf '{"private":true,"type":"module"}\n' > package.json
+printf '\n' > pixeltable.toml
+npm install ./pixeltable-sdk-0.0.0-prototype.tgz
+```
+
+With `pxt` from this draft and its serving dependencies installed, run the smoke test against a local proxy:
+
+```bash
+pxt localproxy start tsfilms
+pxt schema update app.ts pxt://local:tsfilms/smoke -f
+node smoke.ts pxt://local:tsfilms/smoke
+```
+
+The script prints `Films smoke passed: typed projection, null budget, and mismatched schema.` It removes its two test
+rows after checking them. A missing budget leaves the margin null and `is_hit` false.
+
+For a hosted smoke test, use a disposable database with a matching RPC v10 runtime, set
+`PIXELTABLE_API_KEY` to a credential that can open the catalog tunnel, and use its `pxt://org:db/smoke` target in both
+the schema and Node commands.
 
 ## Requirements
 
-- Node.js 22.18 or later, on `PATH` where `pxt` runs. The package runs from its `.ts` sources through Node's type
-  stripping, so it has no dependencies.
-- The schema file imports `@pixeltable/sdk`, so the project needs it installed, for example with a
-  `"@pixeltable/sdk": "file:..."` dependency and `npm install`.
+- Node.js 22.18 or later, on `PATH` where `pxt` runs. Node strips types from the project's `.ts` files. The installed SDK
+  ships JavaScript and TypeScript declarations and has no runtime dependencies.
 
 ## Development
 
 ```bash
-tsc -p .                      # type-check src/, test/types.ts and examples/
-node --test test/*.test.ts    # encoding tests
+npm ci
+npm run typecheck             # type-check src/, test/types.ts and examples/
+npm test                      # encoding tests
 ```
 
 `test/types.ts` is never run: each `@ts-expect-error` in it must catch a schema mistake at compile time.
-`examples/films/` is a project to apply with `pxt schema update app.tsx <target>`.
 
 ## Not in the prototype
 

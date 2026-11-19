@@ -1,4 +1,4 @@
-# `pxt db update pxt://pixeltable:tsdemo` deploys this example, and `pxt schema update app.tsx pxt://pixeltable:tsdemo`
+# `pxt db update pxt://pixeltable:tsdemo` deploys this example, and `pxt schema update app.ts pxt://pixeltable:tsdemo`
 # then creates its tables. `demo.ts` reads and writes them from TypeScript.
 [[pixeltable.database]]
 name = "pxt://pixeltable:tsdemo"

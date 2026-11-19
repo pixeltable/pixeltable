@@ -1,10 +1,10 @@
 // Reads and writes the films table from TypeScript, over the same /rpc protocol as the Python client.
-// Run after `pxt schema update app.tsx <target>`:
-//   node --import @pixeltable/sdk/register demo.ts pxt://org:db
+// Run after `pxt schema update app.ts <target>`:
+//   node demo.ts pxt://org:db
 
 import * as pxt from '@pixeltable/sdk';
 
-import { Films, TableModel } from './app.tsx';
+import { Films, TableModel } from './app.ts';
 
 const target = process.argv[2] ?? 'pxt://local:tsdemo';
 

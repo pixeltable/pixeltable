@@ -14,7 +14,7 @@ export class Films extends TableModel('films', { comment: 'Films and their box o
   title_len = this.title_upper.len();
   profit = this.revenue.sub(this.budget);
   margin = this.profit.div(this.budget);
-  is_hit = this.margin.gt(1);
+  is_hit = pxt.fn('pixeltable.functions.globals.coalesce')(this.margin, 0).cast(pxt.float()).gt(1);
   decade = this.year.floorDiv(10).mul(10);
   is_recent_hit = this.year.gte(2010).and(this.is_hit);
   label = string.format('{0} ({1})', this.title, this.year);
