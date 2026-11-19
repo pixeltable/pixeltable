@@ -345,13 +345,12 @@ class Column:
                 ) from err
 
     @classmethod
-    def validate_name(cls, name: str) -> None:
+    def validate_name(cls, name: str, suggestion: str = 'please choose a different column name') -> None:
         """Check that a name is usable as a pixeltable column name"""
         folded_name = fold_identifier(name)
         if is_system_column_name(folded_name) or is_python_keyword(folded_name):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_COLUMN_NAME,
-                f'{name!r} is a reserved name in Pixeltable; please choose a different column name.',
+                excs.ErrorCode.INVALID_COLUMN_NAME, f'{name!r} is a reserved name in Pixeltable; {suggestion}.'
             )
         if not is_valid_identifier(name):
             raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {name}')

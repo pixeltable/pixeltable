@@ -440,7 +440,10 @@ class TestIterator:
             pxt.create_view(p('view_cond_none'), t, iterator=conditional_returns_none(t.input))
 
         # output column name is reserved
-        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r"'count' is a reserved name in Pixeltable"):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_COLUMN_NAME,
+            match=r"'count' is a reserved name in Pixeltable; rename that output of iterator `reserved_name_iterator`",
+        ):
             pxt.create_view(p('view_reserved_name'), t, iterator=reserved_name_iterator(t.input))
 
     # test_evolving_iterator stays local-only: it monkey-patches the module-global `evolving_iterator` in this
