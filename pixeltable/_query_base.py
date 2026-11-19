@@ -498,6 +498,7 @@ class QueryBase(ABC):
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
+            sample_clause=copy.deepcopy(self.sample_clause),
         )
 
     def where(self, pred: exprs.Expr) -> Self:
