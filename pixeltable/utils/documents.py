@@ -29,16 +29,21 @@ class DocumentHandle:
 
 
 def get_document_handle(path: str) -> DocumentHandle:
-    _, extension = os.path.splitext(path)
-    handle = get_handle_by_extension(path, extension)
-    if handle is not None:
-        return handle
+    try:
+        _, extension = os.path.splitext(path)
+        handle = get_handle_by_extension(path, extension)
+        if handle is not None:
+            return handle
 
-    # if no extension, use puremagic to determine the type
-    extension = puremagic.from_file(path)
-    handle = get_handle_by_extension(path, extension)
-    if handle is not None:
-        return handle
+        # if no extension, use puremagic to determine the type
+        extension = puremagic.from_file(path)
+        handle = get_handle_by_extension(path, extension)
+        if handle is not None:
+            return handle
+    except OSError as exc:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_DATA_FORMAT, f'Cannot read document {path}: {exc.strerror or exc}'
+        ) from exc
 
     raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Unrecognized document format: {path}')
 
@@ -108,7 +113,7 @@ def get_pdf_handle(path: str) -> PdfDocument:
 
 
 def get_txt(path: str) -> str:
-    return _read_text(path, 'text')
+    return _read_text(path, 'Text')
 
 
 def get_office_handle(path: str) -> list:
@@ -116,12 +121,16 @@ def get_office_handle(path: str) -> list:
     Env.get().require_package('mistune', [3, 0])
     Env.get().require_package('markitdown')
     import mistune
-    from markitdown import MarkItDown, MarkItDownException
+    from markitdown import MarkItDown, MarkItDownException, MissingDependencyException
 
     md = MarkItDown(enable_plugins=False)
     try:
         markdown_text = md.convert(path).text_content
     except MarkItDownException as exc:
+        causes = [exc, *(a.exc_info[1] for a in getattr(exc, 'attempts', None) or [] if a.exc_info is not None)]
+        missing_dep = next((c for c in causes if isinstance(c, MissingDependencyException)), None)
+        if missing_dep is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot read {path}: {missing_dep}') from exc
         raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid Office document: {path}') from exc
 
     md_parser = mistune.create_markdown(renderer=None)
