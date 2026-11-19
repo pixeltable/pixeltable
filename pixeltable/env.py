@@ -700,8 +700,8 @@ class Env:
 
         metadata.upgrade_md(self._sa_engine)
 
-    def proxy_endpoint(self, org: str, db: str) -> str:
-        """The HTTPS origin of the Cloud gateway's route to the proxy daemon serving a hosted database."""
+    def gateway_origin(self, org: str, db: str) -> str:
+        """Return the HTTPS origin of the Cloud gateway for pxt://org:db."""
         # cloud_host is deliberately not a registered config option: PIXELTABLE_CLOUD_HOST is the only override
         domain = Config.get().get_string_value('cloud_host') or _DEFAULT_PROXY_DOMAIN
         if ':' in domain:
@@ -709,7 +709,7 @@ class Env:
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'Invalid PIXELTABLE_CLOUD_HOST value {domain!r}: the gateway is reached on port 443.',
             )
-        # every env serves its gateway at svc.<base domain>
+        # each Cloud deployment, such as dev or prod, serves its gateway under svc.<domain>
         return f'https://{org}-{db}.svc.{domain}'
 
     def object_store_clients(self, target: StorageTarget, kind: ObjectStoreClientKind = 'client') -> S3CompatClientDict:

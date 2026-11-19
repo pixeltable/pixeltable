@@ -1,8 +1,11 @@
 import http
+import http.server
 import io
 import json
 import math
 import pathlib
+import re
+import socket
 import tarfile
 import threading
 import time
@@ -1086,10 +1089,8 @@ def _gateway(
 def _gateway_answer(
     status: int, error_code: str, message: str, retryable: bool = False, retry_after: int | None = None
 ) -> httpx.Response:
-    """An error the gateway answers on its own, in its envelope."""
-    headers = {'X-Pixeltable-Error-Code': error_code}
-    if retry_after is not None:
-        headers['Retry-After'] = str(retry_after)
+    """An error the gateway answers on its own, with its Retry-After header."""
+    headers = {} if retry_after is None else {'Retry-After': str(retry_after)}
     detail = {'error_code': error_code, 'message': message, 'retryable': retryable}
     return httpx.Response(status, json={'detail': detail}, headers=headers)
 
@@ -1103,8 +1104,8 @@ class TestGatewayRetries:
 
     @pytest.fixture(autouse=True)
     def _isolated(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """httpx honors HTTPS_PROXY and NO_PROXY, and a proxy from the environment would be mounted ahead of the
-        mock transport, so a developer's settings would reroute these tests."""
+        """GatewayTransport and the client of _gateway() read HTTPS_PROXY and NO_PROXY: a developer's settings would
+        reroute these tests."""
         for name in ('HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy'):
             monkeypatch.delenv(name, raising=False)
 
@@ -1118,20 +1119,42 @@ class TestGatewayRetries:
             transport.post(b'body')
         assert len(requests) == 1  # no reissue
 
-    @pytest.mark.parametrize('status', [502, 504])
-    def test_an_answer_the_gateway_could_not_get_is_not_retried(self, status: int) -> None:
-        """nginx answers 502 or 504 after the daemon received the request too, so a write may have been applied."""
-        answer = _gateway_answer(
-            status, 'INTERNAL_ERROR', 'The service did not answer. A write may already have been applied.'
-        )
-        transport, requests = _gateway([answer] * 3)
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=r'became unresponsive'):
+    @pytest.mark.parametrize(
+        ('status', 'error_code', 'message'),
+        [
+            # nginx answers 502 or 504 after the daemon received the request too, so a write may have been applied
+            (502, 'INTERNAL_ERROR', 'The service did not answer. A write may already have been applied.'),
+            (504, 'INTERNAL_ERROR', 'The service did not respond in time. A write may already have been applied.'),
+            # the gateway itself failed
+            (500, 'INTERNAL_ERROR', 'The gateway could not process this request.'),
+            # only its owner starts a stopped database, for the usage limit as well
+            (503, 'INVALID_STATE', 'This database is stopped. Start it with `pxt db start`.'),
+            (
+                503,
+                'INVALID_STATE',
+                'This database is stopped: its organization passed the monthly usage its plan includes.',
+            ),
+            (404, 'SERVICE_NOT_FOUND', 'No service matches this host and path.'),
+        ],
+    )
+    def test_a_gateway_error_is_raised_at_once(self, status: int, error_code: str, message: str) -> None:
+        """An error that the gateway marks as not retryable is raised with the gateway's code and message."""
+        transport, requests = _gateway([_gateway_answer(status, error_code, message)] * 2)
+        with pxt_raises(excs.ErrorCode[error_code], match=re.escape(f'pxt://org1:db1: {message}')):
             transport.post(b'body')
         assert len(requests) == 1
 
-    def test_a_request_that_never_landed_is_retried(self) -> None:
+    @pytest.mark.parametrize(
+        'failure',
+        [
+            _connect_refused(),
+            # the HTTPS proxy could not connect to the gateway
+            httpx.ProxyError('502 Bad Gateway'),
+        ],
+    )
+    def test_a_request_that_never_landed_is_retried(self, failure: BaseException) -> None:
         """A connection that fails leaves the daemon with nothing to act on, so the request can go again."""
-        transport, requests = _gateway([_connect_refused(), httpx.Response(200, content=b'second')])
+        transport, requests = _gateway([failure, httpx.Response(200, content=b'second')])
         assert transport.post(b'body') == b'second'
         assert len(requests) == 2
 
@@ -1146,22 +1169,91 @@ class TestGatewayRetries:
             _gateway_answer(503, 'PROVIDER_ERROR', 'API key validation is temporarily unavailable.', True, 1),
             # the gateway's per-key limit
             _gateway_answer(429, 'RATE_LIMITED', 'Too many requests with this API key.', True, 1),
+            # a request to a database that was stopped for being idle starts it (the gateway's Retry-After is 30)
+            _gateway_answer(503, 'DATABASE_UNAVAILABLE', 'This database is starting.', True, 1),
         ],
     )
     def test_an_answer_that_says_to_retry_is_retried(self, answer: httpx.Response) -> None:
-        """For the whole retry budget, not only as many times as a connect that times out."""
         transport, requests = _gateway([answer, answer, httpx.Response(200, content=b'third')])
         assert transport.post(b'body') == b'third'
         assert len(requests) == 3
 
-    def test_a_connection_the_os_refuses_is_not_retried(self) -> None:
+    def test_a_starting_database_is_waited_for(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A database takes about 2 minutes to start, which is longer than the budget for other retries."""
+        monkeypatch.setattr(proxy_client, '_RETRY_MAX_DELAY', 0.5)
+        starting = _gateway_answer(503, 'DATABASE_UNAVAILABLE', 'This database is starting.', True, 1)
+        transport, requests = _gateway([starting, starting, httpx.Response(200, content=b'up')])
+        assert transport.post(b'body') == b'up'
+        assert len(requests) == 3
+
+    def test_a_retryable_answer_past_the_budget_is_raised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The gateway answered, so the error is its own, without advice about the network."""
+        monkeypatch.setattr(proxy_client, '_RETRY_MAX_DELAY', 0.5)
+        limited = _gateway_answer(429, 'RATE_LIMITED', 'Too many requests with this API key.', True, 1)
+        transport, requests = _gateway([limited] * 50)
+        with pxt_raises(
+            excs.ErrorCode.RATE_LIMITED, match=r'\Apxt://org1:db1: Too many requests with this API key\.\Z'
+        ):
+            transport.post(b'body')
+        assert len(requests) > 1
+
+    @pytest.mark.parametrize(
+        ('https_proxy', 'address'),
+        [
+            (None, ('org1-db1.svc.pxt.run', 443)),
+            ('http://127.0.0.1:3128', ('127.0.0.1', 3128)),
+            # httpx needs the socksio package for a socks5:// proxy, so the connection is direct
+            ('socks5://127.0.0.1:1080', ('org1-db1.svc.pxt.run', 443)),
+        ],
+    )
+    def test_a_connection_the_os_refuses_is_not_retried(
+        self, https_proxy: str | None, address: tuple[str, int], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A firewall or sandbox that denies the socket denies it again, so the error comes at once."""
-        denied = httpx.ConnectError('denied')
-        denied.__cause__ = PermissionError(1, 'Operation not permitted')
-        transport, requests = _gateway([denied] * 3)
+        addresses: list[tuple[str, int]] = []
+
+        def deny(target: tuple[str, int], *args: Any, **kwargs: Any) -> socket.socket:
+            addresses.append(target)
+            raise PermissionError(1, 'Operation not permitted')
+
+        monkeypatch.setattr(socket, 'create_connection', deny)
+        if https_proxy is not None:
+            monkeypatch.setenv('HTTPS_PROXY', https_proxy)
+        transport = GatewayTransport('org1', 'db1', lambda: _KEY, 'https://org1-db1.svc.pxt.run')
         with pytest.raises(PermissionError):
             transport.post(b'body')
-        assert len(requests) == 1
+        assert addresses == [address]
+
+    def test_connections_send_keepalive_probes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The daemon sends nothing until a request is done, so probes keep a NAT or firewall from dropping the
+        connection during a long request."""
+        sockets: list[socket.socket] = []
+        create_connection = socket.create_connection
+
+        def record(*args: Any, **kwargs: Any) -> socket.socket:
+            sock = create_connection(*args, **kwargs)
+            sockets.append(sock)
+            return sock
+
+        class Daemon(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'  # keeps the connection open after the answer
+
+            def do_POST(self) -> None:
+                self.rfile.read(int(self.headers['Content-Length']))
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+
+        monkeypatch.setattr(socket, 'create_connection', record)
+        with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Daemon) as server:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            transport = GatewayTransport('org1', 'db1', lambda: _KEY, f'http://127.0.0.1:{server.server_port}')
+            assert transport.post(b'body') == b'ok'
+            [sock] = sockets
+            assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
+            transport.close()
+            server.shutdown()
 
     def test_every_try_failing_to_connect_names_the_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A network that blocks the gateway refuses or drops every try: after the budget, an error that says
@@ -1179,20 +1271,6 @@ class TestGatewayRetries:
     def test_a_proxy_that_refuses_is_not_retried(self) -> None:
         transport, requests = _gateway([httpx.ProxyError('403 Forbidden')] * 2)
         with pxt_raises(excs.ErrorCode.DATABASE_UNAVAILABLE, match=r'the HTTPS proxy refused the connection \(403'):
-            transport.post(b'body')
-        assert len(requests) == 1
-
-    @pytest.mark.parametrize(
-        ('error_code', 'message'),
-        [
-            ('INVALID_STATE', 'This database is stopped. Start it with `pxt db start`.'),
-            ('USAGE_LIMIT', 'This database is stopped: its organization passed the monthly usage its plan includes.'),
-        ],
-    )
-    def test_a_stopped_database_is_named_at_once(self, error_code: str, message: str) -> None:
-        """Only its owner starts it, so no retry helps; the gateway's message says who and how."""
-        transport, requests = _gateway([_gateway_answer(503, error_code, message)] * 2)
-        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=rf'pxt://org1:db1: {message[:30]}'):
             transport.post(b'body')
         assert len(requests) == 1
 
@@ -1236,8 +1314,16 @@ class TestGatewayRetries:
             transport.post(b'body')
         assert len(requests) == 1
 
-    def test_a_client_error_is_not_retried(self) -> None:
-        transport, requests = _gateway([httpx.Response(404, content=b'nope')] * 2)
+    @pytest.mark.parametrize(
+        'answer',
+        [
+            httpx.Response(404, content=b'nope'),
+            # JSON that is not an object
+            httpx.Response(404, json=['nope']),
+        ],
+    )
+    def test_a_client_error_is_not_retried(self, answer: httpx.Response) -> None:
+        transport, requests = _gateway([answer] * 2)
         with pxt_raises(excs.ErrorCode.PROVIDER_BAD_REQUEST, match='refused this request: Not Found'):
             transport.post(b'body')
         assert len(requests) == 1

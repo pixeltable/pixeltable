@@ -326,25 +326,25 @@ class TestPgdataDir:
         _reset_env(reinit=False, db_name=None)
 
 
-class TestProxyEndpoint:
+class TestGatewayOrigin:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),
         [(None, 'https://acme-main.svc.pxt.run'), ('dev.pxt.run', 'https://acme-main.svc.dev.pxt.run')],
     )
-    def test_proxy_endpoint(
+    def test_gateway_origin(
         self, cloud_host: str | None, expected: str, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         if cloud_host is None:
             monkeypatch.delenv('PIXELTABLE_CLOUD_HOST', raising=False)
         else:
             monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
-        assert Env.get().proxy_endpoint('acme', 'main') == expected
+        assert Env.get().gateway_origin('acme', 'main') == expected
 
-    def test_proxy_endpoint_rejects_a_port(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """pxt.run:9000 picked the tunnel's other port; the gateway is reached on 443 alone."""
+    def test_gateway_origin_rejects_a_port(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A PIXELTABLE_CLOUD_HOST with a port is refused: the gateway is reached on port 443."""
         monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', 'pxt.run:9000')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the gateway is reached on port 443'):
-            Env.get().proxy_endpoint('acme', 'main')
+            Env.get().gateway_origin('acme', 'main')
 
 
 class _TestClient:

@@ -11,6 +11,7 @@ import math
 from pathlib import Path
 from typing import Any, Final, Literal
 
+import httpx
 import requests
 from tenacity import Retrying, retry_if_exception_type, retry_if_result, stop_after_attempt, wait_exponential
 
@@ -209,8 +210,7 @@ def is_refusal(status_code: int) -> bool:
 def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> excs.Error:
     """The error for a refusal status (see is_refusal); for a 401 or a 403, it says which credential was sent.
 
-    reason is a sentence without its final period. Shared with the gateway transport to a database, so that a
-    credential refused there reads the same as one the control plane refused.
+    reason is a sentence without its final period.
     """
     if status_code == 409:
         return excs.ConcurrencyError(
@@ -279,7 +279,7 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
     return resp.json()
 
 
-def retry_after_seconds(resp: requests.Response) -> float | None:
+def retry_after_seconds(resp: requests.Response | httpx.Response) -> float | None:
     """Seconds from Retry-After, or None when the header is missing or not a finite number >= 0."""
     try:
         seconds = float(resp.headers['Retry-After'])
