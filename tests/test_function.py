@@ -2396,7 +2396,7 @@ class TestFunction:
         table_model.create_all('')
         Items.insert([{'item_id': 'A1', 'name': 'apple'}, {'item_id': 'B2', 'name': 'banana'}])
         Orders.insert([{'order_id': 1, 'item_id': 'B2'}, {'order_id': 2, 'item_id': 'X'}])
-        res = Orders.order_by(Orders.order_id).select(Orders.item).collect()
+        res = Orders.order_by(Orders.order_id).select(Orders.item).collect()  # type: ignore[arg-type]
         assert res['item'] == [{'item_id': 'B2', 'name': 'banana'}, None]
 
         fn4 = pxt.retrieval_udf(Items, parameters=['item_id'], limit=1)
