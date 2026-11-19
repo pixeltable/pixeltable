@@ -65,7 +65,7 @@ jobs:
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "pixeltable-yolox"
-        os: [ubuntu-24.04]
+        os: [ubuntu-26.04]
         include:
           # The only job with TestBedrock, which needs only core dependencies and AWS credentials and so would run in
           # every 3.11 job
@@ -74,10 +74,10 @@ jobs:
             bedrock: true
           - python-version: "3.11"
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy"
-            os: ubuntu-24.04
+            os: ubuntu-26.04
           - python-version: "3.11"
             package-configs: "whisperx transformers timm soundfile"
-            os: ubuntu-24.04
+            os: ubuntu-26.04
           # The only job on a large runner, and it runs only the resource_intensive tests
           - python-version: "3.11"
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy"
@@ -86,16 +86,16 @@ jobs:
           # Test the basic pixeltable installation on other platforms.
           - python-version: "3.11"
             package-configs: ""
-            os: macos-15
+            os: macos-26
           - python-version: "3.11"
             package-configs: ""
-            os: macos-15-intel
+            os: macos-26-intel
           - python-version: "3.11"
             package-configs: ""
             os: windows-2025
           - python-version: "3.11"
             package-configs: ""
-            os: ubuntu-24.04-arm
+            os: ubuntu-26.04-arm
           - python-version: "3.11"
             package-configs: ""
             os: ubuntu-small-t4
@@ -208,7 +208,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
+        os: [ubuntu-26.04]
         python-version: ["3.11", "3.14"]
         include:
           # As in the tests job: the only job with the expensive notebooks, and every third Monday the very_expensive
