@@ -116,15 +116,6 @@ def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
     return None
 
 
-class ReservedNameRow(TypedDict):
-    count: int
-
-
-@pxt.iterator
-def reserved_name_iterator(x: int) -> Iterator[ReservedNameRow]:
-    yield from []
-
-
 @pxt.iterator
 def pop_iterator(x: int, opts: dict, items: list) -> Iterator[MyRow]:
     n = opts['nested'].pop('n', None)
@@ -419,6 +410,29 @@ class TestIterator:
             def reserved_pos_iterator(x: int) -> Iterator[PosRow]:
                 yield from []
 
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r"'count' is reserved and cannot be the name of an iterator output.",
+        ):
+
+            class CountRow(TypedDict):
+                count: int
+
+            @pxt.iterator
+            def reserved_count_iterator(x: int) -> Iterator[CountRow]:
+                yield from []
+
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r"'class' is reserved and cannot be the name of an iterator output.",
+        ):
+            KeywordRow = TypedDict('KeywordRow', {'class': int})
+
+            @pxt.iterator
+            class reserved_keyword_iterator(pxt.PxtIterator[KeywordRow]):
+                def __next__(self) -> KeywordRow:
+                    raise StopIteration
+
     def test_create_view_schema_errors(self, db_root: DatabaseRoot) -> None:
         """create_view() validates the iterator's output schema; these errors surface in both local and proxy mode."""
         p = db_root.make_catalog_path
@@ -438,13 +452,6 @@ class TestIterator:
             match=r'The `conditional_output_schema` for iterator `.*conditional_returns_none` returned None',
         ):
             pxt.create_view(p('view_cond_none'), t, iterator=conditional_returns_none(t.input))
-
-        # output column name is reserved
-        with pxt_raises(
-            pxt.ErrorCode.INVALID_COLUMN_NAME,
-            match=r"'count' is a reserved name in Pixeltable; rename that output of iterator `reserved_name_iterator`",
-        ):
-            pxt.create_view(p('view_reserved_name'), t, iterator=reserved_name_iterator(t.input))
 
     # test_evolving_iterator stays local-only: it monkey-patches the module-global `evolving_iterator` in this
     # process, which the proxy daemon (a separate process resolving its own module state) would never observe.
