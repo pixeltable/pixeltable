@@ -205,8 +205,10 @@ class document_splitter(pxt.PxtIterator):
         tiktoken_target_model: Name of the target model to use when counting tokens with tiktoken. If specified,
             this parameter overrides `tiktoken_encoding`. This parameter is ignored unless the `'token_limit'`
             separator is specified.
-        image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
-        image_format: format to use when extracting images from PDFs. Defaults to 'png'.
+        image_dpi: Resolution, in dots per inch, at which PDF pages are rendered when `elements` includes
+            `'image'`. Must be a positive integer. Defaults to 72, which renders one pixel per PDF point.
+        image_format: Currently ignored. Page images are returned as in-memory images and stored in the
+            format Pixeltable chooses for image columns.
 
     Examples:
         All these examples assume an existing table `tbl` with a column `doc` of type `pxt.Document`.
@@ -261,7 +263,7 @@ class document_splitter(pxt.PxtIterator):
         spacy_model: str = 'en_core_web_sm',
         tiktoken_encoding: str | None = 'cl100k_base',
         tiktoken_target_model: str | None = None,
-        image_dpi: int = 300,
+        image_dpi: int = 72,
         image_format: str = 'png',
     ) -> None:
         if skip_tags is None:
@@ -491,7 +493,7 @@ class document_splitter(pxt.PxtIterator):
             with closing(page):
                 img: PIL.Image.Image | None = None
                 if Element.IMAGE in self._elements:
-                    with closing(page.render()) as bitmap:
+                    with closing(page.render(scale=self._image_dpi / 72)) as bitmap:
                         img = bitmap.to_pil().copy()
                 with closing(page.get_textpage()) as textpage:
                     text = textpage.get_text_bounded()
@@ -586,6 +588,10 @@ class document_splitter(pxt.PxtIterator):
 
         limit = bound_args.get('limit')
         overlap = bound_args.get('overlap')
+
+        image_dpi = bound_args.get('image_dpi')
+        if image_dpi is not None and image_dpi <= 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'image_dpi' must be a positive integer")
 
         if Element.IMAGE in elements and separators != [Separator.PAGE]:
             raise excs.RequestError(
