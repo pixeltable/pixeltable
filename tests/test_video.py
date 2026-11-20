@@ -1144,8 +1144,8 @@ class TestVideo:
         [
             ([6.0, 11.0, 16.0], 'fast'),
             ([6.0, 11.0, 16.0], 'accurate'),
-            ([16.0, 6.0, 11.0, 6.0], 'fast'),
-            ([16.0, 6.0, 11.0, 6.0], 'accurate'),
+            ([16.0, 6.0, 11.0], 'fast'),
+            ([16.0, 6.0, 11.0], 'accurate'),
         ],
     )
     def test_video_splitter_segment_times(
@@ -1155,7 +1155,7 @@ class TestVideo:
         video_filepaths = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
         t = pxt.create_table('videos', {'video': pxt.Video | None, 'cuts': pxt.Json})
         t.insert({'video': p, 'cuts': segment_times} for p in video_filepaths)
-        start_times = [0.0, *sorted(set(segment_times))]
+        start_times = [0.0, *sorted(segment_times)]
         durations = [start_times[i + 1] - start_times[i] for i in range(len(start_times) - 1)]
         s = pxt.create_view('segments', t, iterator=video_splitter(t.video, segment_times=segment_times, mode=mode))
         self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
@@ -1205,6 +1205,10 @@ class TestVideo:
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="mode must be 'fast' or 'accurate': 'quick'"):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=2.0, mode='quick'))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be non-negative: -1.0'):
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[3.0, -1.0]))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must not contain duplicates'):
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[6.0, 3.0, 6.0]))
 
         video = get_video_files(include_mpgs=False)[0]
         rows = pxt.create_table('row_cuts', {'video': pxt.Video, 'cuts': pxt.Json})
@@ -1213,6 +1217,8 @@ class TestVideo:
             rows.insert([{'video': video, 'cuts': [3.0, -1.0]}])
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be a list of numbers'):
             rows.insert([{'video': video, 'cuts': {'a': 1.0}}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must not contain duplicates'):
+            rows.insert([{'video': video, 'cuts': [6.0, 3.0, 6.0]}])
         assert rows.count() == 0
         assert v.count() == 0
 
