@@ -150,6 +150,33 @@ class colliding_iterator(pxt.PxtIterator):
         pass
 
 
+class ItemTypeRow(TypedDict):
+    idx: int
+    item_type: str
+
+
+@pxt.iterator(unstored_cols=['item_type'])
+class item_type_iterator(pxt.PxtIterator):
+    """Emits the Python type name of each element of a Json list, as an unstored output."""
+
+    def __init__(self, items: pxt.Json):
+        self.items = items
+        self.i = 0
+
+    def __next__(self) -> ItemTypeRow:
+        if self.i >= len(self.items):
+            raise StopIteration
+        row: ItemTypeRow = {'idx': self.i, 'item_type': type(self.items[self.i]).__name__}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
 @pxt.udf
 def fail_on_odd(i: int) -> int:
     if i % 2 == 1:
@@ -693,6 +720,16 @@ class TestComponentView:
         assert [r['icol'] for r in v3_rows] == [0]
         assert [r['scol'] for r in v3_rows] == ['s 0']
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix']
+
+    def test_unstored_output_with_sql_json_fn(self, db_root: DatabaseRoot) -> None:
+        """The iterator gets its reconstructed Json arg when the query also computes a function of it in SQL."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('arrays'), {'j': pxt.Json})
+        t.insert([{'j': [np.zeros((2, 2), dtype=np.float32), np.ones((3, 3), dtype=np.float32)]}])
+        v = pxt.create_view(p('item_types'), t, iterator=item_type_iterator(t.j))
+        res = v.select(v.item_type, n=v.j.len()).order_by(v.idx).collect()
+        assert res['item_type'] == ['ndarray', 'ndarray']
+        assert res['n'] == [2, 2]
 
     def test_case_insensitive_iterator_outputs(self, db_root: DatabaseRoot) -> None:
         """Iterator output names become view columns and fold."""

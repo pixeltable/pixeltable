@@ -267,6 +267,7 @@ class EmbeddingIndex(IndexBase):
         else:
             assert self.metric == self.Metric.L2
             result = val_column.sa_col.l2_distance(query)
+            result = result if is_asc else result.desc()
         return result
 
     @classmethod

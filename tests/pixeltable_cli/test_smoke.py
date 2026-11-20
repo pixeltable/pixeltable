@@ -1515,18 +1515,32 @@ class TestRecompute:
         assert r.returncode != 0
         assert '--errors-only takes a single column' in r.stderr
 
-        r = cli('recompute', p('cli_rc_err/t'), 'nosuch', '-f', check=False)
-        assert r.returncode != 0
-        assert 'Unknown column' in r.stderr, r.stderr
-
-        # a stored, non-computed column has nothing to recompute
-        r = cli('recompute', p('cli_rc_err/t'), 'a', '-f', check=False)
-        assert r.returncode != 0
-
-        # a snapshot is not mutable
         pxt.create_snapshot(p('cli_rc_err/snap'), t, if_exists='replace')
-        r = cli('recompute', p('cli_rc_err/snap'), 'doubled', '-f', check=False)
-        assert r.returncode != 0
+        pxt.create_view(p('cli_rc_err/v'), t, if_exists='replace')
+        cases = [
+            # an unknown column
+            ('cli_rc_err/t', 'nosuch', 'Unknown column: nosuch [COLUMN_NOT_FOUND]'),
+            # a stored, non-computed column has nothing to recompute
+            ('cli_rc_err/t', 'a', "Column 'a' is not a computed column [UNSUPPORTED_OPERATION]"),
+            # a snapshot is not mutable, whatever the column
+            ('cli_rc_err/snap', 'nosuch', 'Cannot recompute columns of a snapshot'),
+            # a view's inherited column is recomputed on the base that defines it
+            ('cli_rc_err/v', 'doubled', 'Cannot recompute column of a base: doubled'),
+        ]
+        for tbl, col, msg in cases:
+            real = cli('recompute', p(tbl), col, '-f', check=False)
+            assert real.returncode == 1 and msg in real.stderr, real.stderr
+            # a dry run fails the same way, before printing a plan
+            dry = cli('recompute', p(tbl), col, '-n', check=False)
+            assert (dry.returncode, dry.stdout, dry.stderr) == (1, '', real.stderr)
+        assert 'would recompute' in cli('recompute', p('cli_rc_err/t'), 'DOUBLED', '-n').stdout
+
+        # a view named like its base owns the column that the base's later column of the same name shadows
+        pxt.create_dir(p('cli_rc_err/views'), if_exists='ignore')
+        pxt.create_view(p('cli_rc_err/views/t'), t, additional_columns={'tripled': t.a * 3}, if_exists='replace')
+        t.add_computed_column(tripled=t.a * 3)
+        dry = cli('recompute', p('cli_rc_err/views/t'), 'tripled', '-n', check=False)
+        assert dry.returncode == 0 and 'would recompute tripled' in dry.stdout, dry.stderr
 
 
 class TestRevert:

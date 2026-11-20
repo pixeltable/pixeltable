@@ -918,6 +918,13 @@ class Expr(abc.ABC):
 
         if isinstance(other, Expr):
             return Comparison(op, self, other)
+        if isinstance(other, str) and self.col_type.is_uuid_type():
+            try:
+                other = UUID(other)
+            except ValueError:
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH, f'Cannot compare UUID {self!s} with {other!r}: not a valid UUID'
+                ) from None
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return Comparison(op, self, Literal(other))
         raise self._unsupported_operand_error(op, other)

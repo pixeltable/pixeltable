@@ -1702,13 +1702,11 @@ class TestTunnelRetries:
     def test_a_proxy_that_cannot_be_reached_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A refused connection to the proxy is retried like any refused connection, then named for the proxy."""
         monkeypatch.setattr(proxy_client, '_TUNNEL_RETRY_MAX_DELAY', 0.3)
-        with socket.socket() as released:
-            released.bind(('127.0.0.1', 0))
-            port = released.getsockname()[1]
-        # nothing listens on the port now, so a connect to it is refused
-        monkeypatch.setenv('HTTPS_PROXY', f'http://127.0.0.1:{port}')
+        # nothing listens on port 1, and no port 0 bind gets it; a port released here could be handed to another
+        # xdist worker's fake proxy, which this test would then reach
+        monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
         transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
-        with pytest.raises(ConnectionError, match=rf'Cannot connect to the HTTPS proxy at 127\.0\.0\.1:{port}: '):
+        with pytest.raises(ConnectionError, match=r'Cannot connect to the HTTPS proxy at 127\.0\.0\.1:1: '):
             transport.post(b'body')
 
     def test_a_proxy_that_never_answers_times_out_like_a_connect(self, monkeypatch: pytest.MonkeyPatch) -> None:

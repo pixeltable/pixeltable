@@ -47,7 +47,7 @@ class TableDataConduitFormat(str, enum.Enum):
     @classmethod
     def is_valid(cls, x: Any) -> bool:
         if isinstance(x, str):
-            return x.lower() in [c.value for c in cls]
+            return x in [c.value for c in cls]
         return False
 
 

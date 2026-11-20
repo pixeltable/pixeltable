@@ -647,6 +647,15 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='nonexistent'):
             import_sql(ok_src, engine, p('never1'), schema_overrides={'nonexistent': pxt.Int | None})
 
+        # a primary key column that is nullable in the source is imported as non-nullable
+        pk_src = _seed_source(
+            engine, 'pk_src', [sql.Column('review_id', sql.Text, nullable=True)], [{'review_id': 'r1'}]
+        )
+        for i, pk_name in enumerate(('review_id', 'Review_ID')):
+            pk_tbl = import_sql(pk_src, engine, p(f'pk_dest{i}'), primary_key=pk_name)
+            assert not pk_tbl._get_schema()['review_id'].nullable
+            assert pk_tbl.collect()['review_id'] == ['r1']
+
         # Two expressions aliased to the same name -> import_sql rejects up-front.
         dup_stmt = sql.select(ok_src.c.c_int.label('c_int'), (ok_src.c.c_int + 1).label('c_int'))
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='duplicate output column'):

@@ -9,29 +9,29 @@ name: tests
 #
 # On every trigger (including PR updates):
 #   - Linting, type-checking, docstring validation, etc.
-#   - A minimal installation of Pixeltable (--no-dev) with Python 3.11 and 3.15 on ubuntu-24.04.
+#   - A minimal installation of Pixeltable (--no-dev) with Python 3.11 and 3.15 on ubuntu-26.04.
 #   - A minimal installation with all required dependencies pinned to their minimums (--resolution lowest-direct).
 #
 # On PR updates, additionally:
-#   - A minimal installation with Python 3.11 on macos-15 and windows-2025 runners.
-#   - 10 minutes of random ops and the file cache stress test, with a minimal installation on ubuntu-24.04.
+#   - A minimal installation with Python 3.11 on macos-26 and windows-2025 runners.
+#   - 10 minutes of random ops and the file cache stress test, with a minimal installation on ubuntu-26.04.
 #
-# In merge queue, instead of the macos-15 and windows-2025 minimal installations and the 10-minute random ops:
-#   - Python 3.11 on ubuntu-24.04 (standard+, which also runs the expensive tests), macos-15, and windows-2025
+# In merge queue, instead of the macos-26 and windows-2025 minimal installations and the 10-minute random ops:
+#   - Python 3.11 on ubuntu-26.04 (standard+, which also runs the expensive tests), macos-26, and windows-2025
 #     runners.
 #   - 30 minutes of random ops and the file cache stress test, and the OpenTelemetry instrumentation tests.
-#   - Python 3.15 on ubuntu-24.04, macos-15, and windows-2025 runners.
-#   - Python 3.12, 3.13, and 3.14 on ubuntu-24.04.
-#   - Minimal Pixeltable with Python 3.11 on ubuntu-24.04-arm and macos-15-intel.
+#   - Python 3.15 on ubuntu-26.04, macos-26, and windows-2025 runners.
+#   - Python 3.12, 3.13, and 3.14 on ubuntu-26.04.
+#   - Minimal Pixeltable with Python 3.11 on ubuntu-26.04-arm and macos-26-intel.
 #   - Minimal Pixeltable with an S3 media destination (only when AWS credentials are available).
-#   - Notebook tests on ubuntu-24.04, with the markers of standard+ (notebooks+).
+#   - Notebook tests on ubuntu-26.04, with the markers of standard+ (notebooks+).
 #
 # On a daily schedule (against branch 'main'), the merge queue configurations, with these changes:
 #   - Every unit test and notebook configuration also runs the skip_merge_queue tests.
 #   - The resource_intensive tests and notebooks run on ubuntu-large, and nowhere else.
 #
 # On Tuesdays, the scheduled run is the weekly run, with these additions:
-#   - The very_expensive tests on Python 3.11 on ubuntu-24.04 (standard++).
+#   - The very_expensive tests on Python 3.11 on ubuntu-26.04 (standard++).
 #   - The very_expensive notebooks (notebooks++, in place of notebooks+).
 #   - Python 3.11 on ubuntu-small-t4 (equipped with an NVIDIA T4 GPU).
 #

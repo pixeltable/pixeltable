@@ -1101,8 +1101,13 @@ class TestTable:
     def test_validate_on_read_with_computed_col(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
-        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        schema: dict[str, Any] = {'media': pxt.Video | None, 'is_bad_media': pxt.Bool | None, 'stage': pxt.Int}
+        rows = [{'id': i, 'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for i, f in enumerate(files)]
+        schema: dict[str, Any] = {
+            'id': pxt.Int,
+            'media': pxt.Video | None,
+            'is_bad_media': pxt.Bool | None,
+            'stage': pxt.Int,
+        }
 
         # we are testing a nonsensical scenario: a computed column that references a read-validated media column,
         # which forces validation
@@ -1118,7 +1123,7 @@ class TestTable:
             on_read_tbl.select(
                 on_read_tbl.media, *path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media, on_read_tbl.md
             )
-            .order_by(on_read_tbl.media)
+            .order_by(on_read_tbl.id)
             .collect()
         )
 
@@ -1132,7 +1137,7 @@ class TestTable:
             .select(
                 on_read_tbl.media, *path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media, on_read_tbl.md
             )
-            .order_by(on_read_tbl.media)
+            .order_by(on_read_tbl.id)
             .collect()
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
@@ -2436,15 +2441,39 @@ class TestTable:
             t.insert(json_col_2={'z': None})
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
-            match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
+            match=r"Column 'json_col_2': the value .* has type .*, which is not compatible with the column type",
         ):
             t.update({'json_col_2': {'a': 'mangoes', 'z': 1}})
 
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
-            match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
+            match=r"Column 'json_col_2': the value .* has type .*, which is not compatible with the column type",
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
+
+    def test_update_expr_type_mismatch(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        counts = pxt.create_table(p('acct_counts'), {'acct': pxt.String, 'n': pxt.Int})
+        counts.insert([{'acct': 'a', 'n': 3}])
+        accts = pxt.create_table(p('accts'), {'acct': pxt.String, 'n': pxt.Int | None})
+        accts.insert([{'acct': 'a'}])
+
+        @pxt.query
+        def acct_counts(acct: str) -> pxt.Query:
+            return counts.where(counts.acct == acct).select(counts.n)
+
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"Column 'n': the value acct_counts\(acct\) has type `Json\[\(Int, \.\.\.\)\]`, which is not "
+            r'compatible with the column type `Int \| None`$',
+        ):
+            accts.update({'n': acct_counts(accts.acct)})
+
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"Column 'n': the value acct has type `String`, which is not compatible with the column type",
+        ):
+            accts.update({'n': accts.acct})
 
     def test_update_json_expr(self, db_root: DatabaseRoot) -> None:
         # An update expression's values aren't validated, so its type may declare no keys that the column's doesn't
@@ -2456,7 +2485,9 @@ class TestTable:
         t.insert(s='x')
         t.update({'j': {'a': t.s}})  # omitting an optional key is fine
         assert t.collect()['j'] == [{'a': 'x'}]
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"is not compatible with the type.*of column 'j'"):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r"Column 'j': the value .* is not compatible with the column type"
+        ):
             t.update({'j': {'a': t.s, 'z': t.s}})
 
     def test_insert_pydantic_json(self, db_root: DatabaseRoot) -> None:
@@ -2952,8 +2983,16 @@ class TestTable:
         assert t.where(t.c2 == 200).count() == 0
 
         # unknown primary key: insert
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c3, c4, c5, c6, c7\)'):
+            t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert')
+        assert t.count() == num_rows
+        assert t.where(t.c2 == 2).collect()[0]['c1'] != 'zwei'
+
+        vals = {'c3': 2.0, 'c4': True, 'c5': datetime.datetime(2024, 7, 1), 'c6': {}, 'c7': {}}
         validate_update_status(
-            t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
+            t.batch_update(
+                [{'c1': 'zwei', 'c2': 2, **vals}, {'c1': 'zweihundert', 'c2': 200, **vals}], if_not_exists='insert'
+            ),
             expected_row_counts=RowCountStats(inserted_rows=1, updated_rows=1),
             expected_cascade_row_counts=RowCountStats(),
         )

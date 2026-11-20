@@ -2206,6 +2206,9 @@ class TestExprs:
                 pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)
             ).show(100)
 
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Incompatible ordering requirements'):
+            _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).order_by(t.c2).collect()
+
         # backfill works
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
