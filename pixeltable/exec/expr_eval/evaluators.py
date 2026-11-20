@@ -62,8 +62,20 @@ class ImageLoadEvaluator(Evaluator):
     Decodes the stored image file of a ColumnRef slot on Env.cpu_pool.
     """
 
+    default_evaluator: DefaultExprEvaluator
+
+    def __init__(self, e: exprs.Expr, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
+        super().__init__(dispatcher, exec_ctx)
+        self.default_evaluator = DefaultExprEvaluator(e, dispatcher, exec_ctx)
+
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
-        for row in rows:
+        # A row can reach this slot with no value from the input. Example: a document_splitter view writes its image
+        # output only to the validating ColumnRef, and ColumnRef.eval() gives the unvalidated slot None.
+        rows_without_file = [row for row in rows if row.file_paths[slot_idx] is None]
+        if len(rows_without_file) > 0:
+            self.default_evaluator.schedule(rows_without_file, slot_idx)
+        rows_with_file = [row for row in rows if row.file_paths[slot_idx] is not None]
+        for row in rows_with_file:
             task = asyncio.create_task(self.eval(row, slot_idx))
             self.dispatcher.register_task(task)
 

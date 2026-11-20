@@ -237,7 +237,7 @@ class ExprEvalCtx:
         for slot_idx in target_slot_idxs:
             expr = self.row_builder.unique_exprs[slot_idx]
             if slot_idx in self.image_decode_slot_idxs:
-                self.slot_evaluators[slot_idx] = ImageLoadEvaluator(dispatcher, self)
+                self.slot_evaluators[slot_idx] = ImageLoadEvaluator(expr, dispatcher, self)
             elif (
                 isinstance(expr, exprs.FunctionCall)
                 # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
