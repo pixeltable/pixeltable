@@ -12,6 +12,9 @@ Supports two authentication methods:
   `GOOGLE_CLOUD_LOCATION`), then authenticate via Application Default Credentials
   (e.g. `gcloud auth application-default login`).
 
+An API key in `GEMINI_API_KEY` or the `gemini` section of the config file selects Google AI Studio even when
+`GOOGLE_GENAI_USE_VERTEXAI` is set; to use Vertex AI, leave both unset.
+
 google-genai 3.x sends requests to the `v1` API by default, which doesn't serve some models, such as
 `gemini-3.1-pro-preview`, and lacks features such as speech generation and system instructions. To use them, set
 `GOOGLE_GENAI_API_VERSION=beta`.
@@ -71,7 +74,7 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
 
     try:
         if api_key is not None:
-            return _ClosableClient(api_key=api_key)
+            return _ClosableClient(vertexai=False, api_key=api_key)
         # Vertex AI fall-through: rely on genai.client.Client to read its own env vars
         # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
         return _ClosableClient()
