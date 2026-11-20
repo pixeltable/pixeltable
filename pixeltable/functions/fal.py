@@ -70,15 +70,15 @@ async def run(input: dict[str, Any], *, app: str) -> pxt.Json:
         >>> input = {'prompt': tbl.prompt}
         >>> tbl.add_computed_column(response=run(input, app='fal-ai/flux/schnell'))
 
-        Add a computed column that uses the model `fal-ai/fast-sdxl`
-        to generate images from an existing Pixeltable column `tbl.prompt`:
+        Add a computed column that sets the image size and number of inference steps
+        for `fal-ai/flux/schnell` and converts the first generated image to an image column:
 
         >>> input = {
         ...     'prompt': tbl.prompt,
         ...     'image_size': 'square',
-        ...     'num_inference_steps': 25,
+        ...     'num_inference_steps': 8,
         ... }
-        >>> tbl.add_computed_column(response=run(input, app='fal-ai/fast-sdxl'))
+        >>> tbl.add_computed_column(response=run(input, app='fal-ai/flux/schnell'))
         >>> tbl.add_computed_column(
         ...     image=tbl.response['images'][0]['url'].astype(pxt.Image)
         ... )
