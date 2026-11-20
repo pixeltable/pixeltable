@@ -137,6 +137,7 @@ def _parse_elements(elements: list[Literal['text', 'image']] | None) -> list[Ele
 
 
 _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+_PDF_POINTS_PER_INCH = 72
 
 
 class DocumentChunk(TypedDict, total=False):
@@ -205,8 +206,8 @@ class document_splitter(pxt.PxtIterator):
         tiktoken_target_model: Name of the target model to use when counting tokens with tiktoken. If specified,
             this parameter overrides `tiktoken_encoding`. This parameter is ignored unless the `'token_limit'`
             separator is specified.
-        image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
-        image_format: format to use when extracting images from PDFs. Defaults to 'png'.
+        image_dpi: Resolution at which PDF pages are rendered when `elements` includes `'image'`. Must be a
+            positive integer. Defaults to 72, which renders one pixel per PDF point.
 
     Examples:
         All these examples assume an existing table `tbl` with a column `doc` of type `pxt.Document`.
@@ -244,7 +245,6 @@ class document_splitter(pxt.PxtIterator):
     _tiktoken_encoding: str | None
     _tiktoken_target_model: str | None
     _image_dpi: int
-    _image_format: str
 
     _sections: Iterator[DocumentSection]
 
@@ -261,8 +261,7 @@ class document_splitter(pxt.PxtIterator):
         spacy_model: str = 'en_core_web_sm',
         tiktoken_encoding: str | None = 'cl100k_base',
         tiktoken_target_model: str | None = None,
-        image_dpi: int = 300,
-        image_format: str = 'png',
+        image_dpi: int = _PDF_POINTS_PER_INCH,
     ) -> None:
         if skip_tags is None:
             skip_tags = ['nav']
@@ -285,7 +284,6 @@ class document_splitter(pxt.PxtIterator):
         self._tiktoken_encoding = tiktoken_encoding
         self._tiktoken_target_model = tiktoken_target_model
         self._image_dpi = image_dpi
-        self._image_format = image_format
 
         # set up processing pipeline
         if self._doc_handle.format == ts.DocumentType.DocumentFormat.HTML:
@@ -491,7 +489,7 @@ class document_splitter(pxt.PxtIterator):
             with closing(page):
                 img: PIL.Image.Image | None = None
                 if Element.IMAGE in self._elements:
-                    with closing(page.render()) as bitmap:
+                    with closing(page.render(scale=self._image_dpi / _PDF_POINTS_PER_INCH)) as bitmap:
                         img = bitmap.to_pil().copy()
                 with closing(page.get_textpage()) as textpage:
                     text = textpage.get_text_bounded()
@@ -586,6 +584,10 @@ class document_splitter(pxt.PxtIterator):
 
         limit = bound_args.get('limit')
         overlap = bound_args.get('overlap')
+
+        image_dpi = bound_args.get('image_dpi')
+        if image_dpi is not None and image_dpi <= 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'image_dpi' must be a positive integer")
 
         if Element.IMAGE in elements and separators != [Separator.PAGE]:
             raise excs.RequestError(
