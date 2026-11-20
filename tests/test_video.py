@@ -1210,25 +1210,32 @@ class TestVideo:
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=2.0, mode='quick'))
 
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
-    def test_video_splitter_per_row_segment_times_errors(self, uses_db: None, tmp_path: Path) -> None:
+    def test_video_splitter_per_row_segment_times(self, uses_db: None, tmp_path: Path) -> None:
         video = generate_test_video(tmp_path, duration=6.0, fps=10)
         t = pxt.create_table('videos', {'video': pxt.Video, 'cuts': pxt.Json})
+        t.insert([{'video': video, 'cuts': [4.0, 2.0, 4.0]}])
         v = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=t.cuts))
-        t.insert([{'video': video, 'cuts': [2.0, 4.0]}])
-        assert v.count() == 3
+        status = t.insert(
+            [{'video': video, 'cuts': [1.0, 3.0]}, {'video': video, 'cuts': [5.0, 2.0]}], on_error='ignore'
+        )
+        assert status.num_excs == 0
+        assert t.count() == 3
 
-        with pxt_raises(
-            pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be strictly increasing: 2.0 follows 5.0'
-        ):
-            t.insert([{'video': video, 'cuts': [1.0, 3.0]}, {'video': video, 'cuts': [5.0, 2.0]}], on_error='ignore')
-        assert t.count() == 1
-        assert v.count() == 3
+        starts: dict[tuple[float, ...], list[float]] = {}
+        for row in v.select(v.cuts, v.segment_start).order_by(v.pos).collect():
+            starts.setdefault(tuple(row['cuts']), []).append(row['segment_start'])
+        assert starts == {
+            (4.0, 2.0, 4.0): pytest.approx([0.0, 2.0, 4.0], abs=0.15),
+            (1.0, 3.0): pytest.approx([0.0, 1.0, 3.0], abs=0.15),
+            (5.0, 2.0): pytest.approx([0.0, 2.0, 5.0], abs=0.15),
+        }
+
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be non-negative: -1.0'):
-            t.insert([{'video': video, 'cuts': [-1.0, 3.0]}])
+            t.insert([{'video': video, 'cuts': [3.0, -1.0]}])
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be a list of numbers'):
             t.insert([{'video': video, 'cuts': {'a': 1.0}}])
-        assert t.count() == 1
-        assert v.count() == 3
+        assert t.count() == 3
+        assert v.count() == 9
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')

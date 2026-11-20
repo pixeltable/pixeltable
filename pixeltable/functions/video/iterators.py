@@ -416,10 +416,11 @@ def video_splitter(
         duration: Video segment duration in seconds
         overlap: Overlap between consecutive segments in seconds. Only available for `mode='fast'`.
         min_segment_duration: Drop the last segment if it is smaller than min_segment_duration.
-        segment_times: List of timestamps (in seconds) in video where segments should be split, non-negative and in
-            strictly increasing order. Note that these are not segment durations. If all segment times are less than
-            the duration of the video, produces exactly `len(segment_times) + 1` segments. An argument of `[]` will
-            produce a single segment containing the entire video.
+        segment_times: List of non-negative timestamps (in seconds) in video where segments should be split. Note that
+            these are not segment durations. A literal list must be in strictly increasing order; a list that comes
+            from a column is sorted and its duplicates are removed. If all segment times are less than the duration
+            of the video, produces exactly one more segment than there are distinct segment times. An argument of
+            `[]` will produce a single segment containing the entire video.
         mode: Segmentation mode:
 
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
@@ -470,6 +471,8 @@ def video_splitter(
 
     overlap = overlap or 0.0
     min_segment_duration = min_segment_duration or 0.0
+    if segment_times is not None:
+        segment_times = sorted(set(segment_times))
 
     with av.open(video) as container:
         video_time_base = container.streams.video[0].time_base
@@ -645,13 +648,14 @@ def _(bound_args: dict[str, Any]) -> None:
                 excs.ErrorCode.INVALID_ARGUMENT,
                 f'video_splitter(): segment_times must be a list of numbers: {segment_times!r}',
             )
-        if len(segment_times) > 0 and segment_times[0] < 0:
+        if len(segment_times) > 0 and min(segment_times) < 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                f'video_splitter(): segment_times must be non-negative: {segment_times[0]}',
+                f'video_splitter(): segment_times must be non-negative: {min(segment_times)}',
             )
+        validating_literals_only = 'video' not in bound_args
         for prev, cur in itertools.pairwise(segment_times):
-            if cur <= prev:
+            if validating_literals_only and cur <= prev:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'video_splitter(): segment_times must be strictly increasing: {cur} follows {prev}',
