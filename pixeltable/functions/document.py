@@ -138,6 +138,7 @@ def _parse_elements(elements: list[Literal['text', 'image']] | None) -> list[Ele
 
 _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 _PDF_POINTS_PER_INCH = 72
+_PDF_PAGE_SIZE_FLOAT32_SLACK = 1e-7
 
 
 class DocumentChunk(TypedDict, total=False):
@@ -244,7 +245,7 @@ class document_splitter(pxt.PxtIterator):
     _spacy_model: 'spacy.Language'
     _tiktoken_encoding: str | None
     _tiktoken_target_model: str | None
-    _image_dpi: int
+    _render_scale: float
 
     _sections: Iterator[DocumentSection]
 
@@ -283,7 +284,7 @@ class document_splitter(pxt.PxtIterator):
         self._overlap = 0 if overlap is None else overlap
         self._tiktoken_encoding = tiktoken_encoding
         self._tiktoken_target_model = tiktoken_target_model
-        self._image_dpi = image_dpi
+        self._render_scale = image_dpi / _PDF_POINTS_PER_INCH * (1 - _PDF_PAGE_SIZE_FLOAT32_SLACK)
 
         # set up processing pipeline
         if self._doc_handle.format == ts.DocumentType.DocumentFormat.HTML:
@@ -489,7 +490,7 @@ class document_splitter(pxt.PxtIterator):
             with closing(page):
                 img: PIL.Image.Image | None = None
                 if Element.IMAGE in self._elements:
-                    with closing(page.render(scale=self._image_dpi / _PDF_POINTS_PER_INCH)) as bitmap:
+                    with closing(page.render(scale=self._render_scale)) as bitmap:
                         img = bitmap.to_pil().copy()
                 with closing(page.get_textpage()) as textpage:
                     text = textpage.get_text_bounded()
