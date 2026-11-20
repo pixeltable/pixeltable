@@ -460,10 +460,14 @@ class TestParquet:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="`if_exists` must be one of: \\['error', 'replace'\\]"):
             pxt.io.export_parquet(t, export_path, if_exists='append')  # type: ignore[arg-type]
 
+        unrelated = tmp_path / '.old_exported'
+        unrelated.mkdir()
+        (unrelated / 'keep.txt').write_text('keep')
         t.insert([{'a': 3}])
         pxt.io.export_parquet(t, export_path, if_exists='replace')
         assert exported_values() == [1, 2, 3]
-        assert sorted(f.name for f in tmp_path.iterdir()) == ['exported']
+        assert sorted(f.name for f in tmp_path.iterdir()) == ['.old_exported', 'exported']
+        assert (unrelated / 'keep.txt').read_text() == 'keep'
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='bad value 3'):
             pxt.io.export_parquet(t.select(a=fail_on_value(t.a, 3)), export_path, if_exists='replace')

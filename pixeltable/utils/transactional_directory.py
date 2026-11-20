@@ -1,4 +1,5 @@
 import shutil
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator
@@ -36,8 +37,7 @@ def transactional_directory(folder_path: Path, replace: bool = False) -> Generat
     yield tmp_folder
     # If everything succeeds, `commit' the changes by moving the temporary folder
     if replace and folder_path.exists():
-        old_folder = folder_path.parent / f'.old_{folder_path.name}'
-        shutil.rmtree(str(old_folder), ignore_errors=True)
+        old_folder = folder_path.parent / f'.old_{folder_path.name}_{uuid.uuid4().hex}'
         folder_path.rename(old_folder)
         tmp_folder.rename(folder_path)
         shutil.rmtree(str(old_folder))
