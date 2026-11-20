@@ -1,4 +1,5 @@
 import datetime
+import pathlib
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -319,7 +320,7 @@ class TestPandas:
         entry = t4.limit(1).collect()[0]
         assert entry['date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
-        t5 = import_excel(p('sale_data'), 'tests/data/datasets/SaleData.xlsx')
+        t5 = import_excel(p('sale_data'), pathlib.Path('tests/data/datasets/SaleData.xlsx'))
         assert t5.count() == 45
         assert t5._get_schema()['orderdate'] == ts.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
