@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any, Iterable
 
 import sqlalchemy as sql
@@ -29,7 +30,8 @@ class InPredicate(Expr):
             if not value_set_expr.col_type.is_json_type():
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
-                    f'isin(): argument must have a JSON type, but {value_set_expr} has type {value_set_expr.col_type}',
+                    f'isin(): argument must have a JSON type, but {value_set_expr!s} '
+                    f'has type {value_set_expr.col_type}',
                 )
             self.components = [lhs.copy(), value_set_expr.copy()]
         else:
@@ -37,7 +39,7 @@ class InPredicate(Expr):
             self.components = [lhs.copy()]
             self.value_list = self._normalize_value_set(value_set_literal)
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def _lhs(self) -> Expr:
@@ -55,6 +57,8 @@ class InPredicate(Expr):
                 f'isin(): argument must be an Iterable (eg, list, dict, ...), not {value_set!r}',
             )
         value_list = list(value_set)
+        if self._lhs.col_type.is_uuid_type():
+            value_list = [_str_to_uuid(val) for val in value_list]
         if not filter_type_mismatches:
             return value_list
 
@@ -70,8 +74,8 @@ class InPredicate(Expr):
 
     def __repr__(self) -> str:
         if self.value_list is not None:
-            return f'{self.components[0]}.isin({self.value_list})'
-        return f'{self.components[0]}.isin({self.components[1]})'
+            return f'{self.components[0]!s}.isin({self.value_list})'
+        return f'{self.components[0]!s}.isin({self.components[1]!s})'
 
     def _equals(self, other: InPredicate) -> bool:
         return self.value_list == other.value_list
@@ -95,10 +99,23 @@ class InPredicate(Expr):
             data_row[self.slot_idx] = lhs_val in value_list
 
     def _as_dict(self) -> dict:
-        return {'value_list': self.value_list, **super()._as_dict()}
+        value_list = self.value_list
+        if value_list is not None:
+            # stored as JSON; the constructor turns the strings back into UUIDs
+            value_list = [str(val) if isinstance(val, uuid.UUID) else val for val in value_list]
+        return {'value_list': value_list, **super()._as_dict()}
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> InPredicate:
         assert 'value_list' in d
         assert len(components) <= 2
         return cls(components[0], d['value_list'], components[1] if len(components) == 2 else None)
+
+
+def _str_to_uuid(val: Any) -> Any:
+    if isinstance(val, str):
+        try:
+            return uuid.UUID(val)
+        except ValueError:
+            pass
+    return val

@@ -16,7 +16,6 @@ import pixeltable.type_system as ts
 from pixeltable import env, exceptions as excs
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 from .openai import _encode_chat_images
 
@@ -208,7 +207,7 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
     return ts.ArrayType((dimensions,), dtype=ts.FloatType())
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'embeddings']
 
 
 def __dir__() -> list[str]:

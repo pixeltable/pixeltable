@@ -40,9 +40,11 @@ class ModelQuery(QueryBase):
         The shape it queries is synthesized from the model and carries no durable table identity, so a
         serialized one could not be read back. bind() produces the query that can be stored.
         """
-        raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR,
-            f'A query over model `{self.model_cls.__name__}` cannot be serialized; bind it to a table first.',
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'A query over model `{self.model_cls.__name__}` can only be used in a TableModel or a query route; '
+            'to use it elsewhere, write the query over a table (for example `pxt.get_table(...)`) '
+            'instead of the model.',
         )
 
     @property
@@ -84,7 +86,7 @@ class ModelQuery(QueryBase):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'{model_name}: `base` select() list may contain only direct column references '
-                    f'or named expressions, but contains an anonymous compound expression: {item}\n'
+                    f'or named expressions, but contains an anonymous compound expression: {item!s}\n'
                     f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
                 )
 
@@ -120,7 +122,7 @@ class ModelQuery(QueryBase):
         # a similarity expression names its indexed column and the table version holding the index, neither of
         # which a substitution by column name reaches
         defined_path = self._from_clause.tbls[0]
-        for sim in {s.id: s for e in self._component_exprs() for s in e.subexprs(exprs.SimilarityExpr)}.values():
+        for sim in {s._expr_id: s for e in self._component_exprs() for s in e.subexprs(exprs.SimilarityExpr)}.values():
             assert sim.qcol_id is not None
             if sim.qcol_id.tbl_id == path.tbl_id:
                 continue  # already indexed against this path
@@ -133,14 +135,14 @@ class ModelQuery(QueryBase):
                     f'Table {path.tbl_name()!r} has no column {col_name!r}, which a similarity() call references.',
                 )
             subst[sim] = exprs.SimilarityExpr(
-                sim.components[0].copy().substitute(subst),
+                sim.components[0].substitute(subst),
                 idx_name=sim.idx_name,
                 qcol_id=new_md.qcolid,
                 table_version_key=catalog.TableVersionKey(new_md.qcolid.tbl_id, new_md.col_effective_version),
             )
 
         def rebound(e: exprs.Expr) -> exprs.Expr:
-            return bind_query_templates(e.copy().substitute(subst), catalog_dir)
+            return bind_query_templates(e.substitute(subst), catalog_dir)
 
         return pxt.Query._from_query(self, from_clause=FromClause(tbls=[path]), substitution_fn=rebound)
 

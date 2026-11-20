@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import replicate
@@ -87,7 +86,7 @@ async def run(input: dict[str, Any], *, ref: str) -> pxt.Json:
     return await _replicate_client().async_run(ref, input, use_file_output=False)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['run']
 
 
 def __dir__() -> list[str]:

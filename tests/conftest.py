@@ -1,4 +1,6 @@
+import contextlib
 import ctypes
+import faulthandler
 import functools
 import gc
 import hashlib
@@ -9,17 +11,21 @@ import os
 import pathlib
 import platform
 import shutil
+import signal
 import sys
 import threading
+import time
 import urllib.parse
 import uuid
 from typing import Any, Callable, Generator, Iterator, get_args
 
+import psutil
 import pytest
 import requests
 import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
+from _pytest.faulthandler import fault_handler_stderr_fd_key
 from filelock import FileLock
 from sqlalchemy import text
 
@@ -37,6 +43,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
 
+from .notebook_markers import NOTEBOOK_MARKERS
 from .utils import (
     CLOUD_DB_ROOT_URIS,
     IN_CI,
@@ -70,17 +77,32 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
 def pytest_configure(config: PytestConfig) -> None:
     global DO_RERUN  # noqa: PLW0603
     DO_RERUN = not config.getoption('--no-rerun')
+    if hasattr(signal, 'SIGUSR1'):
+        # CI sends SIGUSR1 to the pytest controller and its xdist workers shortly before the test step's timeout, for a
+        # stack dump of a hang outside any test, where faulthandler_timeout has no effect. The dump goes to a dup of
+        # stderr, as with pytest's faulthandler plugin, since output capture redirects fd 2 during a test.
+        faulthandler.register(signal.SIGUSR1, file=os.dup(2), all_threads=True)
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a
-# Hugging Face test and is marked 'very_expensive'.
+# Hugging Face test and is marked 'skip_merge_queue', in the 'large_model' xdist group.
 _HF_FIXTURES = frozenset({'clip_embed', 'e5_embed', 'all_mpnet_embed'})
 
 
+# tryfirst: xdist's worker reads the xdist_group marks in its own pytest_collection_modifyitems, which is registered
+# after this conftest and so otherwise runs first
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
-            item.add_marker(pytest.mark.very_expensive)
+            item.add_marker(pytest.mark.skip_merge_queue)
+            item.add_marker(pytest.mark.xdist_group('large_model'))
+
+    for item in items:
+        if item.path.suffix == '.ipynb':
+            marker_names, reason = NOTEBOOK_MARKERS.get(item.path.stem, ((), None))
+            for marker_name in marker_names:
+                item.add_marker(marker_name if reason is None else getattr(pytest.mark, marker_name)(reason=reason))
 
     offenders: list[str] = []
     for item in items:
@@ -95,10 +117,42 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         )
 
 
-def pytest_runtest_setup(item: pytest.Item) -> None:
+@contextlib.contextmanager
+def _requires_init_env(item: pytest.Item) -> Iterator[None]:
+    """Fails a test that reaches Env.get() on its own thread without requesting init_env.
+
+    Such a test uses whatever environment an earlier test on its worker set up, or the developer's real home and
+    database when it runs first, so CI catches it only when it happens to run first.
+    """
+    if not isinstance(item, pytest.Function) or 'init_env' in item.fixturenames:
+        yield
+        return
+    get = Env.__dict__['get'].__func__
+    test_thread = threading.current_thread()
+
+    def guarded_get(cls: type[Env]) -> Env:
+        if threading.current_thread() is test_thread:
+            pytest.fail(f'{item.nodeid} reaches Env.get() without requesting the init_env fixture')
+        return get(cls)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Env, 'get', classmethod(guarded_get))
+        yield
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
     _clear_model_caches()
+    with _requires_init_env(item):
+        yield
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
+    with _requires_init_env(item):
+        yield
 
 
 def _clear_model_caches() -> None:
@@ -124,6 +178,52 @@ def _clear_model_caches() -> None:
     if platform.libc_ver()[0] == 'glibc':
         # glibc keeps freed memory in the process's heap unless asked to return it
         ctypes.CDLL('libc.so.6').malloc_trim(0)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item: pytest.Item) -> Generator[None, object, object]:
+    """At faulthandler_timeout, after pytest's stack dump, a dump of this process's child processes.
+
+    A main thread blocked on a subprocess looks the same in the stack dump whether the child is spinning, blocked, or
+    gone while another process holds its pipes. The SIGUSR1 dump in CI also skips Windows.
+    """
+    timer: threading.Timer | None = None
+    timeout = float(item.config.getini('faulthandler_timeout') or 0)
+    if timeout > 0:
+        fd = item.config.stash[fault_handler_stderr_fd_key]
+        timer = threading.Timer(timeout, _dump_child_processes, args=(item, fd))
+        timer.daemon = True
+        timer.start()
+    try:
+        return (yield)  # noqa: B901
+    finally:
+        if timer is not None:
+            timer.cancel()
+
+
+def _dump_child_processes(item: pytest.Item, fd: int) -> None:
+    children = psutil.Process().children(recursive=True)
+    cpu_before: dict[int, float] = {}
+    for child in children:
+        with contextlib.suppress(psutil.Error):
+            cpu_before[child.pid] = sum(child.cpu_times()[:2])
+    # CPU time rising over the interval means a busy child; flat means a blocked one
+    time.sleep(10)
+    lines = [f'Child processes of pid {os.getpid()} in {item.nodeid}:']
+    for child in children:
+        try:
+            with child.oneshot():
+                cpu = f'{cpu_before.get(child.pid, float("nan")):.1f}s -> {sum(child.cpu_times()[:2]):.1f}s'
+                lines.append(
+                    f'  pid {child.pid} {child.status()}, cpu {cpu}, {child.num_threads()} threads: '
+                    + ' '.join(child.cmdline())
+                )
+        except psutil.Error as e:
+            lines.append(f'  pid {child.pid}: {e!r}')
+    if len(children) == 0:
+        lines.append('  none')
+    with contextlib.suppress(OSError):
+        os.write(fd, ('\n'.join(lines) + '\n').encode())
 
 
 def pytest_runtest_teardown(item: pytest.Item) -> None:
@@ -361,6 +461,8 @@ def _reset_catalog_state() -> None:
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
     FileCache.get().set_lease_seconds(Env.get()._file_cache_lease_s)  # reset any per-test override
+    # evictions under an earlier test's capacity override would otherwise cause re-download warnings in this test
+    FileCache.get().reset_session_stats()
 
 
 def _validate_catalog_state() -> None:
@@ -807,12 +909,14 @@ def local_embed() -> pxt.Function:
 
 # Parametrized embedding selectors for tests that assert real-model semantics:
 # - the 'local_embed' param runs the full test body against the download-free embedding
-# - the real-model param is marked 'very_expensive'
+# - the real-model param is marked 'skip_merge_queue', in the 'large_model' xdist group
 # Each fixture returns (embedding, is_dummy_model); skip model-dependent assertions when is_dummy_model.
 @pytest.fixture(
     params=[
         pytest.param(False, id='local_embed'),
-        pytest.param(True, id='clip_embed', marks=pytest.mark.very_expensive),
+        pytest.param(
+            True, id='clip_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+        ),
     ]
 )
 def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
@@ -824,7 +928,9 @@ def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
 @pytest.fixture(
     params=[
         pytest.param(False, id='local_embed'),
-        pytest.param(True, id='mpnet_embed', marks=pytest.mark.very_expensive),
+        pytest.param(
+            True, id='mpnet_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+        ),
     ]
 )
 def mpnet_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:

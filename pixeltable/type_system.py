@@ -11,7 +11,6 @@ import types
 import typing
 import urllib.request
 import uuid
-import warnings
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union, is_typeddict
 
@@ -196,10 +195,18 @@ class ColumnType:
 
     def _to_base_str(self) -> str:
         """
-        String representation of this type, disregarding nullability. Default implementation is to camel-case
-        the type name; subclasses may override.
+        String representation of this type, disregarding nullability. Default implementation is type_name();
+        subclasses may override.
         """
+        return self.type_name()
+
+    def type_name(self) -> str:
+        """Return the name of this type without its parameters, such as `Json` for `Json[{'a': Int}]`."""
         return self._type.name[0] + self._type.name[1:].lower()
+
+    def pretty_str(self) -> str:
+        """Format this type for documentation, such as `pxt.String | None`."""
+        return f'pxt.{self}'
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
@@ -360,19 +367,6 @@ class ColumnType:
                 )
                 if underlying is not None:
                     return underlying.copy(nullable=True)
-        elif origin is Required:
-            assert len(type_args) == 1
-            warnings.warn(
-                '`Required[T]` is deprecated and will be removed in a future version; use `T` instead. '
-                'Bare types such as `pxt.Int` are now non-nullable by default; use `pxt.Int | None` for a '
-                'nullable column.',
-                excs.PixeltableDeprecationWarning,
-                stacklevel=2,
-            )
-            underlying = cls.from_python_type(type_args[0], allow_builtin_types=allow_builtin_types)
-            if underlying is None:
-                return None
-            return underlying.copy(nullable=False)
         elif origin is typing.Required or origin is typing.NotRequired:
             # Required[T]/NotRequired[T] mark a TypedDict field's key presence (recorded in __optional_keys__), so
             # the field's value type is simply T
@@ -384,7 +378,7 @@ class ColumnType:
             if isinstance(parameters, ColumnType):
                 return parameters.copy(nullable=False)
         else:
-            # It's something other than T | None, Required[T], or an explicitly annotated type.
+            # It's something other than T | None, a TypedDict field qualifier, or an explicitly annotated type.
             # for non-generic types, get_origin returns None, so we use the type itself as the origin
             origin = origin or t
             if isinstance(origin, type):
@@ -989,7 +983,7 @@ class UUIDType(ColumnType):
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
 
-    def _to_base_str(self) -> str:
+    def type_name(self) -> str:
         return 'UUID'
 
     def _validate_literal(self, val: Any) -> None:
@@ -1029,6 +1023,9 @@ class JsonType(ColumnType):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_schema = type_schema
         self.pretty_print_name = pretty_print_name
+
+    def pretty_str(self) -> str:
+        return super().pretty_str() if self.pretty_print_name is None else self.pretty_print_name
 
     @classmethod
     def from_json_type_arg(cls, json_type_arg: Any) -> JsonType:
@@ -1206,7 +1203,7 @@ class JsonType(ColumnType):
         if isinstance(val, pydantic.BaseModel):
             val = val.model_dump()
         if not self.__is_valid_json_literal(val):
-            raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
+            raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val!s}')
         if self.type_schema is not None:
             self.type_schema.validate_literal(val)
 
@@ -1926,9 +1923,6 @@ class DocumentType(ColumnType):
         DocumentHandle.validate(val)
 
 
-T = typing.TypeVar('T')
-
-
 class _PxtType:
     """
     Base class for the Pixeltable type-hint family. Subclasses of this class are meant to be used as type hints, both
@@ -1948,22 +1942,6 @@ class _PxtType:
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:
         raise NotImplementedError()
-
-
-class Required(_PxtType, typing.Generic[T]):
-    """
-    Deprecated marker class to indicate that a column is non-nullable in a schema definition.
-
-    Bare types such as `pxt.Int` are non-nullable, so `Required[T]` is equivalent to `T`. Use `T | None` to declare a
-    nullable column.
-    """
-
-    @classmethod
-    def as_col_type(cls, nullable: bool) -> ColumnType:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_TYPE,
-            'Bare `Required` is not a valid type; use `Required[T]` for some valid type `T`.',
-        )
 
 
 String = typing.Annotated[str, StringType(nullable=False)]
