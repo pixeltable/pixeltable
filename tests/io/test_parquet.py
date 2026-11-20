@@ -52,6 +52,13 @@ def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
                 assert actual == expected, f'Row {i}, column {col_name}: {actual} != {expected}'
 
 
+@pxt.udf
+def fail_on_value(i: int, bad_val: int) -> int:
+    if i == bad_val:
+        raise ValueError(f'bad value {i}')
+    return i
+
+
 class TestParquet:
     @pytest.mark.db_roots(
         'local', reason='uses import_pandas; an in-memory DataFrame source is not yet supported over the proxy'
@@ -430,6 +437,48 @@ class TestParquet:
         #   as DataType(timestamp(us, 'default timezone'))
         #   So the schema and value of that column differ.
         #
+
+    def test_export_parquet_if_exists(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_if_exists'), {'a': pxt.Int | None})
+        t.insert([{'a': 1}, {'a': 2}])
+        export_path = tmp_path / 'exported'
+
+        def exported_values() -> list[int]:
+            return sorted(pa_parquet.read_table(str(export_path)).column('a').to_pylist())
+
+        pxt.io.export_parquet(t, export_path, if_exists='replace')
+        assert exported_values() == [1, 2]
+
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
+            pxt.io.export_parquet(t, export_path)
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
+            pxt.io.export_parquet(t, export_path, if_exists='error')
+        assert exported_values() == [1, 2]
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="`if_exists` must be one of: \\['error', 'replace'\\]"):
+            pxt.io.export_parquet(t, export_path, if_exists='append')  # type: ignore[arg-type]
+
+        t.insert([{'a': 3}])
+        pxt.io.export_parquet(t, export_path, if_exists='replace')
+        assert exported_values() == [1, 2, 3]
+        assert sorted(f.name for f in tmp_path.iterdir()) == ['exported']
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='bad value 3'):
+            pxt.io.export_parquet(t.select(a=fail_on_value(t.a, 3)), export_path, if_exists='replace')
+        assert exported_values() == [1, 2, 3]
+
+        file_path = tmp_path / 'file.parquet'
+        file_path.write_text('not a directory')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is a file or symbolic link, not a directory'):
+            pxt.io.export_parquet(t, file_path, if_exists='replace')
+        assert file_path.read_text() == 'not a directory'
+
+        link_path = tmp_path / 'link'
+        link_path.symlink_to(export_path, target_is_directory=True)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is a file or symbolic link, not a directory'):
+            pxt.io.export_parquet(t, link_path, if_exists='replace')
+        assert exported_values() == [1, 2, 3]
 
     def test_export_parquet_image(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
