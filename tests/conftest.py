@@ -82,6 +82,58 @@ def pytest_configure(config: PytestConfig) -> None:
         # stack dump of a hang outside any test, where faulthandler_timeout has no effect. The dump goes to a dup of
         # stderr, as with pytest's faulthandler plugin, since output capture redirects fd 2 during a test.
         faulthandler.register(signal.SIGUSR1, file=os.dup(2), all_threads=True)
+    if hasattr(signal, 'SIGUSR2'):
+        global _EXP_OUT  # noqa: PLW0603
+        _EXP_OUT = os.fdopen(os.dup(2), 'w', buffering=1)
+        signal.signal(signal.SIGUSR2, _exp_psycopg_probe)
+
+
+_EXP_OUT: Any = None
+
+
+def _exp_psycopg_probe(signum: int, frame: Any) -> None:
+    import time
+    import traceback
+
+    import psycopg
+    import psycopg.waiting
+
+    out = _EXP_OUT
+    tag = f'EXP-PROBE pid {os.getpid()}'
+    wait_name = getattr(psycopg.waiting.wait, '__name__', psycopg.waiting.wait)
+    print(f'{tag} SIGUSR2 at {time.strftime("%H:%M:%S")}; wait function {wait_name}', file=out)
+    print(''.join(traceback.format_stack(frame)), file=out)
+    conn = None
+    f = frame
+    while f is not None:
+        candidate = f.f_locals.get('self')
+        if isinstance(candidate, psycopg.Connection):
+            conn = candidate
+            break
+        f = f.f_back
+    if conn is None:
+        print(f'{tag} no psycopg Connection in the interrupted stack', file=out)
+        return
+    pgconn = conn.pgconn
+
+    def state() -> str:
+        return (
+            f'socket={pgconn.socket} status={pgconn.status!r} transaction_status={pgconn.transaction_status!r} '
+            f'nonblocking={pgconn.nonblocking} pipeline_status={pgconn.pipeline_status!r} '
+            f'conn._pipeline={conn._pipeline!r} lock_held={conn.lock.locked()}'
+        )
+
+    print(f'{tag} before flush: {state()}', file=out)
+    try:
+        print(f'{tag} is_busy={pgconn.is_busy()}', file=out)
+    except Exception as exc:
+        print(f'{tag} is_busy raised {exc!r}', file=out)
+    try:
+        rv = pgconn.flush()
+        print(f'{tag} flush probe: pgconn.flush() returned {rv}', file=out)
+    except Exception as exc:
+        print(f'{tag} flush probe raised {exc!r}', file=out)
+    print(f'{tag} after flush: {state()}', file=out)
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a
