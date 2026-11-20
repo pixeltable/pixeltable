@@ -114,8 +114,8 @@ complete. The cancellation works around an httpcore defect, which leaves such a 
   for deploys, the proxy token for callers, the Modal secret for pulls from ECR, and the key for the release secrets.
 - **Authorization.** The proxy token is the same for every App in the workspace. The release's secret, an HMAC of
   the database ID and the release key, limits a caller to one release.
-- **Local databases.** The install's local database is `local-main-<hash>` in the control plane and has no pods. The
-  control plane deletes a local database and its servers after 30 days without an update or a `GetUdfServers`
-  request.
+- **Local databases.** The installation's local database is `local-main-<hash>` in the control plane and has no
+  pods. The control plane deletes a local database and its servers after 30 days without an update or a
+  `GetUdfServers` request.
 - **Lifetime.** After a change to the user secrets, the next update deploys the servers again. Release collection
   stops an unreferenced release's servers and revokes its API keys. Deleting a database stops all of its servers.

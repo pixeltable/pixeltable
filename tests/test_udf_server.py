@@ -222,7 +222,7 @@ class TestUdfServer:
         _set_udf_setting(udf_setting, ['pixeltable.functions.image.resize'])
         with pxt_raises(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            match=r"'pixeltable\.functions\.image\.resize' is in the pixeltable\.udf setting, but the database has "
+            match=r"'pixeltable\.functions\.image\.resize' is in the `pixeltable\.udf` setting, but the database has "
             r'no UDF server for it',
         ):
             img_t.select(resize(img_t.img, (32, 16))).collect()

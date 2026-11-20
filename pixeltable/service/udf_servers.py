@@ -158,7 +158,7 @@ def _load_endpoints() -> UdfEndpoints:
         # the control plane sets SERVERS_VAR in the pods of a release with UDF servers
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            "The pixeltable.udf setting has no effect here: the database's release was deployed without UDF "
+            "The `pixeltable.udf` setting has no effect here: the database's release was deployed without UDF "
             f'servers ({SERVERS_VAR} is not set). Run `pxt db update pxt://{org}:{db_name}` to deploy them.',
         )
     servers = db.local_db_udf_servers()

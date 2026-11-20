@@ -411,17 +411,17 @@ class TestEnsureConnected:
             errors = list(pool.map(lambda proc: proc.communicate('\n')[1], procs))
         assert all(proc.returncode == 0 for proc in procs), errors
 
-    def test_install_id(self, uses_db: None) -> None:
-        """A database keeps its install id, and a database created anew gets its own."""
+    def test_catalog_id(self, uses_db: None) -> None:
+        """A database keeps its catalog id, and a database created anew gets its own."""
         skip_test_if_not_local()
-        dbname = aux_db_name('install_id')
+        dbname = aux_db_name('catalog_id')
         _reset_env(reinit=True, db_name=dbname)
-        install_id = Env.get().install_id
-        assert re.fullmatch(r'[0-9a-f]{32}', install_id) is not None
+        catalog_id = Env.get().catalog_id
+        assert re.fullmatch(r'[0-9a-f]{32}', catalog_id) is not None
         _reset_env(reinit=False, db_name=dbname)
-        assert Env.get().install_id == install_id
+        assert Env.get().catalog_id == catalog_id
         _reset_env(reinit=True, db_name=dbname)
-        assert Env.get().install_id != install_id
+        assert Env.get().catalog_id != catalog_id
 
 
 class TestProxyEndpoint:

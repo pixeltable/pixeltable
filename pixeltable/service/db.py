@@ -57,7 +57,7 @@ _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply
 
 DbAction = Literal['start', 'stop', 'restart', 'delete']
 
-# TODO: replace with the names of the local databases, once an install can have more than one
+# TODO: replace with the names of the local databases, once a catalog can have more than one
 LOCAL_DB_NAME = 'main'
 
 _LIFECYCLE_REQUESTS = {
@@ -70,15 +70,15 @@ _LIFECYCLE_REQUESTS = {
 
 @dataclasses.dataclass(frozen=True)
 class LocalDatabase:
-    """A local database, identified by its install and its name within the install."""
+    """A local database, identified by its catalog and its name within the catalog."""
 
-    # SystemInfoMd.install_id
-    install_id: str
+    # SystemInfoMd.catalog_id
+    catalog_id: str
     name: str
 
     def cloud_db_name(self) -> str:
         """Return the database's name in the control plane: name and a hash, unique within an organization."""
-        digest = hashlib.sha256(f'{self.install_id}:{self.name}'.encode()).hexdigest()[:12]
+        digest = hashlib.sha256(f'{self.catalog_id}:{self.name}'.encode()).hexdigest()[:12]
         # a name in the control plane has at most 29 characters of [a-z0-9-]; the prefix, a hyphen and digest
         # leave 10 for name
         label = ''.join(c if c.isascii() and c.isalnum() else '-' for c in self.name.lower())
@@ -89,10 +89,10 @@ class LocalDatabase:
 
 
 def local_database() -> LocalDatabase:
-    """Return the install's local database, which this call starts, and creates if it doesn't exist."""
+    """Return the local database, which this call starts, and creates if it doesn't exist."""
     env = Env.get()
     env.ensure_connected()
-    return LocalDatabase(install_id=env.install_id, name=LOCAL_DB_NAME)
+    return LocalDatabase(catalog_id=env.catalog_id, name=LOCAL_DB_NAME)
 
 
 def local_db_uri() -> str:
@@ -104,7 +104,7 @@ def local_db_uri() -> str:
     if not Env.get().has_local_db():
         raise excs.RequestError(
             excs.ErrorCode.INVALID_STATE,
-            'This install has no local database. Pass the uri of a hosted database (pxt://org:db), or run '
+            'This installation has no local database. Pass the uri of a hosted database (pxt://org:db), or run '
             '`pxt db update` to create the local database and deploy its UDF servers.',
         )
     return f'pxt://{_local_db_org()}:{local_database().cloud_db_name()}'
@@ -128,7 +128,7 @@ def _check_db_uri_setting() -> None:
     if stale_db_uri is not None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            'The pixeltable.db_uri setting is no longer supported, and a command without a uri acts on the local '
+            'The `pixeltable.db_uri` setting is no longer supported, and a command without a uri acts on the local '
             f'database. Remove the setting, and pass the uri to act on the hosted database: {stale_db_uri}',
         )
 
@@ -156,7 +156,7 @@ def local_db_udf_servers() -> GetUdfServersResponse:
     if Config.get().project_root is None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            'The pixeltable.udf setting needs a project in order to create UDF servers. '
+            'The `pixeltable.udf` setting needs a project in order to create UDF servers. '
             'Run `pxt init` to write a project configuration, then `pxt db update`.',
         )
     request = GetUdfServersRequest(org=_local_db_org(), db=local_database().cloud_db_name())
@@ -167,7 +167,7 @@ def local_db_udf_servers() -> GetUdfServersResponse:
             raise
         raise excs.RequestError(
             excs.ErrorCode.INVALID_STATE,
-            'The UDFs in the pixeltable.udf setting have no servers. Run `pxt db update` to deploy them.',
+            'The UDFs in the `pixeltable.udf` setting have no servers. Run `pxt db update` to deploy them.',
         ) from None
     fingerprint = _db_target(_local_db_config()).fingerprint
     assert fingerprint is not None
@@ -175,7 +175,7 @@ def local_db_udf_servers() -> GetUdfServersResponse:
         changes = '\n'.join(f'  {line}' for line in fingerprint.changes(servers.fingerprint))
         raise excs.RequestError(
             excs.ErrorCode.INVALID_STATE,
-            f'The UDF servers of the pixeltable.udf setting run another version of the project:\n{changes}\n'
+            f'The UDF servers of the `pixeltable.udf` setting run another version of the project:\n{changes}\n'
             'Run `pxt db update` to deploy this one.',
         )
     return servers
@@ -544,7 +544,7 @@ def _check_local_db_uri(db_path: catalog.Path) -> None:
     if db_path.uri_str != local_uri:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'{db_path.uri_str} is not the local database of this install ({local_uri}): the prefix '
+            f'{db_path.uri_str} is not the local database of this installation ({local_uri}): the prefix '
             f'{LOCAL_DB_CLOUD_NAME_PREFIX!r} is reserved for local databases.',
         )
 
@@ -566,7 +566,7 @@ def _check_local_udf_setting() -> None:
     if len(Env.get().udf_configs()) == 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            'The local database has nothing to deploy: the project has no pixeltable.udf setting. '
+            'The local database has nothing to deploy: the project has no `pixeltable.udf` setting. '
             'For a hosted database, pass its uri: pxt://org:db.',
         )
 

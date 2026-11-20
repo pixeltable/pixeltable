@@ -95,7 +95,7 @@ class ModalServerClient:
         if url is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{self.setting_path!r} is in the pixeltable.udf setting, but the database has no UDF server for '
+                f'{self.setting_path!r} is in the `pixeltable.udf` setting, but the database has no UDF server for '
                 'it. Run `pxt db update` to deploy it.',
             )
         self.url = url
@@ -188,7 +188,7 @@ class ModalServerClient:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
                 f'The call to the UDF server of {self.setting_path} got no response within {self.timeout.read}s '
-                '(timeout_seconds in the pixeltable.udf setting)',
+                '(`timeout_seconds` in the `pixeltable.udf` setting)',
             ) from exc
         except httpx.TransportError as exc:
             # other transport errors, such as RemoteProtocolError, can also come after the UDF ran, so the call isn't

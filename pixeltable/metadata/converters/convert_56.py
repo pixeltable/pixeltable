@@ -10,7 +10,7 @@ from pixeltable.metadata.schema import SystemInfo
 def _(conn: sql.Connection) -> None:
     """
     Changes in version 57:
-    - SystemInfoMd has an install_id.
+    - SystemInfoMd has a catalog_id.
     """
     md = conn.execute(sql.select(SystemInfo.md)).scalar_one()
-    conn.execute(sql.update(SystemInfo).values(md={**md, 'install_id': uuid.uuid4().hex}))
+    conn.execute(sql.update(SystemInfo).values(md={**md, 'catalog_id': uuid.uuid4().hex}))

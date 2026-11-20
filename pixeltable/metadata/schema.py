@@ -68,8 +68,8 @@ def md_dict_factory(data: list[tuple[str, Any]]) -> dict:
 @dataclasses.dataclass
 class SystemInfoMd:
     schema_version: int
-    # identifies this Pixeltable install to Pixeltable Cloud; 32 hex digits
-    install_id: str
+    # identifies this catalog to Pixeltable Cloud; 32 hex digits
+    catalog_id: str
 
 
 class SystemInfo(Base):

@@ -24,7 +24,7 @@ VERSION = 57
 
 def create_system_info(engine: sql.engine.Engine) -> None:
     """Create the system metadata record"""
-    system_md = SystemInfoMd(schema_version=VERSION, install_id=uuid.uuid4().hex)
+    system_md = SystemInfoMd(schema_version=VERSION, catalog_id=uuid.uuid4().hex)
     record = SystemInfo(md=dataclasses.asdict(system_md))
     _logger.debug(f'Creating pixeltable system info record {record}')
     with orm.Session(engine, future=True) as session:
@@ -35,9 +35,9 @@ def create_system_info(engine: sql.engine.Engine) -> None:
             session.commit()
 
 
-def install_id(engine: sql.engine.Engine) -> str:
+def catalog_id(engine: sql.engine.Engine) -> str:
     with engine.connect() as conn:
-        return conn.execute(sql.select(SystemInfo.md)).scalar_one()['install_id']
+        return conn.execute(sql.select(SystemInfo.md)).scalar_one()['catalog_id']
 
 
 # conversion functions for upgrading the metadata schema from one version to the following
@@ -89,7 +89,7 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
             # Run the converter and the version bump on the session's connection so they commit atomically.
             conn = session.connection()
             converter_cbs[md_version](conn)
-            # keeps the stored fields other than schema_version, such as install_id
+            # keeps the stored fields other than schema_version, such as catalog_id
             system_info_md = {**conn.execute(sql.select(SystemInfo.md)).scalar_one(), 'schema_version': md_version + 1}
             conn.execute(SystemInfo.__table__.update().values(md=system_info_md))
             session.commit()

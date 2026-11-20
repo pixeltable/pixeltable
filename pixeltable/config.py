@@ -785,7 +785,7 @@ class Config:
             # the control plane accepts a database-scoped secret only once the first update has registered the database
             advice = (
                 'and `pxt db update` uploads the settings of that file to Pixeltable Cloud for the UDF servers of the '
-                f'pixeltable.udf setting. Move it to {self.__config_file} or to the environment variable {env_var}. '
+                f'`pixeltable.udf` setting. Move it to {self.__config_file} or to the environment variable {env_var}. '
                 f'Then set {env_var} for the UDF servers with `pxt secret set`, at one of two scopes:\n'
                 f'- the organization, with <org> from `pxt org list`; every database in it without its own {env_var} '
                 'receives the value as well:\n'

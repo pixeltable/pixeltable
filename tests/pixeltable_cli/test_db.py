@@ -433,7 +433,7 @@ class TestLocalDb:
         for argv in (('status',), ('diff',), ('update', '--dry-run')):
             r = cli('db', *argv, env_overrides=env, check=False)
             assert r.returncode == EXIT_ERROR, r.stderr
-            assert 'This install has no local database' in r.stderr, r.stderr
+            assert 'This installation has no local database' in r.stderr, r.stderr
         # the session's project has no pixeltable.udf setting
         r = cli('db', 'update', env_overrides=env, check=False)
         assert r.returncode == EXIT_ERROR, r.stderr

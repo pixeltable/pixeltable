@@ -254,7 +254,7 @@ class TestDbSubmission:
 
     @pytest.mark.db_roots('local', reason='the pixeltable.udf setting of this process routes the calls')
     def test_local_database(self, uses_db: None, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An update of the local database submits the install's identity, and local_db_udf_servers() returns
+        """An update of the local database submits the catalog's identity, and local_db_udf_servers() returns
         the servers only while the project matches their release."""
         control_plane = _ControlPlane(generation=0, settled=_receipt(outcome=ReceiptOutcome.OBSERVED))
         _serve(monkeypatch, control_plane)
@@ -275,17 +275,19 @@ class TestDbSubmission:
                 uri_or_servers()
         control_plane.orgs = ['acme']
 
-        # the name of another install's local database, and this install's name in another organization
+        # the name of another catalog's local database, and this local database's name in another organization
         for uri in ('pxt://acme:local-main-000000000000', f'pxt://other:{local.cloud_db_name()}'):
             for request in (db_update, db_diff, db_build_image):
-                with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match='is not the local database of this install'):
+                with pxt_raises(
+                    excs.ErrorCode.INVALID_ARGUMENT, match='is not the local database of this installation'
+                ):
                     request(uri)
 
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'have no servers\. Run `pxt db update`'):
             local_db_udf_servers()
 
         for update_or_diff in (db_update, db_diff):
-            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the project has no pixeltable.udf setting'):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the project has no `pixeltable.udf` setting'):
                 update_or_diff(db_uri)
         # an update refuses a setting with an entry that is not a UDF, for a local and a hosted database
         config_file = project / 'pixeltable.toml'
@@ -319,7 +321,7 @@ class TestDbSubmission:
         computed_t.add_computed_column(swapped=swapcase(computed_t.s))
         lookups = control_plane.udf_server_lookups
         no_server = (
-            r"'pixeltable\.functions\.string\.(format|swapcase)' is in the pixeltable\.udf setting, but the database"
+            r"'pixeltable\.functions\.string\.(format|swapcase)' is in the `pixeltable\.udf` setting, but the database"
         )
         for _ in range(2):
             with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=no_server):
@@ -381,13 +383,15 @@ class TestDbSubmission:
         # a config that still has the removed pixeltable.db_uri setting
         monkeypatch.setenv('PIXELTABLE_DB_URI', _DB_URI)
         Config.init(reinit=True, project_root=project)
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='pixeltable.db_uri setting is no longer supported'):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION, match='`pixeltable.db_uri` setting is no longer supported'
+        ):
             local_db_uri()
         monkeypatch.delenv('PIXELTABLE_DB_URI')
         Config.init(reinit=True, project_root=project)
 
     def test_no_local_db(self, tmp_path: Path) -> None:
-        """On an install without a local database, local_db_uri(), an update of another install's local database,
+        """On an installation without a local database, local_db_uri(), an update of another catalog's local database,
         and create_local_db() outside a project fail without creating the database."""
         home = tmp_path / 'home'
         code = """
@@ -410,13 +414,13 @@ class TestDbSubmission:
             'PIXELTABLE_PGDATA': str(home / 'pgdata'),
             'PIXELTABLE_DB_CONNECT_STR': None,
         }
-        no_local_db, other_install, no_project = run_in_new_process(code, env, cwd=tmp_path)
-        assert no_local_db.startswith('This install has no local database.')
-        assert other_install.startswith('This install has no local database.')
+        no_local_db, other_catalog, no_project = run_in_new_process(code, env, cwd=tmp_path)
+        assert no_local_db.startswith('This installation has no local database.')
+        assert other_catalog.startswith('This installation has no local database.')
         assert no_project.startswith('no project configuration here; run `pxt init`')
         # the removed pixeltable.db_uri setting is refused first
         errors = run_in_new_process(code, {**env, 'PIXELTABLE_DB_URI': _DB_URI}, cwd=tmp_path)
-        assert 'pixeltable.db_uri setting is no longer supported' in errors[2]
+        assert '`pixeltable.db_uri` setting is no longer supported' in errors[2]
         assert not (home / 'pgdata').exists()
 
     def test_upload_network_failure(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
