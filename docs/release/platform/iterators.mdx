@@ -115,20 +115,11 @@ Iterators are powerful tools for processing large media files. They work seamles
     ```
 
     ### Parameters
-    - `separators`: Choose from 'heading', 'paragraph', 'sentence', 'token_limit', 'char_limit', 'page', or combine them as a comma-separated string such as 'sentence,token_limit'
-    - `elements`: 'text' (default) and 'image'. 'image' works on PDF documents only and requires `separators='page'` with no other separators
+    - `separators`: Choose from 'heading', 'paragraph', 'sentence', 'token_limit', 'char_limit', 'page', or combine them as a comma-separated string such as 'sentence,token_limit'. Which separators apply depends on the document format: see the [`document_splitter` reference](/sdk/latest/document#iterator-document_splitter)
+    - `elements`: 'text' (default) and 'image' (PDF documents only)
     - `limit`: Maximum tokens/characters per chunk
     - `metadata`: Optional fields like 'title', 'heading', 'sourceline', 'page', 'bounding_box'
     - `overlap`: Optional overlap between chunks
-
-    ### Separators for PDF documents
-
-    | Separator | Effect on a PDF document |
-    |---|---|
-    | `page` | One chunk per page. A page without extractable text, such as a scanned page, produces a chunk only when `elements` includes `'image'`. Required for `elements=['image']` |
-    | `sentence`, `token_limit`, `char_limit` | Split the text of each page when combined with `page`, otherwise the text of the whole document |
-    | `heading` | No effect |
-    | `paragraph` | Not supported. If `separators` includes it, inserting a PDF document raises an error, and so does creating the view over a table that already contains one |
   </Tab>
 
   <Tab title="frame_iterator">

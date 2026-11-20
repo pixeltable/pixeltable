@@ -166,6 +166,22 @@ class document_splitter(pxt.PxtIterator):
 
     Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
 
+    __Separators by document format__:
+
+    A separator marked "No effect" is ignored for that format without an error. For example, with
+    `separators='page'`, an HTML document in the same table produces a single chunk.
+
+    | Separator | HTML, Markdown, Office | PDF | TXT |
+    |---|---|---|---|
+    | `'heading'` | Splits at headings | No effect | No effect |
+    | `'paragraph'` | Splits at headings and paragraphs | Not supported: raises an error | No effect |
+    | `'page'` | No effect | Splits at pages | No effect |
+    | `'sentence'` | Splits at headings, paragraphs and sentences | Splits into sentences | Splits into sentences |
+    | `'token_limit'`, `'char_limit'` | Splits long chunks | Splits long chunks | Splits long chunks |
+
+    Office documents are PPTX, DOCX and XLSX files. `'token_limit'` and `'char_limit'` split each chunk that is longer
+    than `limit` tokens or characters.
+
     __Outputs__:
 
         One row per chunk, with the following columns, depending on the specified `elements` and `metadata`:
@@ -186,11 +202,10 @@ class document_splitter(pxt.PxtIterator):
     Args:
         separators: separators to use to chunk the document. Options are:
              `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
-             This may be a comma-separated string, e.g., `'heading,token_limit'`.
-             PDF documents support `'page'`, `'sentence'`, `'token_limit'` and `'char_limit'`. `'heading'` has no
-             effect on PDF documents. `'paragraph'` is not supported for PDF documents: if `separators` includes
-             it, the view raises an error when it processes a PDF document, either on insert or on view creation
-             if the base table already contains one.
+             This may be a comma-separated string, e.g., `'heading,token_limit'`. Which separators apply depends on
+             the document format; see the table above. If `separators` includes `'paragraph'`, processing a PDF
+             document raises an error that fails the whole `insert()`, or `create_view()` if the base table already
+             contains a PDF document.
         elements: list of elements to extract from the document. Options are:
             `'text'`, `'image'`. Defaults to `['text']` if not specified. The `'image'` element is only supported
             for PDF documents, and requires `separators='page'` with no other separators.
