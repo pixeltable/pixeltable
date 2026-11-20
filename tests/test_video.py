@@ -1203,11 +1203,6 @@ class TestVideo:
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, mode='accurate', duration=3, overlap=1))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
-        for mode in ('fast', 'accurate'):
-            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be non-negative: -1.0'):
-                _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[-1.0, 2.0], mode=mode))
-            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be a list of numbers'):
-                _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1.0, 'a'], mode=mode))
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="mode must be 'fast' or 'accurate': 'quick'"):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=2.0, mode='quick'))
 

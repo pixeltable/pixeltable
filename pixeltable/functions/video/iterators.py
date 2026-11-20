@@ -470,6 +470,16 @@ def video_splitter(
     overlap = overlap or 0.0
     min_segment_duration = min_segment_duration or 0.0
     if segment_times is not None:
+        if not isinstance(segment_times, list) or not all(isinstance(t, (int, float)) for t in segment_times):
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'video_splitter(): segment_times must be a list of numbers: {segment_times!r}',
+            )
+        if len(segment_times) > 0 and min(segment_times) < 0:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'video_splitter(): segment_times must be non-negative: {min(segment_times)}',
+            )
         segment_times = sorted(set(segment_times))
 
     with av.open(video) as container:
@@ -640,17 +650,6 @@ def _(bound_args: dict[str, Any]) -> None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f"video_splitter(): mode must be 'fast' or 'accurate': {mode!r}"
         )
-    if segment_times is not None:
-        if not isinstance(segment_times, list) or not all(isinstance(t, (int, float)) for t in segment_times):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'video_splitter(): segment_times must be a list of numbers: {segment_times!r}',
-            )
-        if len(segment_times) > 0 and min(segment_times) < 0:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'video_splitter(): segment_times must be non-negative: {min(segment_times)}',
-            )
     if duration is not None and isinstance(duration, (int, float)):
         if duration <= 0.0:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'duration must be a positive number: {duration}')
