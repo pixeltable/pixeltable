@@ -1194,14 +1194,6 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
         for mode in ('fast', 'accurate'):
-            with pxt_raises(
-                pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be strictly increasing: 2.0 follows 4.0'
-            ):
-                _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[4.0, 2.0], mode=mode))
-            with pxt_raises(
-                pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be strictly increasing: 2.0 follows 2.0'
-            ):
-                _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[2.0, 2.0], mode=mode))
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be non-negative: -1.0'):
                 _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[-1.0, 2.0], mode=mode))
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be a list of numbers'):
@@ -1236,6 +1228,13 @@ class TestVideo:
             t.insert([{'video': video, 'cuts': {'a': 1.0}}])
         assert t.count() == 3
         assert v.count() == 9
+
+        lit = pxt.create_view('lit', t, iterator=video_splitter(t.video, segment_times=[4.0, 2.0, 4.0]))
+        lit_starts: dict[tuple[float, ...], list[float]] = {}
+        for row in lit.select(lit.cuts, lit.segment_start).order_by(lit.pos).collect():
+            lit_starts.setdefault(tuple(row['cuts']), []).append(row['segment_start'])
+        assert len(lit_starts) == 3
+        assert all(starts == pytest.approx([0.0, 2.0, 4.0], abs=0.15) for starts in lit_starts.values())
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')

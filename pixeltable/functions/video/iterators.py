@@ -1,5 +1,4 @@
 import glob
-import itertools
 import logging
 import math
 import subprocess
@@ -417,10 +416,9 @@ def video_splitter(
         overlap: Overlap between consecutive segments in seconds. Only available for `mode='fast'`.
         min_segment_duration: Drop the last segment if it is smaller than min_segment_duration.
         segment_times: List of non-negative timestamps (in seconds) in video where segments should be split. Note that
-            these are not segment durations. A literal list must be in strictly increasing order; a list that comes
-            from a column is sorted and its duplicates are removed. If all segment times are less than the duration
-            of the video, produces exactly one more segment than there are distinct segment times. An argument of
-            `[]` will produce a single segment containing the entire video.
+            these are not segment durations. The list is sorted and its duplicates are removed. If all segment times
+            are less than the duration of the video, produces exactly one more segment than there are distinct
+            segment times. An argument of `[]` will produce a single segment containing the entire video.
         mode: Segmentation mode:
 
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
@@ -653,13 +651,6 @@ def _(bound_args: dict[str, Any]) -> None:
                 excs.ErrorCode.INVALID_ARGUMENT,
                 f'video_splitter(): segment_times must be non-negative: {min(segment_times)}',
             )
-        validating_literals_only = 'video' not in bound_args
-        for prev, cur in itertools.pairwise(segment_times):
-            if validating_literals_only and cur <= prev:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    f'video_splitter(): segment_times must be strictly increasing: {cur} follows {prev}',
-                )
     if duration is not None and isinstance(duration, (int, float)):
         if duration <= 0.0:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'duration must be a positive number: {duration}')
