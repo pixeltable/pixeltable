@@ -1085,7 +1085,7 @@ class TestProxyDaemon:
         src = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         src.insert({'id': i, 'img': get_image_files()[0]} for i in range(2))
         assert isinstance(src, InsertableTable)
-        export = table_copy._export_table(src, export_dir, is_other_db=True)
+        export = table_copy._export_table(src, export_dir, is_other_db=True, with_rows=True)
         (chunk,) = export.chunks
         copy_path = CatalogPath.parse(db_root.make_catalog_path('copy'))
         cat = get_runtime().get_catalog(copy_path)

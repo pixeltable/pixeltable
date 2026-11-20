@@ -2028,7 +2028,6 @@ class Catalog(CatalogBase):
         base: 'pxt.Query | None',
         idxs: list[IndexDefinition],
         is_data_versioned: bool,
-        if_exists: IfExistsParam,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -2049,19 +2048,16 @@ class Catalog(CatalogBase):
             tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
-        # 'ignore' returns the table at path even when its base differs, so that a model binds to its view after a
-        # concurrent move of the base. _handle_path_collision() refuses such a view.
-        if if_exists == IfExistsParam.IGNORE:
-            existing = self.get_table(path, IfNotExistsParam.IGNORE)
-            if existing is not None:
-                return existing, False
-        create_if_exists = IfExistsParam.ERROR if if_exists == IfExistsParam.IGNORE else if_exists
+        # If the table already exists, rebind to it and report that nothing was created.
+        existing = self.get_table(path, IfNotExistsParam.IGNORE)
+        if existing is not None:
+            return existing, False
 
         if base is None:
             return self._create_table(
                 path=path,
                 columns=additional_cols,
-                if_exists=create_if_exists,
+                if_exists=IfExistsParam.ERROR,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -2086,7 +2082,7 @@ class Catalog(CatalogBase):
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                if_exists=create_if_exists,
+                if_exists=IfExistsParam.ERROR,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )

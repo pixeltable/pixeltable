@@ -3,9 +3,8 @@ hosted one. The copy has no history: it starts at version 0.
 
 copy_table() exports the live rows of the table into chunks of store rows and media files, and passes them to
 import_table() of the destination catalog, which creates the table with all of its rows in one transaction. No
-computed value or embedding is computed again.
-
-create_table_like() creates an empty table with the columns, indexes and settings of another table.
+computed value or embedding is computed again. A copy without rows is an empty table with the columns, indexes and
+settings of the source table.
 """
 
 from __future__ import annotations
@@ -25,18 +24,16 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs, exprs, func, index, type_system as ts
+from pixeltable import exceptions as excs, func, type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec
 from pixeltable.utils import arrow, parse_local_file_path
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 
 from .column import Column
 from .globals import IfExistsParam, IfNotExistsParam
-from .model.definition import BtreeIndex, EmbeddingIndex, IndexDefinition
 from .table_version import TableVersion
 from .types import TableVersionKey, TableVersionMd
 
@@ -334,22 +331,6 @@ class _TableExport:
         self._writer = None
 
 
-def _queried_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
-    """The ids of the tables that the @pxt.query calls in expr read, at any depth."""
-    # referenced_tbl_keys() contains the FROM tables, which a template such as t.limit(n) reads with no ColumnRef. It
-    # visits only the clause roots, so the subexprs of each clause are visited as well, for a @pxt.query that a clause
-    # calls.
-    ids: set[uuid.UUID] = set()
-    for e in expr.subexprs():
-        if isinstance(e, exprs.FunctionCall) and isinstance(e.fn, func.QueryTemplateFunction):
-            template_query = e.fn.template_query
-            assert template_query is not None
-            ids |= {key.tbl_id for key in template_query.referenced_tbl_keys()}
-            for clause_expr in template_query._component_exprs():
-                ids |= exprs.Expr.list_tbl_ids(clause_expr.subexprs()) | _queried_tbl_ids(clause_expr)
-    return ids
-
-
 def _check_no_other_tbl_refs(tbl: InsertableTable, md: TableVersionMd) -> None:
     """Refuse tbl if a computed column of its current version md references another table."""
     cat = get_runtime().catalog
@@ -376,8 +357,9 @@ def _check_no_other_tbl_refs(tbl: InsertableTable, md: TableVersionMd) -> None:
                 )
 
 
-def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool) -> _TableExport:
-    """Export the current version of tbl into tmp_dir, for a copy in another database if is_other_db."""
+def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool, with_rows: bool) -> _TableExport:
+    """Export the current version of tbl into tmp_dir, with its live rows if with_rows, for a copy in another database
+    if is_other_db."""
     cat = get_runtime().catalog
     # a single transaction (REPEATABLE READ) makes the metadata and the rows a snapshot of the same table state
     with cat.begin_data_read_xact(tbl_keys=[TableVersionKey(tbl._id, None)]) as conn:
@@ -388,40 +370,37 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool) -> _
             _check_no_other_tbl_refs(tbl, md)
         store = tv.store_tbl
         export = _TableExport(md, store, tmp_dir)
-        stmt = sql.select(*export.sa_cols).order_by(*store.rowid_columns())
-        if tv.is_data_versioned:
-            # only the live rows: a row of an earlier version has a smaller v_max
-            stmt = stmt.where(store.v_max_col == schema.Table.MAX_VERSION)
-        stmt = stmt.execution_options(yield_per=_ROW_BATCH_SIZE)
-        for row in conn.execute(stmt):
-            export.add_row(row._asdict())
-        export.finish()
+        if with_rows:
+            stmt = sql.select(*export.sa_cols).order_by(*store.rowid_columns())
+            if tv.is_data_versioned:
+                # only the live rows: a row of an earlier version has a smaller v_max
+                stmt = stmt.where(store.v_max_col == schema.Table.MAX_VERSION)
+            stmt = stmt.execution_options(yield_per=_ROW_BATCH_SIZE)
+            for row in conn.execute(stmt):
+                export.add_row(row._asdict())
+            export.finish()
     return export
 
 
-def _existing_table(dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam) -> Table | None:
-    """Return the table at dest_path, or None. With 'ignore', a view at dest_path is an error, because the new table
-    is a base table."""
-    existing = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
-    if existing is not None and if_exists == IfExistsParam.IGNORE and existing._tbl_path.is_view():
-        raise excs.AlreadyExistsError(
-            excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists and is not a table'
-        )
-    return existing
-
-
 def copy_table(
-    tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam
+    tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, with_rows: bool, if_exists: IfExistsParam
 ) -> tuple[Table, bool]:
-    """Copy the local base table tbl to dest_path in dest_catalog, the catalog of the same database or a hosted one."""
+    """Copy the current version of the local base table tbl to dest_path in dest_catalog, the catalog of the same
+    database or a hosted one. If with_rows is False, the copy is an empty table with the columns, indexes and settings
+    of tbl, as CREATE TABLE ... LIKE creates in SQL."""
     # 'error' and 'ignore' are decided before the export, so that no rows are copied for nothing.
     # import_table() does the 'replace'.
-    existing = _existing_table(dest_catalog, dest_path, if_exists)
+    existing = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
     if existing is not None and if_exists == IfExistsParam.IGNORE:
+        # 'ignore' does not return a view, because the new table is a base table
+        if existing._tbl_path.is_view():
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists and is not a table'
+            )
         return existing, False
     if existing is not None and if_exists == IfExistsParam.ERROR:
         raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists.')
-    if existing is not None and existing._id == tbl._id:
+    if with_rows and existing is not None and existing._id == tbl._id:
         # the 'replace' would drop tbl and its media files before the copy loads them
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f'Cannot replace {tbl._display_str()} with a copy of itself'
@@ -429,7 +408,9 @@ def copy_table(
     tmp_dir = TempStore.create_path()
     tmp_dir.mkdir(parents=True)
     try:
-        export = _export_table(tbl, tmp_dir, is_other_db=dest_path.catalog_uri != tbl._path().catalog_uri)
+        export = _export_table(
+            tbl, tmp_dir, is_other_db=dest_path.catalog_uri != tbl._path().catalog_uri, with_rows=with_rows
+        )
         if len(export.missing_files) > 0:
             listed = '\n'.join(f'  {url}' for url in export.missing_files)
             raise excs.NotFoundError(
@@ -447,95 +428,6 @@ def copy_table(
         return dest_catalog.import_table(dest_path, uuid.uuid4(), export.md, chunks, if_exists)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-def create_table_like(
-    tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam
-) -> tuple[Table, bool]:
-    """Create an empty table at dest_path in dest_catalog with the columns, indexes and settings of the local base table
-    tbl, as CREATE TABLE ... LIKE does in SQL."""
-    # create_from_model() returns any table at dest_path for 'ignore', a view included
-    existing = _existing_table(dest_catalog, dest_path, if_exists)
-    if existing is not None and if_exists == IfExistsParam.IGNORE:
-        return existing, False
-    tv = tbl._tbl_version.get()
-    is_other_db = dest_path.catalog_uri != tbl._path().catalog_uri
-    if is_other_db:
-        _check_no_other_tbl_refs(tbl, get_runtime().catalog.collect_tbl_history(tbl._id, 1)[0])
-
-    columns: dict[str, ColumnSpec] = {}
-    for col in tv.cols_by_name.values():
-        spec: ColumnSpec = {}
-        if col.value_expr is None:
-            spec['type'] = col.col_type  # type: ignore[typeddict-item]
-        elif tbl._id in _queried_tbl_ids(col.value_expr):
-            # the query's template is bound to tbl, so the new table would read tbl instead of itself
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot create a table like {tbl._display_str()}: the computed column {col.name!r} calls a @pxt.query '
-                f'that reads {tbl._display_str()} itself.',
-            )
-        else:
-            # A reference to a column of tbl becomes a reference by name, which the new table resolves to its own
-            # column. For example, t.s.upper() becomes ColumnRefByName('s').upper().
-            own_col_refs = [
-                ref for ref in col.value_expr.subexprs(exprs.ColumnRef) if ref.col_md.qcolid.tbl_id == tbl._id
-            ]
-            by_name = exprs.ExprDict[exprs.Expr](
-                (ref, exprs.ColumnRefByName(ref.col_md.name, ref.col_md.col_type)) for ref in own_col_refs
-            )
-            spec['value'] = col.value_expr.copy().substitute(by_name)
-            spec['stored'] = col.stored
-        if col.is_pk:
-            spec['primary_key'] = True
-        if col._media_validation is not None:
-            spec['media_validation'] = col._media_validation.name.lower()  # type: ignore[typeddict-item]
-        destination = col._explicit_destination
-        # Another database cannot reach a directory of this machine. The column takes that database's default.
-        if destination is not None and not (is_other_db and _is_local_dir(destination)):
-            spec['destination'] = destination
-        if col.custom_metadata is not None:
-            spec['custom_metadata'] = col.custom_metadata
-        if col.comment is not None:
-            spec['comment'] = col.comment
-        columns[col.name] = spec
-
-    idxs: list[IndexDefinition] = []
-    for info in tv.idxs_by_name.values():
-        idx_col = exprs.ColumnRefByName(info.col.name, info.col.col_type)
-        if isinstance(info.idx, index.EmbeddingIndex):
-            embeddings = info.idx.embeddings
-            idxs.append(
-                EmbeddingIndex(
-                    column=idx_col,
-                    string_embed=embeddings.get(ts.ColumnType.Type.STRING),
-                    image_embed=embeddings.get(ts.ColumnType.Type.IMAGE),
-                    audio_embed=embeddings.get(ts.ColumnType.Type.AUDIO),
-                    video_embed=embeddings.get(ts.ColumnType.Type.VIDEO),
-                    document_embed=embeddings.get(ts.ColumnType.Type.DOCUMENT),
-                    metric=info.idx.metric.name.lower(),  # type: ignore[arg-type]
-                    precision=info.idx.precision.value,
-                    name=info.name,
-                )
-            )
-        elif not tv.has_default_idxs:
-            # with has_default_idxs, the new table creates its B-tree indexes itself
-            idxs.append(BtreeIndex(column=idx_col))
-
-    return dest_catalog.create_from_model(
-        path=dest_path,
-        columns=columns,
-        display_name=tbl._display_str(),
-        has_default_idxs=tv.has_default_idxs,
-        media_validation=tv.media_validation,
-        comment=tv.comment,
-        custom_metadata=tv.custom_metadata,
-        iterator=None,
-        base=None,
-        idxs=idxs,
-        is_data_versioned=tv.is_data_versioned,
-        if_exists=if_exists,
-    )
 
 
 def _download(url: str, tmp_dir: FsPath) -> str:

@@ -425,12 +425,12 @@ class TestCopyTable:
         )
 
         # if_exists: 'error' refuses the existing table, 'ignore' returns it, 'replace' creates an empty one
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="dst' is an existing table"):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.create_table(p('dst'), schema_source=t)
         assert pxt.create_table(p('dst'), schema_source=t, if_exists='ignore').count() == 3
         assert pxt.create_table(p('dst'), schema_source=t, if_exists='replace').count() == 0
 
-        # the new table cannot take over a @pxt.query that reads the source table itself, in any database
+        # a @pxt.query that reads the source table reads the new table instead, in any database
         t3 = pxt.create_table('src3', {'n': pxt.Int})
 
         @pxt.query
@@ -446,9 +446,13 @@ class TestCopyTable:
         def other_rows(n: int) -> pxt.Query:
             return t3.where(t3.n != n).select()
 
-        for query in (lookup, first_rows, other_rows):
+        dst3_tbls: list[pxt.Table] = []
+        for i, query in enumerate((lookup, first_rows, other_rows)):
             t3.add_computed_column(r=query(t3.n))
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="calls a @pxt.query that reads table 'src3'"):
-                pxt.create_table(p('dst3'), schema_source=t3)
-            assert pxt.get_table(p('dst3'), if_not_exists='ignore') is None
+            dst3_tbls.append(pxt.create_table(p(f'dst3_{i}'), schema_source=t3))
             t3.drop_column('r')
+        # once src3 is dropped, an insert computes r only if the query reads the new table
+        pxt.drop_table('src3')
+        for dst3 in dst3_tbls:
+            dst3.insert([{'n': 1}])
+            assert dst3.count() == 1
