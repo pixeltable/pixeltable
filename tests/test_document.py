@@ -3,6 +3,7 @@ import itertools
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 import PIL.Image
@@ -482,7 +483,7 @@ class TestDocument:
         assert chunks[-1].startswith(', vector search, prompt management, and chain')
         assert chunks[-1].endswith('enhancing productivity.\n')
 
-    def test_doc_splitter_images(self, uses_db: None) -> None:
+    def test_doc_splitter_images(self, uses_db: None, tmp_path: Path) -> None:
         file_paths = [p for p in get_documents() if p.endswith('.pdf')]
         t = pxt.create_table('docs', {'doc': pxt.Document | None})
 
@@ -496,3 +497,18 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+        scanned_path = tmp_path / 'scanned.pdf'
+        scanned_pages = [PIL.Image.new('RGB', (200, 300), 'white'), PIL.Image.new('RGB', (200, 300), 'gray')]
+        scanned_pages[0].save(scanned_path, save_all=True, append_images=scanned_pages[1:])
+        scanned = pxt.create_table('scanned', {'doc': pxt.Document})
+        pages = pxt.create_view(
+            'scanned_pages',
+            scanned,
+            iterator=document_splitter(scanned.doc, separators='page', elements=['text', 'image'], metadata='page'),
+        )
+        scanned.insert(doc=str(scanned_path))
+        res = pages.order_by(pages.page).collect()
+        assert res['page'] == [0, 1]
+        assert res['text'] == ['', '']
+        assert [img.size for img in res['image']] == [(200, 300), (200, 300)]

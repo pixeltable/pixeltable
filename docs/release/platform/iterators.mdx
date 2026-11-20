@@ -125,7 +125,7 @@ Iterators are powerful tools for processing large media files. They work seamles
 
     | Separator | Effect on a PDF document |
     |---|---|
-    | `page` | One chunk per page that has extractable text. A page without text, such as a scanned page, produces no chunk, so its image is not returned either. Required for `elements=['image']` |
+    | `page` | One chunk per page. A page without extractable text, such as a scanned page, produces a chunk only when `elements` includes `'image'`. Required for `elements=['image']` |
     | `sentence`, `token_limit`, `char_limit` | Split the text of each page when combined with `page`, otherwise the text of the whole document |
     | `heading` | No effect |
     | `paragraph` | Not supported. If `separators` includes it, inserting a PDF document raises an error, and so does creating the view over a table that already contains one |
