@@ -48,7 +48,7 @@ def export_parquet(
 
     Args:
         table_or_query : Table or Query to export.
-        parquet_path : Path to directory to write the parquet files to.
+        parquet_path : Path to directory to write the parquet files to. Must not be a symbolic link.
         partition_size_bytes : The maximum target size for each chunk. Default 100_000_000 bytes.
         inline_images : If True, images are stored inline in the parquet file. This is useful
                         for small images, to be imported as pytorch dataset. But can be inefficient
@@ -60,7 +60,7 @@ def export_parquet(
             - `'error'`: raise an error
             - `'replace'`: delete the existing directory and all of its contents and write the new export in its
               place. The existing directory is removed only after the new export has been written successfully.
-              Raises an error if `parquet_path` is a file or a symbolic link rather than a directory.
+              Raises an error if `parquet_path` is a file rather than a directory.
     """
     import pyarrow as pa
 
@@ -72,11 +72,15 @@ def export_parquet(
         )
 
     path = Path(parquet_path)
-    if if_exists == 'replace' and path.exists() and (path.is_symlink() or not path.is_dir()):
+    if path.is_symlink():
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f"export_parquet(): '{path!s}' is a file or symbolic link, not a directory; "
-            "`if_exists='replace'` only replaces directories",
+            f"export_parquet(): '{path!s}' is a symbolic link; pass the directory it points to instead",
+        )
+    if if_exists == 'replace' and path.exists() and not path.is_dir():
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f"export_parquet(): '{path!s}' is a file, not a directory; `if_exists='replace'` only replaces directories",
         )
 
     query: pxt.Query

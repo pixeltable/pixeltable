@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -470,15 +471,21 @@ class TestParquet:
 
         file_path = tmp_path / 'file.parquet'
         file_path.write_text('not a directory')
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is a file or symbolic link, not a directory'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is a file, not a directory'):
             pxt.io.export_parquet(t, file_path, if_exists='replace')
         assert file_path.read_text() == 'not a directory'
 
         link_path = tmp_path / 'link'
         link_path.symlink_to(export_path, target_is_directory=True)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is a file or symbolic link, not a directory'):
-            pxt.io.export_parquet(t, link_path, if_exists='replace')
+        dangling_path = tmp_path / 'dangling'
+        dangling_path.symlink_to(tmp_path / 'missing', target_is_directory=True)
+        modes: tuple[Literal['error', 'replace'], ...] = ('error', 'replace')
+        for path in (link_path, dangling_path):
+            for mode in modes:
+                with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is a symbolic link'):
+                    pxt.io.export_parquet(t, path, if_exists=mode)
         assert exported_values() == [1, 2, 3]
+        assert not (tmp_path / 'missing').exists()
 
     def test_export_parquet_image(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
