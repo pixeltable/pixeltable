@@ -505,15 +505,25 @@ def _(model: str) -> str:
 _WAV_MIME_TYPES = frozenset(('audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave'))
 
 
-def _save_speech_audio(data: bytes | str, mime_type: str | None) -> str:
-    """Saves Gemini TTS audio as a WAV file: a WAV payload is stored as is, raw PCM is wrapped in a WAV header."""
+def _save_speech_audio(data: bytes | str, mime_type: str | None, model: str) -> str:
+    """
+    Saves Gemini TTS audio as a WAV file: a WAV payload is stored as is, raw 16-bit PCM (`audio/L16` or no MIME type)
+    is wrapped in a WAV header, and any other format is rejected.
+    """
     if isinstance(data, str):
         data = base64.b64decode(data)
     media_type, *params = (mime_type or '').lower().split(';')
+    media_type = media_type.strip()
     output_path = str(TempStore.create_path(extension='.wav'))
-    if media_type.strip() in _WAV_MIME_TYPES or (data[:4] == b'RIFF' and data[8:12] == b'WAVE'):
+    if media_type in _WAV_MIME_TYPES or (data[:4] == b'RIFF' and data[8:12] == b'WAVE'):
         Path(output_path).write_bytes(data)
         return output_path
+    if media_type not in ('audio/l16', ''):
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'Gemini TTS returned audio in an unsupported format {mime_type!r} for model {model}.',
+            provider='gemini',
+        )
     rate = 24000
     for param in params:
         key, _, value = param.partition('=')
@@ -583,13 +593,14 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
     )
     try:
         blob = response.candidates[0].content.parts[0].inline_data
+        data, mime_type = blob.data, blob.mime_type
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Gemini TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
-    return _save_speech_audio(blob.data, blob.mime_type)
+    return _save_speech_audio(data, mime_type, model)
 
 
 @generate_speech.overload
@@ -647,13 +658,14 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
     )
     try:
         blob = response.candidates[0].content.parts[0].inline_data
+        data, mime_type = blob.data, blob.mime_type
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
-    return _save_speech_audio(blob.data, blob.mime_type)
+    return _save_speech_audio(data, mime_type, model)
 
 
 @generate_speech.resource_pool
