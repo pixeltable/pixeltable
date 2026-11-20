@@ -139,6 +139,11 @@ def echo_fails(text: str) -> str:
     raise RuntimeError(f'cannot process {text}')
 
 
+@pxt.udf
+def prompt_fails(text: str, prompt: str) -> str:
+    raise RuntimeError('cannot process')
+
+
 class TestTable:
     # exc for a % 10 == 0
     @staticmethod
@@ -3887,6 +3892,15 @@ class TestTable:
         assert len(msg) < 2_000
         assert "with 'body' = 'xxx" in msg
         assert 'more characters]' in msg
+
+        t2 = pxt.create_table(db_root.make_catalog_path('test2'), {'body': pxt.String})
+        t2.add_computed_column(out=prompt_fails(t2.body, 'p' * 10_000))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='RuntimeError') as exc:
+            t2.insert(body='short')
+        msg = str(exc.value)
+        assert len(msg) < 2_000
+        assert "with 'body' = 'short'" in msg
+        assert msg.count("'pppp") == 1
 
     def test_unsaveable_image(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         """A computed image that cannot be saved aborts the operation or, with on_error='ignore', is a cell error."""

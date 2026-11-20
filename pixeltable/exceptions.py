@@ -307,8 +307,8 @@ class ExprEvalError(Exception):
         self.row_num = row_num
 
 
-_MAX_EXC_MSG_LEN = 1024
-_MAX_INPUT_VAL_LEN = 256
+_MAX_TEXT_LEN = 1024
+_MAX_INPUT_LEN = 256
 
 
 def _truncate(s: str, max_len: int) -> str:
@@ -319,14 +319,20 @@ def _truncate(s: str, max_len: int) -> str:
 
 def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
     """Convert an ExprEvalError (internal) into a user-facing Error."""
-    exc_msg = _truncate(str(e.exc), _MAX_EXC_MSG_LEN)
-    msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{exc_msg}'
+    from pixeltable import exprs
+
+    expr_msg = _truncate(e.expr_msg, _MAX_TEXT_LEN)
+    exc_msg = _truncate(str(e.exc), _MAX_TEXT_LEN)
+    msg = f'In row {e.row_num} the {expr_msg} encountered exception {type(e.exc).__name__}:\n{exc_msg}'
     if len(e.input_vals) > 0:
-        input_msgs = [
-            f"'{d!s}' = {_truncate(d.col_type.print_value(e.input_vals[i]), _MAX_INPUT_VAL_LEN)}"
-            for i, d in enumerate(e.expr.dependencies())
-        ]
-        msg += f'\nwith {", ".join(input_msgs)}'
+        input_msgs = []
+        for i, d in enumerate(e.expr.dependencies()):
+            if isinstance(d, exprs.Literal):
+                continue
+            label = _truncate(str(d), _MAX_INPUT_LEN)
+            input_msgs.append(f"'{label}' = {_truncate(d.col_type.print_value(e.input_vals[i]), _MAX_INPUT_LEN)}")
+        if len(input_msgs) > 0:
+            msg += f'\nwith {", ".join(input_msgs)}'
     assert e.exc_tb is not None
     stack_trace = traceback.format_tb(e.exc_tb)
     # The stack frames belong to the (possibly non-local) evaluation environment, so they are carried as the
