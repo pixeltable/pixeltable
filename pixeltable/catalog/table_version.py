@@ -1702,6 +1702,8 @@ class TableVersion:
             for view in self.mutable_views:
                 view_tv = view.get()
                 recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
+                # any and all are equivalent since all iterator columns share the same input columns meaning
+                # if one is recomputed they all are. However any is more efficient since it can short circuit.
                 needs_iterator_reload = any(view_tv.is_iterator_column(col) for col in changed_dependents)
 
                 membership_change = base_membership_change or (

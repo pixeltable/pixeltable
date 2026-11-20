@@ -724,11 +724,11 @@ class TestComponentView:
         v2.update({'note': 'x'})
 
         def v_rows() -> dict[tuple[int, int], tuple[int, int | None]]:
-            rows = v.select(v.id, v.pos, v.icol2, v.annotation).collect()
+            rows = v.select(v.id, v.pos, v.icol2, v.annotation).order_by(v.id, v.pos).collect()
             return {(r['id'], r['pos']): (r['icol2'], r['annotation']) for r in rows}
 
         def v2_rows() -> dict[tuple[int, int], str | None]:
-            rows = v2.select(v2.id, v2.pos, v2.note).collect()
+            rows = v2.select(v2.id, v2.pos, v2.note).order_by(v2.id, v2.pos).collect()
             return {(r['id'], r['pos']): r['note'] for r in rows}
 
         assert v_rows() == {
