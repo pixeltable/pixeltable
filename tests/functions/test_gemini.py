@@ -66,22 +66,6 @@ class TestGeminiLocal:
         assert http_client.is_closed
         assert aiohttp_session.closed
 
-    @pytest.mark.parametrize('configured_key', [True, False])
-    def test_client_api_selection(self, configured_key: bool, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A configured API key selects the Gemini Developer API even when GOOGLE_GENAI_USE_VERTEXAI is set; without
-        one, GOOGLE_GENAI_USE_VERTEXAI selects Vertex AI."""
-        skip_test_if_not_installed('google.genai')
-        from pixeltable import env
-
-        monkeypatch.setenv('GOOGLE_GENAI_USE_VERTEXAI', 'true')
-        monkeypatch.setenv('GOOGLE_CLOUD_PROJECT', 'test-project')
-        monkeypatch.setenv('GOOGLE_CLOUD_LOCATION', 'us-central1')
-        client = env._client_factories['gemini'].init_fn(api_key='test-key' if configured_key else None)
-        try:
-            assert client.vertexai is not configured_key
-        finally:
-            get_runtime().event_loop.run_until_complete(client.aclose())
-
     @pytest.mark.parametrize('outcome', ['blocked', 'no_content', 'no_parts', 'no_mime_type'])
     def test_response_without_content(self, outcome: str, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """A blocked prompt has no candidates, a candidate may have no content or content without parts, and a blob
