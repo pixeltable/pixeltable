@@ -130,6 +130,25 @@ Before committing, verify your notebook:
 4. **Test links** to ensure they point to correct locations
 5. **Review output** to ensure it's appropriate for documentation
 
+### CI tiers
+
+CI runs the notebooks with nbmake and selects them with the same pytest markers as the unit tests. If a
+notebook calls a provider or UDF whose unit tests carry a marker, add the notebook to `NOTEBOOK_MARKERS`
+in `tests/notebook_markers.py` with the same markers and a reason:
+
+| Marker | For example | Where the notebook runs |
+|---|---|---|
+| none | Pixeltable alone, OpenAI chat and embeddings, Whisper | Merge queue and every scheduled run |
+| `expensive` | OpenAI speech, vision and image generation | Merge queue and every scheduled run |
+| `skip_merge_queue` | Hugging Face models and datasets, Anthropic, external object stores | Every scheduled run |
+| `skip_merge_queue`, `expensive` | Paid providers other than OpenAI and Anthropic | Every scheduled run |
+| `very_expensive` | Video generation, VLM Run, Jina, Voyage AI | Weekly run |
+| `resource_intensive` | Panoptic DETR, Stable Diffusion, SAM3 video segmentation | Every scheduled run, alone on a large runner |
+| `skip` | Out of credits, a broken integration, a Microsoft Fabric environment | Nowhere; pytest reports the reason |
+
+PRs run no notebooks. `scripts/prepare-nb-tests.sh` also skips a notebook whose API key is unset, and
+the ones that need a GPU or a different pip setup. `make nbtest` runs the notebooks with no marker.
+
 ## Example Notebook Structure
 
 The default structure starts with a markdown title cell. For the frontmatter alternative, add a raw

@@ -27,7 +27,6 @@ def _skip_if_not_fabric() -> None:
 
 
 @pytest.mark.skip(reason='Requires Microsoft Fabric environment with synapse-ml-fabric SDK')
-@pytest.mark.remote_api
 @rerun_on_network_error()
 class TestFabric:
     """Test suite for Microsoft Fabric Azure OpenAI integration."""

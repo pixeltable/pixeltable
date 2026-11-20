@@ -313,6 +313,7 @@ class TableProxy(Table):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -401,7 +402,9 @@ class TableProxy(Table):
         if not check_required:
             converter.reqd_col_names.clear()
         converter.prepare_for_insert_into_table()
-        return converter.pxt_rows
+        # TODO: this materializes all rows to send them in one request; streaming them to the daemon would bound the
+        # client's memory
+        return list(converter.rows())
 
     def update(
         self,
@@ -419,6 +422,7 @@ class TableProxy(Table):
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
+        *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
@@ -439,6 +443,12 @@ class TableProxy(Table):
         self._check_mutable('recompute columns of')
         bound_args['columns'] = list(columns)
         return self._dispatch('recompute_columns', bound_args)
+
+    def _check_recompute(self, *columns: str | ColumnRef, errors_only: bool = False) -> list[str]:
+        bound_args = self._dispatch_args(locals())
+        self._check_mutable('recompute columns of')
+        bound_args['columns'] = list(columns)
+        return self._dispatch('_check_recompute', bound_args)
 
     def revert(self) -> None:
         self._check_mutable('revert')

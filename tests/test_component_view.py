@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.catalog import RowCountStats
 from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
 
 from .test_iterator import simple_iterator
@@ -147,6 +148,33 @@ class colliding_iterator(pxt.PxtIterator):
 
     def close(self) -> None:
         pass
+
+
+class ItemTypeRow(TypedDict):
+    idx: int
+    item_type: str
+
+
+@pxt.iterator(unstored_cols=['item_type'])
+class item_type_iterator(pxt.PxtIterator):
+    """Emits the Python type name of each element of a Json list, as an unstored output."""
+
+    def __init__(self, items: pxt.Json):
+        self.items = items
+        self.i = 0
+
+    def __next__(self) -> ItemTypeRow:
+        if self.i >= len(self.items):
+            raise StopIteration
+        row: ItemTypeRow = {'idx': self.i, 'item_type': type(self.items[self.i]).__name__}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
 
 
 @pxt.udf
@@ -509,7 +537,11 @@ class TestComponentView:
         # load data
         rows = [{'video': p, 'int1': i, 'int2': len(video_filepaths) - i} for i, p in enumerate(video_filepaths)]
         status = video_t.insert(rows)
-        assert status.num_rows == video_t.count() + v1.count() + v2.count()
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(inserted_rows=len(rows)),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=20 * len(rows)),
+        )
         check_view()
 
         # update int1: propagates to int3, img1, int5, img3, int7
@@ -521,8 +553,10 @@ class TestComponentView:
         if db_root.id == 'local':
             video_url = Path(video_filepaths[0]).as_uri()
             status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
-            assert (
-                status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
+            validate_update_status(
+                status,
+                expected_row_counts=RowCountStats(updated_rows=1),
+                expected_cascade_row_counts=RowCountStats(updated_rows=20),
             )
             assert sorted(str.split('.')[1] for str in status.updated_cols) == [
                 'img1',
@@ -536,7 +570,11 @@ class TestComponentView:
 
             # update int2: propagates to img4, int6, int7
             status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
-            assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
+            validate_update_status(
+                status,
+                expected_row_counts=RowCountStats(updated_rows=1),
+                expected_cascade_row_counts=RowCountStats(updated_rows=10),
+            )
             assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
             check_view()
 
@@ -682,6 +720,16 @@ class TestComponentView:
         assert [r['icol'] for r in v3_rows] == [0]
         assert [r['scol'] for r in v3_rows] == ['s 0']
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix']
+
+    def test_unstored_output_with_sql_json_fn(self, db_root: DatabaseRoot) -> None:
+        """The iterator gets its reconstructed Json arg when the query also computes a function of it in SQL."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('arrays'), {'j': pxt.Json})
+        t.insert([{'j': [np.zeros((2, 2), dtype=np.float32), np.ones((3, 3), dtype=np.float32)]}])
+        v = pxt.create_view(p('item_types'), t, iterator=item_type_iterator(t.j))
+        res = v.select(v.item_type, n=v.j.len()).order_by(v.idx).collect()
+        assert res['item_type'] == ['ndarray', 'ndarray']
+        assert res['n'] == [2, 2]
 
     def test_case_insensitive_iterator_outputs(self, db_root: DatabaseRoot) -> None:
         """Iterator output names become view columns and fold."""

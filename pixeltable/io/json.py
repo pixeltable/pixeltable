@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import typing
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,7 @@ def import_json(
     )
 
 
-def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path) -> None:
+def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | os.PathLike) -> None:
     """
     Exports a query result or table to a JSONL file.
 

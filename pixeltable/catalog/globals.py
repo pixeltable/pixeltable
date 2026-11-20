@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
+from keyword import iskeyword
 from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, TypeVar, cast
 
 from typing_extensions import TypeForm
@@ -21,6 +22,9 @@ if TYPE_CHECKING:
     from .types import ColumnVersionMd
 
 _T = TypeVar('_T')
+
+# closing line of an error raised while update_all() applies its changes, phrased for the Python API
+PY_RERUN_HINT = 'Re-run `update_all()`.'
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -166,6 +170,11 @@ def is_system_column_name(name: str) -> bool:
     if _PREDEF_SYMBOLS is None:
         _PREDEF_SYMBOLS = {fold_identifier(s) for s in itertools.chain(dir(InsertableTable), dir(View))}
     return name in _PREDEF_SYMBOLS
+
+
+def is_reserved_column_name(name: str) -> bool:
+    """name must already be folded."""
+    return is_system_column_name(name) or iskeyword(name)
 
 
 def col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:

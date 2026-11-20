@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import typing
 from pathlib import Path
 from typing import Any, cast
@@ -16,7 +17,7 @@ if typing.TYPE_CHECKING:
 
 def export_parquet(
     table_or_query: pxt.Table | pxt.Query,
-    parquet_path: Path,
+    parquet_path: str | os.PathLike,
     partition_size_bytes: int = 100_000_000,
     inline_images: bool = False,
     _write_md: bool = False,
@@ -81,7 +82,7 @@ def export_parquet(
             )
 
     # store the changes atomically
-    with transactional_directory(parquet_path) as temp_path:
+    with transactional_directory(Path(parquet_path)) as temp_path:
         if _write_md:
             json.dump(query.as_dict(), (temp_path / '.pixeltable.json').open('w'))
             type_dict = {k: v.as_dict() for k, v in schema.items()}
@@ -116,11 +117,10 @@ def import_parquet(
     Returns:
         A handle to the newly created table.
     """
-    value = kwargs.pop('source_format', None)
     return pxt.create_table(
         table,
         source=parquet_path,
-        source_format=value,
+        source_format=kwargs.pop('source_format', 'parquet'),
         schema_overrides=schema_overrides,
         primary_key=primary_key,
         extra_args=kwargs,

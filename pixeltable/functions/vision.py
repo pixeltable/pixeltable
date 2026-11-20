@@ -25,7 +25,6 @@ import PIL.ImageDraw
 import PIL.ImageFont
 
 import pixeltable as pxt
-from pixeltable.utils.code import local_public_names
 
 
 # the following function has been adapted from MMEval
@@ -1518,7 +1517,19 @@ def _(
     )
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'bboxes_clip_to_canvas',
+    'bboxes_convert',
+    'bboxes_crop_canvas',
+    'bboxes_draw',
+    'bboxes_pad',
+    'bboxes_resize',
+    'bboxes_resize_canvas',
+    'bboxes_scale',
+    'eval_detections',
+    'mean_ap',
+    'overlay_segmentation',
+]
 
 
 def __dir__() -> list[str]:

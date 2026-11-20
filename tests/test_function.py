@@ -21,10 +21,11 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import env, func
-from pixeltable.func import Batch, Function, FunctionRegistry
+from pixeltable.func import Batch, Function
 from pixeltable.utils.app_module import load_app_module
 
 from .utils import (
+    SAMPLE_IMAGE_URL,
     DatabaseRoot,
     ReloadTester,
     assert_resultset_eq,
@@ -50,6 +51,18 @@ def _expr_property_double(x: int) -> int:
     return x * 2
 
 
+@pxt.udf
+def _checked(x: int) -> int:
+    if x % 10 == 3:
+        raise ValueError(f'unlucky {x}')
+    return x
+
+
+@pxt.expr_udf
+def _checked_plus_one(x: int) -> int:
+    return _checked(x) + 1  # type: ignore[return-value]
+
+
 # Module-level udfs with non-JSON-serializable default arguments, used by TestFunction.test_constants.
 # The timestamp default is timezone-aware so that building its Literal at import time does not require an
 # initialized Env (a naive datetime would need Env.get().default_time_zone).
@@ -69,6 +82,41 @@ def udf_with_array_constants(
     a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = _ones_arr
 ) -> pxt.Array[pxt.Float, (6,)]:
     return a + b
+
+
+@pxt.udf(batch_size=4)
+def doubled(xs: Batch[int]) -> Batch[int]:
+    return [x * 2 for x in xs]
+
+
+@pxt.udf
+def day_of(when: datetime) -> str:
+    return when.strftime('%A')
+
+
+@pxt.udf
+def count_items(items: pxt.Json) -> int:
+    return len(items)
+
+
+@pxt.udf
+def failing_udf(x: int) -> int:
+    raise ValueError(f'bad value: {x}')
+
+
+@pxt.udf
+def describe(text: str) -> str:
+    return f'text {text}'
+
+
+@describe.overload
+def _(image: PIL.Image.Image) -> str:
+    return f'image {image.width}x{image.height}'
+
+
+@pxt.udf
+async def shout(text: str) -> str:
+    return text.upper()
 
 
 @pxt.udf
@@ -167,14 +215,159 @@ class TestFunction:
         assert isinstance(td['templates'], list) and len(td['templates']) == 1
         assert isinstance(Function.from_dict(td), func.ExprTemplateFunction)
 
-    @pytest.mark.db_roots('local', reason='inspects the in-process FunctionRegistry')
-    def test_list(self, uses_db: None) -> None:
-        _ = FunctionRegistry.get().list_functions()
-        print(_)
+    def test_list_functions(self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        def calls(functions: pxt.FunctionList) -> set[str]:
+            return {info['call'] for info in functions}
 
-    def test_list_functions(self, init_env: None) -> None:
-        _ = pxt.list_functions()
-        print(_)
+        timestamp_methods = pxt.list_functions(on=pxt.Timestamp)
+        assert {'pxt.Timestamp.hour -> pxt.Int', 'pxt.Timestamp.posix_timestamp() -> pxt.Float'} <= calls(
+            timestamp_methods
+        )
+        assert all(info['kind'] == 'udf' for info in timestamp_methods)
+        # an Int expression has the Float methods too
+        assert 'pxt.Float.abs() -> pxt.Float' in calls(pxt.list_functions(on=pxt.Int))
+        assert 'coalesce(*values) -> pxt.Json | None (depends on the arguments)' in calls(
+            pxt.list_functions(search='coalesce')
+        )
+
+        # a phrase that wraps across lines of the docstring
+        assert 'pixeltable.functions.timestamp.strptime' in {
+            info['path'] for info in pxt.list_functions(search='default time zone')
+        }
+
+        detectors = pxt.list_functions(search='DETR')
+        assert (
+            'huggingface.detr_for_object_detection(image: pxt.Image, *, model_id: pxt.String, threshold: pxt.Float = '
+            '0.5, revision: pxt.String | None = None) -> DetrForObjectDetectionResponse'
+        ) in calls(detectors)
+
+        video_iterators = pxt.list_functions('video', kind='iterator')
+        frame_iterator = next(info for info in video_iterators if info['name'] == 'frame_iterator')
+        assert frame_iterator['path'] == 'pixeltable.functions.video.frame_iterator'
+        assert frame_iterator['outputs'] == {'frame': 'pxt.Image', 'frame_attrs': 'FrameAttrs'}
+        assert frame_iterator['summary'] is not None and frame_iterator['summary'].startswith('Iterator over frames')
+        document_iterators = pxt.list_functions('pixeltable.functions.document', kind='iterator')
+        assert [info['outputs'] for info in document_iterators] == [None]
+        assert document_iterators[0]['call'].endswith('-> (columns depend on the arguments)')
+
+        aggregates = pxt.list_functions(kind='aggregate')
+        count = next(info for info in aggregates if info['path'] == 'pixeltable.functions.count')
+        assert len(count['signatures']) > 1
+        assert f'[{len(count["signatures"])} signatures]' in repr(aggregates)
+
+        module_functions = pxt.list_functions('tests.test_function')
+        assert (
+            "tests.test_function.mock_embed(content: pxt.String, model: pxt.String = 'default') "
+            '-> pxt.Json[(Float, ...)]'
+        ) in calls(module_functions)
+
+        # the listing of an application module includes its query, but not an imported UDF
+        (tmp_path / 'list_functions_app.py').write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+                from pixeltable.functions.string import upper
+
+                TableModel = pxt.model_base()
+
+
+                class Notes(TableModel, name='notes'):
+                    id = pxt.Column(type=pxt.Int, primary_key=True)
+                    label: pxt.String
+                    shouted = upper(label)
+
+
+                @pxt.query
+                def labels_after(id: int) -> pxt.Query:
+                    '''The labels of the notes after id.'''
+                    return Notes.where(Notes.id > id).select(Notes.label)
+                """
+            )
+        )
+        monkeypatch.syspath_prepend(tmp_path)
+        app_functions = pxt.list_functions('list_functions_app')
+        assert [info['path'] for info in app_functions] == ['list_functions_app.labels_after']
+        assert app_functions[0]['kind'] == 'query'
+        assert app_functions[0]['call'] == 'list_functions_app.labels_after(id: pxt.Int) -> pxt.Json[(String, ...)]'
+        assert app_functions[0]['summary'] == 'The labels of the notes after id.'
+        assert pxt.list_functions('list_functions_app', kind='udf') == []
+
+        assert len(repr(video_iterators).splitlines()) == len(video_iterators)
+        assert '<table>' in video_iterators._repr_html_()
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module'"):
+            pxt.list_functions('no_such_module')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module.sub'"):
+            pxt.list_functions('no_such_module.sub')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="`kind` must be one of .*; got 'udff'"):
+            pxt.list_functions(kind='udff')  # type: ignore[arg-type]
+
+        # a module that fails to import
+        bad_udf_src = dedent(
+            """
+            import pixeltable as pxt
+
+
+            @pxt.udf
+            def f(x):
+                return x
+            """
+        )
+        broken_modules = {
+            'list_functions_missing_dep': (
+                'import no_such_dependency',
+                "ModuleNotFoundError: No module named 'no_such_dependency'",
+            ),
+            'list_functions_bad_udf': (bad_udf_src, "Cannot infer pixeltable type for parameter 'x'"),
+            'list_functions_syntax': ('def f(:', r'SyntaxError: invalid syntax \(list_functions_syntax.py, line 1\)'),
+            'list_functions_raises': ("raise RuntimeError('no config')", 'RuntimeError: no config'),
+        }
+        # a new sys.path entry: importlib cached the listing of tmp_path when it imported list_functions_app
+        (tmp_path / 'broken').mkdir()
+        for module, (src, _) in broken_modules.items():
+            (tmp_path / 'broken' / f'{module}.py').write_text(f'{src}\n')
+        monkeypatch.syspath_prepend(tmp_path / 'broken')
+        for module, (_, reason) in broken_modules.items():
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'error loading {module}: {reason}'):
+                pxt.list_functions(module)
+
+    def test_eval_udf(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        assert pxt.eval_udf(pxtf.string.upper, 'abc') == 'ABC'
+        # a None argument for a non-nullable parameter skips the call, as in a computed column
+        assert pxt.eval_udf(pxtf.string.upper, None) is None
+        assert pxt.eval_udf(pxtf.image.resize, PIL.Image.new('RGB', (10, 20)), (4, 6)).size == (4, 6)
+        image_path = get_image_files()[0]
+        assert pxt.eval_udf(pxtf.image.width, image_path) == PIL.Image.open(image_path).width
+        assert pxt.eval_udf(pxtf.image.width, SAMPLE_IMAGE_URL) == 640
+        assert pxt.eval_udf(pxtf.video.get_duration, video=get_video_files()[0]) > 0
+        # a path for a parameter that is a string in one signature and an image in another stays a string
+        assert pxt.eval_udf(describe, image_path) == f'text {image_path}'
+        width, height = PIL.Image.open(image_path).size
+        assert pxt.eval_udf(describe, image=image_path) == f'image {width}x{height}'
+        assert pxt.eval_udf(doubled, 21) == 42
+        assert pxt.eval_udf(shout, 'abc') == 'ABC'
+        assert pxt.eval_udf(pxtf.image.resize.using(size=(3, 4)), PIL.Image.new('RGB', (10, 20))).size == (3, 4)
+        with pytest.raises(ValueError, match='bad value: 1'):
+            pxt.eval_udf(failing_udf, 1)
+
+        t = pxt.create_table(p('test'), {'name': pxt.String, 'n': pxt.Int})
+        t.insert([{'name': 'a', 'n': 1}, {'name': 'b', 'n': 5}])
+
+        @pxt.query
+        def names_above(n: int) -> pxt.Query:
+            return t.where(t.n > n).select(t.name)
+
+        assert pxt.eval_udf(names_above, 2) == ['b']
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not columns'):
+            pxt.eval_udf(pxtf.string.upper, t.name)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='aggregate function'):
+            pxt.eval_udf(pxtf.sum, 1)  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'frame_iterator\(\) is an iterator'):
+            pxt.eval_udf(pxtf.video.frame_iterator, get_video_files()[0])  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='expected a UDF'):
+            pxt.eval_udf(len, 'abc')  # type: ignore[arg-type]
 
     def test_stored_udf(self, db_root: DatabaseRoot) -> None:
         # a udf without a fully-qualified path (forced here via _force_stored) can't be persisted into a
@@ -1054,7 +1247,7 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
 
             @pxt.query
-            def q_cast(n: float) -> pxt.Query:
+            def q_cast(n: bool) -> pxt.Query:
                 return t.select(t.c4).limit(n.astype(pxt.Int | None))  # type: ignore[attr-defined]
 
         # column reference is not allowed for limit
@@ -1072,7 +1265,7 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
 
             @pxt.query
-            def q_off_cast(n: float) -> pxt.Query:
+            def q_off_cast(n: bool) -> pxt.Query:
                 return t.select(t.c4).limit(10, offset=n.astype(pxt.Int | None))  # type: ignore[attr-defined]
 
         # column reference is not allowed for offset
@@ -1372,6 +1565,17 @@ class TestFunction:
         res_prop = t.select(out=t.c2._expr_property_double).order_by(t.c2).collect()
         res_inline2 = t.select(out=t.c2 * 2).order_by(t.c2).collect()
         assert_resultset_eq(res_prop, res_inline2)
+
+    def test_expr_udf_error(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        # a failure inside an expr_udf reports the exception that failed
+        status = t.add_computed_column(out=_checked_plus_one(t.c2), on_error='ignore')
+        assert status.num_excs == 10
+        res = t.where(t.c2 == 3).select(t.out, errortype=t.out.errortype, errormsg=t.out.errormsg).collect()
+        assert res[0] == {'out': None, 'errortype': 'ValueError', 'errormsg': 'unlucky 3'}
+        assert pxt.eval_udf(_checked_plus_one, 4) == 5
+        with pytest.raises(ValueError, match='unlucky 13'):
+            pxt.eval_udf(_checked_plus_one, 13)
 
     def test_expr_udf_method_errors(self) -> None:
         # is_method and is_property are mutually exclusive
@@ -2099,10 +2303,77 @@ class TestFunction:
             pxt.get_table('test')
 
     def test_tool_errors(self) -> None:
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
+        # pxt.tool(), pxt.tools() and direct pxt.Tool() construction all get the same checks
+        msg = 'Aggregator UDFs cannot be used as tools'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
-        assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.Tool(fn=pxt.functions.sum)
 
+        msg = r"Tool 'day_of': parameter 'when' has unsupported type `Timestamp`; supported types are String, Int"
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tool(day_of)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tools(day_of)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.Tool(fn=day_of)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'weekday': parameter 'when'"):
+            pxt.tool(day_of, name='weekday')
+
+        msg = "Tool 'overloaded_udf': a function with overloads cannot be a tool"
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tool(TestFunction.overloaded_udf)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'describe': a function with overloads"):
+            pxt.tools(describe)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'describe': a function with overloads"):
+            pxt.Tool(fn=describe)
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Tool 'udf_variadic_kw': variadic parameter 'kwargs' is not supported",
+        ):
+            pxt.tool(TestFunction.udf_variadic_kw)
+
+        # a Json parameter and an optional parameter with a None default stay accepted
+        for fn in (pop_max_tokens, TestFunction.udf_default_param_none):
+            pxt.tools(pxt.tool(fn)).model_dump()
+
+    def test_tool_json_param(self, db_root: DatabaseRoot) -> None:
+        from pixeltable.functions import anthropic, openai
+
+        tools = pxt.tools(count_items)
+        t = pxt.create_table(
+            db_root.make_catalog_path('tool_json'), {'id': pxt.Int, 'anthropic_resp': pxt.Json, 'openai_resp': pxt.Json}
+        )
+        t.add_computed_column(anthropic_calls=anthropic.invoke_tools(tools, t.anthropic_resp))
+        t.add_computed_column(openai_calls=openai.invoke_tools(tools, t.openai_resp))
+
+        def anthropic_resp(args: dict) -> dict:
+            return {'content': [{'type': 'tool_use', 'name': 'count_items', 'input': args}]}
+
+        def openai_resp(args: str) -> dict:
+            tool_call = {'function': {'name': 'count_items', 'arguments': args}}
+            return {'choices': [{'message': {'tool_calls': [tool_call]}}]}
+
+        t.insert(
+            [
+                {
+                    'id': 1,
+                    'anthropic_resp': anthropic_resp({'items': [1, 2, 3]}),
+                    'openai_resp': openai_resp('{"items": [1]}'),
+                },
+                {
+                    'id': 2,
+                    'anthropic_resp': anthropic_resp({'items': 'abcd'}),
+                    'openai_resp': openai_resp('{"items": {"a": 1}}'),
+                },
+            ]
+        )
+        res = t.order_by(t.id).select(t.anthropic_calls, t.openai_calls).collect()
+        assert res['anthropic_calls'] == [{'count_items': [3]}, {'count_items': [4]}]
+        assert res['openai_calls'] == [{'count_items': [1]}, {'count_items': [1]}]
+
+    # the table a retrieval UDF reads is not in the lock set of the operation that evaluates it
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     @pytest.mark.db_roots('local', reason='builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:
         t = pxt.create_table('customers', {'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None})
@@ -2181,6 +2452,31 @@ class TestFunction:
         lookup = pxt.create_table('lookup', {'lookup_id': pxt.String})
         lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
         assert lookup.matching.col_type == fn2.signature.return_type
+
+        table_model = pxt.model_base()
+
+        class Items(table_model, name='items'):
+            item_id: pxt.String
+            name: pxt.String
+
+        item_by_id = pxt.retrieval_udf(Items, parameters=[Items.item_id], limit=1)
+        assert item_by_id.name == 'items'
+        assert list(item_by_id.signature.parameters.keys()) == ['item_id']
+
+        class Orders(table_model, name='orders'):
+            order_id: pxt.Int
+            item_id: pxt.String
+            item = item_by_id(item_id)  # noqa: F821
+
+        table_model.create_all('')
+        Items.insert([{'item_id': 'A1', 'name': 'apple'}, {'item_id': 'B2', 'name': 'banana'}])
+        Orders.insert([{'order_id': 1, 'item_id': 'B2'}, {'order_id': 2, 'item_id': 'X'}])
+        res = Orders.order_by(Orders.order_id).select(Orders.item).collect()  # type: ignore[arg-type]
+        assert res['item'] == [{'item_id': 'B2', 'name': 'banana'}, None]
+
+        fn4 = pxt.retrieval_udf(Items, parameters=['item_id'], limit=1)
+        res = Items.select(found=fn4(item_id='B2')).limit(1).collect()
+        assert res[0] == {'found': {'item_id': 'B2', 'name': 'banana'}}
 
     @pytest.mark.db_roots('local', reason='builds a query function from a table via Function.from_table')
     def test_from_table(self, uses_db: None) -> None:
@@ -2422,6 +2718,14 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t3.insert([{'num': 1}])
 
+    def test_resource_pool_in_json_mapper(self, db_root: DatabaseRoot) -> None:
+        """A UDF with a resource_pool runs when a JsonMapper calls it per element, as invoke_tools() does."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_mapped_rp'), {'id': pxt.Int | None, 'words': pxt.Json | None})
+        t.add_computed_column(shouted=pxtf.map(t.words, lambda w: mapped_udf_with_rp(w)))
+        validate_update_status(t.insert([{'id': 0, 'words': ['a', 'b']}, {'id': 1, 'words': ['c']}]))
+        assert [row['shouted'] for row in t.order_by(t.id).collect()] == [['A', 'B'], ['C']]
+
     def test_future_annotations_udf(self, db_root: DatabaseRoot) -> None:
         """Tests that UDFs can be defined in modules with `from __future__ import annotations`."""
         p = db_root.make_catalog_path
@@ -2537,6 +2841,11 @@ def sync_udf_with_rp(text: str) -> str:
 @pxt.udf(batch_size=4, resource_pool='request-rate:test-sync-batch')
 def sync_batched_udf_with_rp(texts: Batch[str]) -> Batch[str]:
     return [t.upper() for t in texts]
+
+
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:test-mapped')
+async def mapped_udf_with_rp(text: str) -> str:
+    return text.upper()
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:test-sync-poly')

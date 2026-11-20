@@ -3,7 +3,7 @@ import json
 from pixeltable_cli import models
 
 from ..parser import Parser
-from ..utils import confirm_or_exit, get_request, plural, post_request, validate_path_arg
+from ..utils import confirm_or_exit, plural, post_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -40,10 +40,13 @@ def run(argv: list[str]) -> None:
 
     path = validate_path_arg(args.path)
     columns = ', '.join(args.columns)
+    body = {'path': path, 'columns': args.columns, 'errors_only': args.errors_only, 'cascade': args.cascade}
     if args.dry_run:
         # TODO: compute the total number of affected rows across all transitive views as well, possibly even the
         # exact columns that would be recomputed
-        table_rows = models.CountResponse.model_validate(get_request('/api/tables/count', params={'path': path})).count
+        table_rows = models.RecomputeResponse.model_validate(
+            post_request('/api/tables/recompute', {**body, 'dry_run': True})
+        ).num_rows
         if args.as_json:
             plan = {
                 'path': path,
@@ -62,15 +65,10 @@ def run(argv: list[str]) -> None:
     cascade = ', including all dependents' if args.cascade else ', without their dependents'
     confirm_or_exit(f'recompute {columns} on {path}{cascade}?', args.force)
 
-    resp = models.RecomputeResponse.model_validate(
-        post_request(
-            '/api/tables/recompute',
-            {'path': path, 'columns': args.columns, 'errors_only': args.errors_only, 'cascade': args.cascade},
-        )
-    )
+    resp = models.RecomputeResponse.model_validate(post_request('/api/tables/recompute', body))
     if args.as_json:
         print(resp.model_dump_json(indent=2))
         return
     print(f'recomputed {", ".join(resp.columns)} on {resp.path}: {plural(resp.num_rows, "row")} updated')
-    if resp.num_excs > 0:
-        print(f'{plural(resp.num_excs, "error")} in {", ".join(resp.cols_with_excs)}')
+    if resp.num_excs:
+        print(f'{plural(resp.num_excs, "error")} in {", ".join(resp.cols_with_excs or [])}')

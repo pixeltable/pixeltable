@@ -5,7 +5,6 @@ from typing import Any, Callable
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
-from pixeltable.utils.code import local_public_names
 
 
 # TODO: remove and replace calls with astype()
@@ -108,9 +107,12 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     return sql.sql.func.count(val)
 
 
+_MIN_MAX_TYPES = (str, int, float, bool, ts.Timestamp, ts.Date)
+
+
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: t | None} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
+    type_substitutions=tuple({T: t | None} for t in _MIN_MAX_TYPES),  # type: ignore[misc]
 )
 class min(func.Aggregator, typing.Generic[T]):
     """
@@ -162,7 +164,7 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
 
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: t | None} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
+    type_substitutions=tuple({T: t | None} for t in _MIN_MAX_TYPES),  # type: ignore[misc]
 )
 class max(func.Aggregator, typing.Generic[T]):
     """
@@ -258,10 +260,76 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     return sql.sql.func.avg(val)
 
 
+@func.udf
+def coalesce(*values: Any) -> ts.Json | None:
+    """
+    Return the first of the arguments that is not `None`, or `None` if all of them are; the result type is the common
+    supertype of the argument types.
+
+    For an `Int` and a `Float` argument, the result type is `Float`. It is nullable only if all arguments are.
+
+    Examples:
+        The reviewed label where there is one, else the model's label:
+
+        >>> t.add_computed_column(
+        ...     label=pxtf.coalesce(t.reviewed_label, t.predicted_label)
+        ... )
+
+        A default for a missing value:
+
+        >>> t.select(
+        ...     display_name=pxtf.coalesce(t.nickname, t.name, 'unknown')
+        ... ).collect()
+    """
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+@coalesce.conditional_return_type
+def _(values: exprs.Expr) -> ts.ColumnType:
+    # the arguments arrive as one list expression, a Literal if all of them are constants
+    if isinstance(values, exprs.InlineList):
+        types = [value.col_type for value in values.components]
+    else:
+        assert isinstance(values, exprs.Literal)
+        types = [exprs.Expr.from_object(value).col_type for value in values.val]
+    supertype = ts.ColumnType.common_supertype(types)
+    if supertype is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_TYPE,
+            f'coalesce(): the argument types have no common supertype: {", ".join(str(t) for t in types)}',
+        )
+    return supertype.copy(nullable=all(t.nullable for t in types))
+
+
+@coalesce.to_sql
+def _(*values: sql.ColumnElement) -> sql.ColumnElement | None:
+    sql_type = values[0].type
+    # Postgres converts arguments of different SQL types to a common type, or rejects them
+    if any(type(value.type) is not type(sql_type) for value in values):
+        return None
+    # the stored form of a JSON, array or binary value differs from the value
+    if isinstance(sql_type, (sql.JSON, sql.LargeBinary)):
+        return None
+    return sql.sql.func.coalesce(*values)
+
+
 def _relative_path_root(expr: exprs.Expr) -> exprs.Expr:
     """A relative-path root typed as the element type of the list that expr produces (untyped if unknown)."""
     element_type = expr.col_type.array_element_type() if isinstance(expr.col_type, ts.JsonType) else None
     return exprs.json_path.JsonPath.create_relative_path_root(element_type)
+
+
+def _validate_mapper_fn_expr(mapper_name: str, fn_expr: exprs.Expr) -> None:
+    """Raise an error if fn_expr applies an aggregate function to a relative path."""
+    for e in fn_expr.subexprs(expr_class=exprs.FunctionCall):
+        if e.is_std_agg_fn_call and e._has_relative_path():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'{mapper_name}(): aggregate function applied to the lambda parameter: {e!s}',
+            )
 
 
 def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
@@ -308,6 +376,7 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
             'Failed to evaluate map function. '
             '(The `fn` argument to `map()` must produce a valid Pixeltable expression.)',
         ) from e
+    _validate_mapper_fn_expr('map', target_expr)
     return exprs.JsonMapper(expr, target_expr, exprs.JsonMapper.Operator.MAP)
 
 
@@ -356,6 +425,7 @@ def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Ex
             'Failed to evaluate filter predicate. '
             '(The `predicate` argument to `filter()` must produce a valid Pixeltable expression.)',
         ) from e
+    _validate_mapper_fn_expr('filter', filter_expr)
     return exprs.JsonMapper(expr, filter_expr, exprs.JsonMapper.Operator.FILTER)
 
 
@@ -412,10 +482,11 @@ def sort(expr: exprs.Expr, key: Callable[[exprs.Expr], Any] | None = None, *, as
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             'Failed to evaluate sort key. (The `key` argument to `sort()` must produce a valid Pixeltable expression.)',
         ) from e
+    _validate_mapper_fn_expr('sort', key_expr)
     return exprs.JsonMapper(expr, key_expr, exprs.JsonMapper.Operator.SORT, asc=asc)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['cast', 'coalesce', 'count', 'filter', 'map', 'max', 'mean', 'min', 'sort', 'sum']
 
 
 def __dir__() -> list[str]:

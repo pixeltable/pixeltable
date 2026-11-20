@@ -17,7 +17,6 @@ from .variable import Variable
 
 
 class Comparison(Expr):
-    is_search_arg_comparison: bool
     operator: ComparisonOperator
 
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
@@ -26,21 +25,17 @@ class Comparison(Expr):
 
         # if this is a comparison of a column to a constant (ie, could be used as a search argument in an index lookup),
         # normalize it to <column> <operator> <constant>.
-        if isinstance(op1, ColumnRef) and isinstance(op2, (Literal, Variable)):
-            self.is_search_arg_comparison = True
-            self.components = [op1, op2]
-        elif isinstance(op1, (Literal, Variable)) and isinstance(op2, ColumnRef):
-            self.is_search_arg_comparison = True
+        # TODO: override _with_components() [PXT-1765] to normalize the operands of substitute()'s result
+        if isinstance(op1, (Literal, Variable)) and isinstance(op2, ColumnRef):
             self.components = [op2, op1]
             self.operator = self.operator.reverse()
         else:
-            self.is_search_arg_comparison = False
             self.components = [op1, op2]
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
-        return f'{self._op1} {self.operator} {self._op2}'
+        return f'{self._op1!s} {self.operator} {self._op2!s}'
 
     def _equals(self, other: Comparison) -> bool:
         return self.operator == other.operator
@@ -74,9 +69,8 @@ class Comparison(Expr):
         """The value column of a B-tree index that can answer this comparison, or None if no such index is present"""
         import pixeltable.index as index
 
-        if not self.is_search_arg_comparison:
+        if not isinstance(self._op1, ColumnRef) or not isinstance(self._op2, (Literal, Variable)):
             return None
-        assert isinstance(self._op1, ColumnRef)
         col = self._op1.col
         tbl = col.get_tbl()
         if not tbl.supports_idxs:

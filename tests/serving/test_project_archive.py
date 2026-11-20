@@ -51,7 +51,7 @@ class TestProjectArchive:
     matches its recorded digest.
     """
 
-    def test_archive_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_archive_layout(self, init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Every project file is packaged under project/, and nothing else is."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
@@ -68,7 +68,7 @@ class TestProjectArchive:
             with tar.extractfile(tar.getmember('project/udfs.py')) as f:
                 assert f.read().decode() == 'import pixeltable as pxt\n'
 
-    def test_include_exclude(self, tmp_path: Path) -> None:
+    def test_include_exclude(self, init_env: None, tmp_path: Path) -> None:
         (tmp_path / 'a_include.txt').write_text('# included by default')
         (tmp_path / 'b_exclude.txt').write_text('# excluded explicitly')
         (tmp_path / 'a_include.py').write_text('# exclude-then-include')
@@ -94,7 +94,7 @@ class TestProjectArchive:
             assert 'project/a_exclude.py' not in members
             assert 'project/b_exclude.txt' not in members
 
-    def test_gitignore_respected(self, tmp_path: Path) -> None:
+    def test_gitignore_respected(self, init_env: None, tmp_path: Path) -> None:
         """Files matching .gitignore patterns are excluded from project/."""
         (tmp_path / '.gitignore').write_text('__pycache__/\n*.pyc\n.env\n')
         (tmp_path / 'app.py').write_text('# app')
@@ -144,7 +144,7 @@ class TestProjectArchive:
         assert entry is not None
         assert entry.system_dependencies == ['ffmpeg', 'libpq']
 
-    def test_is_valid_bz2_tar(self, tmp_path: Path) -> None:
+    def test_is_valid_bz2_tar(self, init_env: None, tmp_path: Path) -> None:
         """The output file is a valid bz2 tarball."""
         archive_path = create_project_archive(tmp_path)
         assert tarfile.is_tarfile(archive_path)
@@ -184,7 +184,7 @@ class TestProjectArchive:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
             Config.init(reinit=True)
 
-    def test_archive_matches_fingerprint(self, tmp_path: Path) -> None:
+    def test_archive_matches_fingerprint(self, init_env: None, tmp_path: Path) -> None:
         """An unchanged project fingerprints to what packaging it produces, or an upload could never match."""
         (tmp_path / 'app.py').write_text('x = 1\n')
         (tmp_path / 'sub').mkdir()
@@ -195,7 +195,7 @@ class TestProjectArchive:
 
         assert package_project_archive(tmp_path).files == project_fingerprint(tmp_path, None).files
 
-    def test_archive_rewrite(self, tmp_path: Path) -> None:
+    def test_archive_rewrite(self, init_env: None, tmp_path: Path) -> None:
         """This is what a concurrent writer looks like: same path, different bytes in the archive."""
         (tmp_path / 'app.py').write_text('x = 1\n')
         before = package_project_archive(tmp_path).files
@@ -203,7 +203,7 @@ class TestProjectArchive:
 
         assert package_project_archive(tmp_path).files != before
 
-    def test_removed_while_packaging(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_removed_while_packaging(self, init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A file removed after the project was listed is left out of the archive."""
         (tmp_path / 'app.py').write_text('x = 1\n')
         (tmp_path / 'scratch.py').write_text('')
@@ -220,7 +220,7 @@ class TestProjectArchive:
         with tarfile.open(archive.path, 'r:bz2') as tar:
             assert tar.getnames() == ['project/app.py']
 
-    def test_shrinks_while_packaging(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_shrinks_while_packaging(self, init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A file cut short while it is being packaged fails the archive, and leaves no partial archive behind."""
         project = tmp_path / 'project'
         project.mkdir()
@@ -392,7 +392,7 @@ class TestProjectArchive:
         assert sorted(files) == ['packages/helper/pyproject.toml', 'packages/helper/src/helper.py', 'uv.lock']
         assert not any('.venv' in path for path in package_project_archive(tmp_path).files)
 
-    def test_executable_bit(self, tmp_path: Path) -> None:
+    def test_executable_bit(self, init_env: None, tmp_path: Path) -> None:
         """A mode change leaves the project alone: a pod imports its files and runs none of them.
 
         Windows cannot set an execute bit, so a digest covering one would differ between the platform a
@@ -407,7 +407,7 @@ class TestProjectArchive:
         assert after == before
         assert project_fingerprint(tmp_path, None).files['run.sh'] == after
 
-    def test_hard_link(self, tmp_path: Path) -> None:
+    def test_hard_link(self, init_env: None, tmp_path: Path) -> None:
         """A second path to one inode is a tar hard link, and extracts as a regular file holding its bytes."""
         (tmp_path / 'a.txt').write_text('same bytes\n')
         os.link(tmp_path / 'a.txt', tmp_path / 'b.txt')
@@ -427,7 +427,7 @@ class TestProjectArchive:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='through a symlink'):
             create_image_context(tmp_path)
 
-    def test_symlink_retarget(self, tmp_path: Path) -> None:
+    def test_symlink_retarget(self, init_env: None, tmp_path: Path) -> None:
         """A symlink holds a path, so pointing it at equal bytes elsewhere still changes the project."""
         (tmp_path / 'a.txt').write_text('same\n')
         (tmp_path / 'b.txt').write_text('same\n')
@@ -452,7 +452,7 @@ class TestProjectArchive:
         (unpacked / 'link.txt').unlink()
         assert unpacked_digest(unpacked) != with_link, 'the archive named this link too'
 
-    def test_reproducible(self, tmp_path: Path) -> None:
+    def test_reproducible(self, init_env: None, tmp_path: Path) -> None:
         """Packaging the same files again writes the same bytes, whatever their timestamps and owners say."""
         (tmp_path / 'app.py').write_text('x = 1\n')
         (tmp_path / 'run.sh').write_text('echo hi\n')

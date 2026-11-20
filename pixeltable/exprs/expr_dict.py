@@ -22,13 +22,13 @@ class ExprDict(Generic[T]):
                 self[key] = value
 
     def __setitem__(self, key: Expr, value: T) -> None:
-        self._data[key.id] = (key, value)
+        self._data[key._expr_id] = (key, value)
 
     def __getitem__(self, key: Expr) -> T:
-        return self._data[key.id][1]
+        return self._data[key._expr_id][1]
 
     def __delitem__(self, key: Expr) -> None:
-        del self._data[key.id]
+        del self._data[key._expr_id]
 
     def __len__(self) -> int:
         return len(self._data)
@@ -37,14 +37,14 @@ class ExprDict(Generic[T]):
         return (expr for expr, _ in self._data.values())
 
     def __contains__(self, key: Expr) -> bool:
-        return key.id in self._data
+        return key._expr_id in self._data
 
     def get(self, key: Expr, default: T | None = None) -> T | None:
-        item = self._data.get(key.id)
+        item = self._data.get(key._expr_id)
         return item[1] if item is not None else default
 
     def pop(self, key: Expr, default: T | None = None) -> T | None:
-        item = self._data.pop(key.id, None)
+        item = self._data.pop(key._expr_id, None)
         return item[1] if item is not None else default
 
     def clear(self) -> None:
