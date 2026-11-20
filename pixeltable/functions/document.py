@@ -32,7 +32,6 @@ class ChunkMetadata(Enum):
     HEADING = 2
     SOURCELINE = 3
     PAGE = 4
-    BOUNDING_BOX = 5
 
 
 class Separator(Enum):
@@ -55,15 +54,6 @@ class Heading(TypedDict, total=False):
     h6: str
 
 
-class BoundingBox(TypedDict):
-    """A bounding box on a document page, in page coordinates."""
-
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-
-
 @dataclass
 class DocumentSectionMetadata:
     """Metadata for a subsection of a document (ie, a structural element like a heading or paragraph)"""
@@ -76,7 +66,6 @@ class DocumentSectionMetadata:
 
     # pdf-specific metadata
     page: int | None = None
-    bounding_box: BoundingBox | None = None
 
 
 @dataclass
@@ -148,7 +137,6 @@ class DocumentChunk(TypedDict, total=False):
     heading: Heading | None
     sourceline: int | None
     page: int | None
-    bounding_box: BoundingBox | None
 
 
 _METADATA_COLUMN_TYPES = {
@@ -156,7 +144,6 @@ _METADATA_COLUMN_TYPES = {
     ChunkMetadata.HEADING: Heading | None,
     ChunkMetadata.SOURCELINE: ts.Int | None,
     ChunkMetadata.PAGE: ts.Int | None,
-    ChunkMetadata.BOUNDING_BOX: BoundingBox | None,
 }
 
 
@@ -188,16 +175,15 @@ class document_splitter(pxt.PxtIterator):
 
         - `text` (`pxt.String`): The text of the chunk. Present if `'text'` is specified in `elements`.
         - `image` (`pxt.Image`): The image extracted from the chunk. Present if `'image'` is specified in `elements`.
-        - `title` (`pxt.String | None`): The document title. Present if `'title'` is specified in `metadata`.
+        - `title` (`pxt.String | None`): The content of the `<title>` element of an HTML document; `''` for other
+            formats and for HTML documents without one. Present if `'title'` is specified in `metadata`.
         - `heading` (`Heading | None`): The heading hierarchy at the start of the chunk, with the text of each
-            currently open heading level under the keys `h1` through `h6` (HTML and Markdown only).
-            Present if `'heading'` is specified in `metadata`.
+            currently open heading level under the keys `h1` through `h6` (HTML, Markdown and Office documents
+            only). Present if `'heading'` is specified in `metadata`.
         - `sourceline` (`pxt.Int | None`): The source line number of the start of the chunk (HTML only).
             Present if `'sourceline'` is specified in `metadata`.
-        - `page` (`pxt.Int | None`): The page number of the chunk (PDF only). Present if `'page'` is specified in
-            `metadata`.
-        - `bounding_box` (`BoundingBox | None`): The bounding box of the chunk on the page, with float entries
-            `x1`, `y1`, `x2`, `y2` (PDF only). Present if `'bounding_box'` is specified in `metadata`.
+        - `page` (`pxt.Int | None`): The 0-based page number of the chunk. Set only for PDF documents, and only if
+            `separators` includes `'page'`; otherwise `None`. Present if `'page'` is specified in `metadata`.
 
     Args:
         separators: separators to use to chunk the document. Options are:
@@ -214,8 +200,8 @@ class document_splitter(pxt.PxtIterator):
         overlap: the number of tokens or characters shared by consecutive chunks. Can only be specified
              together with `limit`, and must be smaller than it. Defaults to 0.
         metadata: additional metadata fields to include in the output. Options are:
-             `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
-             (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
+             `'title'` (HTML), `'heading'` (HTML, Markdown and Office), `'sourceline'` (HTML), `'page'` (PDF). The
+             input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
         skip_tags: list of HTML tags to skip when processing HTML documents.
         spacy_model: Name of the spaCy model to use for sentence segmentation. This parameter is ignored unless
             the `'sentence'` separator is specified.
@@ -358,8 +344,6 @@ class document_splitter(pxt.PxtIterator):
                     result['sourceline'] = section.metadata.sourceline
                 elif md_field == ChunkMetadata.PAGE:
                     result['page'] = section.metadata.page
-                elif md_field == ChunkMetadata.BOUNDING_BOX:
-                    result['bounding_box'] = section.metadata.bounding_box
 
             return result
 

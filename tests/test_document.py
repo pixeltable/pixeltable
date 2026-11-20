@@ -138,8 +138,9 @@ class TestDocument:
         # test invalid metadata
         invalid_metadata = [
             'chapter',  # invalid
-            'page, bounding_box, chapter',  # mix of valid and invalid
-            'page bounding_box',  # separator
+            'bounding_box',  # removed
+            'page, title, chapter',  # mix of valid and invalid
+            'page title',  # separator
         ]
         for md in invalid_metadata:
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid metadata'):
@@ -201,7 +202,7 @@ class TestDocument:
 
         # run all combinations of (headings, paragraph, sentence) x (token_limit, char_limit, None)
         # and make sure they extract the same text in aggregate
-        all_metadata = ['title', 'heading', 'sourceline', 'page', 'bounding_box']
+        all_metadata = ['title', 'heading', 'sourceline', 'page']
         # combinations are given as (sep1, sep2, limit, metadata)
         sep1_values = ['', 'heading', 'page', 'sentence']
         if not pdf:
@@ -389,7 +390,7 @@ class TestDocument:
                 separators='sentence, char_limit',
                 limit=50,
                 overlap=0,
-                metadata='title,heading,sourceline,page,bounding_box',
+                metadata='title,heading,sourceline,page',
             ),
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
