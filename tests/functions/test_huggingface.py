@@ -472,6 +472,15 @@ class TestHuggingface:
         assert results[0]['sentiment'][0]['label_text'] == 'positive'
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
+        t.add_computed_column(
+            sentiment_all=text_classification(t.text, model_id='cardiffnlp/twitter-roberta-base-sentiment-latest')
+        )
+        for result in t.select(t.sentiment_all).collect():
+            items = result['sentiment_all']
+            assert {item['label_text'] for item in items} == {'negative', 'neutral', 'positive'}
+            scores = [item['score'] for item in items]
+            assert scores == sorted(scores, reverse=True)
+
     def test_image_captioning(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
