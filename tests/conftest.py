@@ -86,6 +86,41 @@ def pytest_configure(config: PytestConfig) -> None:
         global _EXP_OUT  # noqa: PLW0603
         _EXP_OUT = os.fdopen(os.dup(2), 'w', buffering=1)
         signal.signal(signal.SIGUSR2, _exp_psycopg_probe)
+        if sys.platform == 'darwin':
+            print(f'EXP-SENDLOG pid {os.getpid()} interposer loaded: {_exp_sendlog_loaded()}', file=_EXP_OUT)
+    if sys.platform == 'linux':
+        config.pluginmanager.register(_ExpRssPlugin(), 'exp-rss')
+
+
+def _exp_sendlog_loaded() -> bool:
+    libc = ctypes.CDLL(None)
+    libc._dyld_get_image_name.restype = ctypes.c_char_p
+    return any(b'sendlog' in (libc._dyld_get_image_name(i) or b'') for i in range(libc._dyld_image_count()))
+
+
+def _exp_rss_mb() -> int:
+    with open('/proc/self/statm', encoding='ascii') as f:
+        return int(f.read().split()[1]) * os.sysconf('SC_PAGE_SIZE') // (1024 * 1024)
+
+
+class _ExpRssPlugin:
+    def __init__(self) -> None:
+        self.out = os.fdopen(os.dup(2), 'w', buffering=1)
+        self.count = 0
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_runtest_protocol(
+        self, item: pytest.Item, nextitem: pytest.Item | None
+    ) -> Generator[None, object, object]:
+        before = _exp_rss_mb()
+        try:
+            return (yield)  # noqa: B901
+        finally:
+            after = _exp_rss_mb()
+            self.count += 1
+            worker = os.environ.get('PYTEST_XDIST_WORKER', 'main')
+            if after - before >= 100 or self.count % 100 == 0:
+                print(f'EXP-RSS {worker} {before}->{after}MB ({after - before:+d}) {item.nodeid}', file=self.out)
 
 
 _EXP_OUT: Any = None
@@ -111,10 +146,15 @@ def _exp_psycopg_probe(signum: int, frame: Any) -> None:
             conn = candidate
             break
         f = f.f_back
+    marker = os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), f'exp-probe-{os.getpid()}')
     if conn is None:
         print(f'{tag} no psycopg Connection in the interrupted stack', file=out)
+        with open(marker, 'w', encoding='ascii') as f:
+            f.write('no-psycopg\n')
         return
     pgconn = conn.pgconn
+    with open(marker, 'w', encoding='ascii') as f:
+        f.write(f'psycopg busy={pgconn.is_busy()} socket={pgconn.socket}\n')
 
     def state() -> str:
         return (

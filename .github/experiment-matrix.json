@@ -1,7 +1,6 @@
 {
   "include": [
     {
-      "display-name": "exp-hang-wait_c-1, macos-26, 3.11",
       "test-category": "py",
       "os": "macos-26",
       "python-version": "3.11",
@@ -9,10 +8,10 @@
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800"
+      "random-ops-seconds": "1800",
+      "display-name": "exp-hang-control-1, macos-26, 3.11"
     },
     {
-      "display-name": "exp-hang-wait_c-2, macos-26, 3.11",
       "test-category": "py",
       "os": "macos-26",
       "python-version": "3.11",
@@ -20,10 +19,10 @@
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800"
+      "random-ops-seconds": "1800",
+      "display-name": "exp-hang-control-2, macos-26, 3.11"
     },
     {
-      "display-name": "exp-hang-wait_c-3, macos-26, 3.11",
       "test-category": "py",
       "os": "macos-26",
       "python-version": "3.11",
@@ -31,40 +30,41 @@
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800"
+      "random-ops-seconds": "1800",
+      "display-name": "exp-hang-control-3, macos-26, 3.11"
     },
     {
-      "display-name": "exp-hang-wait_poll-1, macos-26, 3.11",
       "test-category": "py",
       "os": "macos-26",
       "python-version": "3.11",
       "uv-options": "",
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
-      "pre-test-cmd": "export PSYCOPG_WAIT_FUNC=wait_poll",
-      "random-ops-seconds": "1800"
+      "pre-test-cmd": "export PYTEST_ADDOPTS='--deselect tests/functions/test_vision.py::TestVision::test_eval -k \"not TestYolox and not TestAnthropic\"'",
+      "random-ops-seconds": "1800",
+      "display-name": "exp-hang-no-yolox-anthropic-1, macos-26, 3.11"
     },
     {
-      "display-name": "exp-hang-wait_poll-2, macos-26, 3.11",
       "test-category": "py",
       "os": "macos-26",
       "python-version": "3.11",
       "uv-options": "",
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
-      "pre-test-cmd": "export PSYCOPG_WAIT_FUNC=wait_poll",
-      "random-ops-seconds": "1800"
+      "pre-test-cmd": "export PYTEST_ADDOPTS='--deselect tests/functions/test_vision.py::TestVision::test_eval -k \"not TestYolox and not TestAnthropic\"'",
+      "random-ops-seconds": "1800",
+      "display-name": "exp-hang-no-yolox-anthropic-2, macos-26, 3.11"
     },
     {
-      "display-name": "exp-hang-wait_poll-3, macos-26, 3.11",
       "test-category": "py",
       "os": "macos-26",
       "python-version": "3.11",
       "uv-options": "",
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
-      "pre-test-cmd": "export PSYCOPG_WAIT_FUNC=wait_poll",
-      "random-ops-seconds": "1800"
+      "pre-test-cmd": "export PYTEST_ADDOPTS='--deselect tests/functions/test_vision.py::TestVision::test_eval -k \"not TestYolox and not TestAnthropic\"'",
+      "random-ops-seconds": "1800",
+      "display-name": "exp-hang-no-yolox-anthropic-3, macos-26, 3.11"
     }
   ]
 }
