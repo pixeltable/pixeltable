@@ -527,7 +527,8 @@ def _save_speech_audio(data: bytes | str, mime_type: str | None, model: str) -> 
     rate = 24000
     for param in params:
         key, _, value = param.partition('=')
-        if key.strip() == 'rate' and value.strip().isdigit():
+        value = value.strip().strip('"')
+        if key.strip() == 'rate' and value.isdigit():
             rate = int(value)
     with wave.open(output_path, 'wb') as wf:
         wf.setnchannels(1)
