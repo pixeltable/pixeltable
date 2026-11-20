@@ -1,6 +1,8 @@
+import io
 import logging
 import random
 import time
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -92,6 +94,53 @@ class TestGeminiLocal:
         with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='unexpected response structure'):
             get_runtime().run_coro(single_voice('Say something.', model='gemini-test', voice='Kore'))
 
+    @pytest.mark.parametrize('voices', [None, {'Alice': 'Kore', 'Bob': 'Puck'}])
+    @pytest.mark.parametrize(
+        ('mime_type', 'is_wav', 'rate'),
+        [
+            ('audio/wav', True, 24000),
+            ('audio/x-wav', True, 24000),
+            (None, True, 24000),
+            ('audio/L16;codec=pcm;rate=24000', False, 24000),
+            ('audio/L16;codec=pcm;rate=16000', False, 16000),
+        ],
+    )
+    def test_speech_wav_payload(
+        self,
+        voices: dict[str, str] | None,
+        mime_type: str | None,
+        is_wav: bool,
+        rate: int,
+        init_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A reply that already is a WAV file is stored as is; raw PCM is wrapped in a single WAV header."""
+        skip_test_if_not_installed('google.genai')
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        pcm = bytes(range(256)) * 8
+        buf = io.BytesIO()
+        with wave.open(buf, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(rate)
+            wf.writeframes(pcm)
+        wav = buf.getvalue()
+        part = types.Part(inline_data=types.Blob(data=wav if is_wav else pcm, mime_type=mime_type))
+        response = types.GenerateContentResponse(
+            candidates=[types.Candidate(content=types.Content(role='model', parts=[part]))]
+        )
+        self._set_response(response, monkeypatch)
+        if voices is None:
+            speech = gemini.generate_speech.py_fns[0]('Say something.', model='gemini-test', voice='Kore')
+        else:
+            speech = gemini.generate_speech.py_fns[1]('Alice: Hi. Bob: Hello.', model='gemini-test', voices=voices)
+        output = Path(get_runtime().run_coro(speech)).read_bytes()
+        assert output == wav
+        assert output.count(b'RIFF') == 1
+
     @pytest.mark.parametrize('api_version', ['v1', 'v1beta'])
     @pytest.mark.parametrize(
         ('code', 'status', 'message', 'token'),
@@ -141,8 +190,6 @@ class TestGeminiLocal:
         """Makes the gemini client return a response of the given shape, and returns that response."""
         from google.genai import types
 
-        from pixeltable.functions import gemini
-
         candidates = {
             'blocked': None,
             'no_content': [types.Candidate(finish_reason=types.FinishReason.SAFETY)],
@@ -161,11 +208,17 @@ class TestGeminiLocal:
             else None
         )
         response = types.GenerateContentResponse(candidates=candidates, prompt_feedback=prompt_feedback)
+        self._set_response(response, monkeypatch)
+        return response
+
+    def _set_response(self, response: 'types.GenerateContentResponse', monkeypatch: pytest.MonkeyPatch) -> None:
+        """Makes the gemini client return the given response."""
+        from pixeltable.functions import gemini
+
         client = SimpleNamespace(
             aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response)))
         )
         monkeypatch.setattr(gemini, '_genai_client', lambda: client)
-        return response
 
 
 @pytest.mark.expensive

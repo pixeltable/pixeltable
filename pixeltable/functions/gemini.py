@@ -502,6 +502,31 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
+_WAV_MIME_TYPES = frozenset(('audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave'))
+
+
+def _save_speech_audio(data: bytes | str, mime_type: str | None) -> str:
+    """Saves Gemini TTS audio as a WAV file: a WAV payload is stored as is, raw PCM is wrapped in a WAV header."""
+    if isinstance(data, str):
+        data = base64.b64decode(data)
+    media_type, *params = (mime_type or '').lower().split(';')
+    output_path = str(TempStore.create_path(extension='.wav'))
+    if media_type.strip() in _WAV_MIME_TYPES or (data[:4] == b'RIFF' and data[8:12] == b'WAVE'):
+        Path(output_path).write_bytes(data)
+        return output_path
+    rate = 24000
+    for param in params:
+        key, _, value = param.partition('=')
+        if key.strip() == 'rate' and value.strip().isdigit():
+            rate = int(value)
+    with wave.open(output_path, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(data)
+    return output_path
+
+
 @pxt.udf(is_deterministic=False)
 async def generate_speech(text: str, *, model: str, voice: str, config: dict | None = None) -> pxt.Audio:
     """
@@ -530,7 +555,7 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
             are set automatically and should not be included.
 
     Returns:
-        An audio file (WAV, 24 kHz mono 16-bit) containing the synthesized speech.
+        A WAV audio file containing the synthesized speech.
 
     Examples:
         Add a computed column that generates speech from text:
@@ -557,23 +582,14 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
     )
     try:
-        data = response.candidates[0].content.parts[0].inline_data.data
+        blob = response.candidates[0].content.parts[0].inline_data
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Gemini TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
-    if isinstance(data, str):
-        data = base64.b64decode(data)
-
-    output_path = str(TempStore.create_path(extension='.wav'))
-    with wave.open(output_path, 'wb') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(24000)
-        wf.writeframes(data)
-    return output_path
+    return _save_speech_audio(blob.data, blob.mime_type)
 
 
 @generate_speech.overload
@@ -593,7 +609,7 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
             are set automatically and should not be included.
 
     Returns:
-        An audio file (WAV, 24 kHz mono 16-bit) containing the synthesized multi-speaker speech.
+        A WAV audio file containing the synthesized multi-speaker speech.
 
     Examples:
         >>> tbl.add_computed_column(
@@ -630,23 +646,14 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
         _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
     )
     try:
-        data = response.candidates[0].content.parts[0].inline_data.data
+        blob = response.candidates[0].content.parts[0].inline_data
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
-    if isinstance(data, str):
-        data = base64.b64decode(data)
-
-    output_path = str(TempStore.create_path(extension='.wav'))
-    with wave.open(output_path, 'wb') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(24000)
-        wf.writeframes(data)
-    return output_path
+    return _save_speech_audio(blob.data, blob.mime_type)
 
 
 @generate_speech.resource_pool
