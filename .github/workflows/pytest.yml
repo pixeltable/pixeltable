@@ -246,7 +246,7 @@ jobs:
         if: ${{ matrix.test-category == 'py' }}
         run: |
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge nodejs
-          cd dashboard && npm install --silent && npm run build
+          cd dashboard && ../scripts/retry.sh 3 30 npm install --loglevel=warn && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         # A timeout so that a hung test doesn't keep merge queue for hours. The stack-dump watchdog in `run` sleeps
