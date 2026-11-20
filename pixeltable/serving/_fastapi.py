@@ -435,7 +435,7 @@ def _flush_image(val: Any) -> Any:
         return val
     fmt = image_utils.default_format(val)
     dest = TempStore.create_path(extension=f'.{fmt}')
-    val.save(dest, format=fmt)
+    image_utils.save(val, dest, fmt)
     return dest.as_uri()
 
 

@@ -198,7 +198,7 @@ def get_duration(video: pxt.Video) -> float | None:
     return av_utils.get_video_duration(video)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     """
     Extract a single frame from a video at a specific timestamp.
