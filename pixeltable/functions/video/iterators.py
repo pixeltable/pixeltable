@@ -1,4 +1,5 @@
 import glob
+import itertools
 import logging
 import math
 import subprocess
@@ -415,10 +416,10 @@ def video_splitter(
         duration: Video segment duration in seconds
         overlap: Overlap between consecutive segments in seconds. Only available for `mode='fast'`.
         min_segment_duration: Drop the last segment if it is smaller than min_segment_duration.
-        segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
-            segment durations. If all segment times are less than the duration of the video, produces exactly
-            `len(segment_times) + 1` segments. An argument of `[]` will produce a single segment containing the
-            entire video.
+        segment_times: List of timestamps (in seconds) in video where segments should be split, non-negative and in
+            strictly increasing order. Note that these are not segment durations. If all segment times are less than
+            the duration of the video, produces exactly `len(segment_times) + 1` segments. An argument of `[]` will
+            produce a single segment containing the entire video.
         mode: Segmentation mode:
 
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
@@ -634,6 +635,27 @@ def _(bound_args: dict[str, Any]) -> None:
         )
     if segment_times is not None and overlap is not None:
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'overlap cannot be specified with segment_times')
+    if mode not in ('fast', 'accurate'):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f"video_splitter(): mode must be 'fast' or 'accurate': {mode!r}"
+        )
+    if segment_times is not None:
+        if not isinstance(segment_times, list) or not all(isinstance(t, (int, float)) for t in segment_times):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'video_splitter(): segment_times must be a list of numbers: {segment_times!r}',
+            )
+        if len(segment_times) > 0 and segment_times[0] < 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'video_splitter(): segment_times must be non-negative: {segment_times[0]}',
+            )
+        for prev, cur in itertools.pairwise(segment_times):
+            if cur <= prev:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'video_splitter(): segment_times must be strictly increasing: {cur} follows {prev}',
+                )
     if duration is not None and isinstance(duration, (int, float)):
         if duration <= 0.0:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'duration must be a positive number: {duration}')
