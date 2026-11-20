@@ -261,7 +261,7 @@ class document_splitter(pxt.PxtIterator):
         spacy_model: str = 'en_core_web_sm',
         tiktoken_encoding: str | None = 'cl100k_base',
         tiktoken_target_model: str | None = None,
-        image_dpi: int = 72,
+        image_dpi: int = _PDF_POINTS_PER_INCH,
     ) -> None:
         if skip_tags is None:
             skip_tags = ['nav']

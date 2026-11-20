@@ -116,6 +116,11 @@ class TestDocument:
                 'chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit, token_limit', limit=10)
             )
 
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'image_dpi' must be a positive integer"):
+            _ = pxt.create_view(
+                'chunks', t, iterator=document_splitter(t.doc, separators='page', elements=['image'], image_dpi=-1)
+            )
+
         # test that limit is required for char_limit and token_limit
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='limit'):
             _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit'))
