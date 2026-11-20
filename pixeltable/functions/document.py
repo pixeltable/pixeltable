@@ -193,7 +193,8 @@ class document_splitter(pxt.PxtIterator):
              if the base table already contains one.
         elements: list of elements to extract from the document. Options are:
             `'text'`, `'image'`. Defaults to `['text']` if not specified. The `'image'` element is only supported
-            for PDF documents, and requires `separators='page'` with no other separators.
+            for PDF documents, and requires `separators='page'` with no other separators. A page without extractable
+            text, such as a scanned page, produces no chunk, so its image is not returned either.
         limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
              or `'char_limit'` is specified.
         overlap: the number of tokens or characters shared by consecutive chunks. Can only be specified
