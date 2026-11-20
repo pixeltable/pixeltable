@@ -17,6 +17,7 @@ import pandas as pd
 
 from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog import fold_identifier, is_valid_identifier
+from pixeltable.catalog.model import TableModelMeta
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.type_system import ColumnType
@@ -497,6 +498,7 @@ class QueryBase(ABC):
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
+            sample_clause=copy.deepcopy(self.sample_clause),
         )
 
     def where(self, pred: exprs.Expr) -> Self:
@@ -634,15 +636,15 @@ class QueryBase(ABC):
 
     def join(
         self,
-        other: catalog.Table,
+        other: catalog.Table | TableModelMeta,
         on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: JoinType.LiteralType = 'inner',
     ) -> Self:
         """
-        Join this Query with a table.
+        Join this Query with a table, or with a model that is bound to one.
 
         Args:
-            other: the table to join with
+            other: the table to join with, or a model that is bound to one
             on: the join condition, which can be either a) references to one or more columns or b) a boolean
                 expression.
 
@@ -685,6 +687,8 @@ class QueryBase(ABC):
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         assert len(self._from_clause.tbls) > 0
+        if isinstance(other, TableModelMeta):
+            other = other.table
         # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
         if self._from_clause.tbls[0].is_data_versioned() != other._is_data_versioned():
             raise excs.RequestError(
@@ -847,6 +851,12 @@ class QueryBase(ABC):
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> Self:
         """Add an order-by clause to this Query.
+
+        A current limitation is that each expression must have a SQL translation, which means that ordering by calls
+        to user-defined `@pxt.udf` functions or JSON paths (or by unstored computed columns that include those) is
+        currently not supported.
+        As a workaround, consider adding the ordering expression as a stored computed column of a scalar type and
+        ordering by that column instead.
 
         Args:
             expr_list: expressions to order by

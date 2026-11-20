@@ -341,10 +341,17 @@ class _ModelNamespace(dict):
         spec: ColumnSpec
         if isinstance(value, Column):
             spec = value.to_column_spec()
-            if ('type' in spec) == ('value' in spec):
+            if 'type' in spec and 'value' in spec:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column specification for {name!r} must define `type` or `value`, but not both',
+                    f'Column specification for {name!r} cannot define both `type` and `value`: a computed column '
+                    'takes its type from `value`; to change it, cast the value with `.astype()`',
+                )
+            if 'type' not in spec and 'value' not in spec:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column specification for {name!r} defines neither `type` nor `value`; pass `type=` to '
+                    'Column() for a stored column (a type annotation does not set it) or `value=` for a computed one',
                 )
         else:
             # Computed column expression.

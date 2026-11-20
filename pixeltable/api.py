@@ -646,10 +646,6 @@ def move(
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "`if_exists` must be one of 'error' or 'ignore'")
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
-    if path_obj == new_path_obj:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
-        )
     telemetry.add_attrs(
         telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj), new_path=str(new_path_obj))
     )
@@ -657,10 +653,6 @@ def move(
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'move(): source and destination must be in the same catalog ({path!r} -> {new_path!r})',
-        )
-    if path_obj.is_ancestor(new_path_obj):
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'
         )
     get_runtime().get_catalog(path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
@@ -1218,6 +1210,8 @@ def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     entire contents of the UDF docstring. If a UDF is wrapped in a `pxt.tool()` invocation, then the name and/or
     description may be customized.
 
+    A tool's parameters must be of type `String`, `Int`, `Float`, `Bool`, `UUID` or `Json`.
+
     Args:
         args: The UDFs to use as tools.
 
@@ -1261,9 +1255,6 @@ def tool(fn: func.Function, name: str | None = None, description: str | None = N
     Returns:
         A `Tool` instance that can be passed to an LLM tool-calling API.
     """
-    if isinstance(fn, func.AggregateFunction):
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
-
     return func.tools.Tool(fn=fn, name=name, description=description)
 
 

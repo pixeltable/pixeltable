@@ -444,6 +444,12 @@ class TableProxy(Table):
         bound_args['columns'] = list(columns)
         return self._dispatch('recompute_columns', bound_args)
 
+    def _check_recompute(self, *columns: str | ColumnRef, errors_only: bool = False) -> list[str]:
+        bound_args = self._dispatch_args(locals())
+        self._check_mutable('recompute columns of')
+        bound_args['columns'] = list(columns)
+        return self._dispatch('_check_recompute', bound_args)
+
     def revert(self) -> None:
         self._check_mutable('revert')
         self._dispatch('revert', {})

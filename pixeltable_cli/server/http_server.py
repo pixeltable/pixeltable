@@ -93,7 +93,10 @@ class _DaemonHandler(BaseHTTPRequestHandler):
     def _dispatch(self, method: Method) -> None:
         refusal = self._refusal(method)
         if refusal is not None:
-            self._send_json({'detail': refusal[1]}, refusal[0])
+            # closing the connection with the body unread resets it, and on Windows a reset can discard the refusal
+            # before the client reads it (WinError 10053)
+            if self._read_body() is not None:
+                self._send_json({'detail': refusal[1]}, refusal[0])
             return
 
         # Users edit the config file directly, so pick up an edit here rather than at the next daemon

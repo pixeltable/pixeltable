@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from keyword import iskeyword as is_python_keyword
 from typing import Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.catalog.globals import fold_identifier, is_system_column_name
+from pixeltable.catalog.globals import fold_identifier, is_reserved_column_name
 
 
 def normalize_pxt_col_name(name: str) -> str:
@@ -37,7 +36,7 @@ def normalize_primary_key_parameter(primary_key: str | list[str] | None = None) 
 
 
 def _is_usable_as_column_name(name: str, destination_schema: dict[str, Any]) -> bool:
-    return not (is_system_column_name(name) or is_python_keyword(name) or name in destination_schema)
+    return not (is_reserved_column_name(name) or name in destination_schema)
 
 
 def normalize_schema_names(

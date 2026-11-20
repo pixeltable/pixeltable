@@ -157,6 +157,24 @@ class TestSample:
         print(r)
         cls._check_sample_count(expected, len(r))
 
+    def test_select_after_sample(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
+
+        sampled = t.sample(n=5, seed=0, stratify_by=t.c4).collect()
+        projected = t.sample(n=5, seed=0, stratify_by=t.c4).select(t.c1).collect()
+        assert list(projected.schema) == ['c1']
+        assert len(sampled) == 5
+        assert sorted(projected['c1']) == sorted(sampled['c1'])
+
+        if not is_data_versioned:
+            return
+        # a snapshot of the projection must leave the parent query's stratify exprs untouched
+        parent = t.sample(n=5, seed=0, stratify_by=t.c2 % 2)
+        expected = sorted(parent.select(t.c2).collect()['c2'])
+        pxt.create_snapshot(p('snap'), parent.select(t.c1))
+        assert sorted(parent.select(t.c2).collect()['c2']) == expected
+
     def test_sample_basic_n(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = self.create_sample_data(p, 4, 6, False, is_data_versioned)

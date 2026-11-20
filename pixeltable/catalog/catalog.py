@@ -609,7 +609,7 @@ class Catalog(CatalogBase):
 
             except LockNotAvailableError as e:
                 has_exc = True
-                # NOWAIT can fail when a schema change holds a conflicting lock or is queued ahead of us.
+                # A short lock wait times out when a schema change holds a conflicting lock or is queued ahead of us.
                 attempt_exc = e
                 raise excs.ConcurrencyError(
                     excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS,
@@ -1136,7 +1136,7 @@ class Catalog(CatalogBase):
                 raise
 
             except excs.ConcurrencyError as e:
-                # Finalization itself waits for locks, but its work may call a NOWAIT operation on another table.
+                # Finalization itself waits for locks, but its work may call a fail-fast operation on another table.
                 # Propagate the error without treating it as a failure that requires rolling back the schema change.
                 _logger.debug(f'Finalize pending ops({tbl_id}): op reported a concurrency error: {e}')
                 raise
@@ -1494,6 +1494,14 @@ class Catalog(CatalogBase):
         move_fn()
 
     def _move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
+        if path == new_path:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
+            )
+        if path.is_ancestor(new_path):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'
+            )
         dest_obj, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,
