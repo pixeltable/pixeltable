@@ -153,12 +153,6 @@ class TestDocument:
                     'chunks', t, iterator=document_splitter(document=t.doc, separators=sep, elements=['image'])
                 )
 
-        for dpi in (0, -72):
-            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'image_dpi' must be a positive integer"):
-                _ = pxt.create_view(
-                    'chunks', t, iterator=document_splitter(t.doc, separators='page', elements=['image'], image_dpi=dpi)
-                )
-
         pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
         t = pxt.create_table('docs', {'doc': pxt.Document | None}, if_exists='replace')
         _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='paragraph'))

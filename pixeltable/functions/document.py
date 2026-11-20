@@ -137,6 +137,7 @@ def _parse_elements(elements: list[Literal['text', 'image']] | None) -> list[Ele
 
 
 _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+_PDF_POINTS_PER_INCH = 72
 
 
 class DocumentChunk(TypedDict, total=False):
@@ -205,8 +206,8 @@ class document_splitter(pxt.PxtIterator):
         tiktoken_target_model: Name of the target model to use when counting tokens with tiktoken. If specified,
             this parameter overrides `tiktoken_encoding`. This parameter is ignored unless the `'token_limit'`
             separator is specified.
-        image_dpi: Resolution, in dots per inch, at which PDF pages are rendered when `elements` includes
-            `'image'`. Must be a positive integer. Defaults to 72, which renders one pixel per PDF point.
+        image_dpi: Resolution at which PDF pages are rendered when `elements` includes `'image'`. Must be a
+            positive integer. Defaults to 72, which renders one pixel per PDF point.
         image_format: Currently ignored. Page images are returned as in-memory images and stored in the
             format Pixeltable chooses for image columns.
 
@@ -493,7 +494,7 @@ class document_splitter(pxt.PxtIterator):
             with closing(page):
                 img: PIL.Image.Image | None = None
                 if Element.IMAGE in self._elements:
-                    with closing(page.render(scale=self._image_dpi / 72)) as bitmap:
+                    with closing(page.render(scale=self._image_dpi / _PDF_POINTS_PER_INCH)) as bitmap:
                         img = bitmap.to_pil().copy()
                 with closing(page.get_textpage()) as textpage:
                     text = textpage.get_text_bounded()
