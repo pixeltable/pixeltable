@@ -473,7 +473,9 @@ class TestHuggingface:
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
         t.add_computed_column(
-            sentiment_all=text_classification(t.text, model_id='cardiffnlp/twitter-roberta-base-sentiment-latest')
+            sentiment_all=text_classification(
+                t.text, model_id='cardiffnlp/twitter-roberta-base-sentiment-latest', top_k=5
+            )
         )
         for result in t.select(t.sentiment_all).collect():
             items = result['sentiment_all']
