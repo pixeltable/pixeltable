@@ -183,11 +183,13 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 @pxt.udf(is_method=True)
 def sin(self: float) -> float:
     """
-    Return the sine of the given angle, in radians.
+    Return the sine of `self`, an angle in radians.
 
-    Equivalent to Python [`math.sin()`](https://docs.python.org/3/library/math.html#math.sin).
+    Equivalent to Python [`math.sin()`](https://docs.python.org/3/library/math.html#math.sin). Raises an error for
+    infinity.
 
-    Raises an error for infinity.
+    For an angle in degrees, apply [`radians()`][pixeltable.functions.math.radians] first, as in
+    `t.x.radians().sin()`.
     """
     return math.sin(self)
 
@@ -201,11 +203,13 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 @pxt.udf(is_method=True)
 def cos(self: float) -> float:
     """
-    Return the cosine of the given angle, in radians.
+    Return the cosine of `self`, an angle in radians.
 
-    Equivalent to Python [`math.cos()`](https://docs.python.org/3/library/math.html#math.cos).
+    Equivalent to Python [`math.cos()`](https://docs.python.org/3/library/math.html#math.cos). Raises an error for
+    infinity.
 
-    Raises an error for infinity.
+    For an angle in degrees, apply [`radians()`][pixeltable.functions.math.radians] first, as in
+    `t.x.radians().cos()`.
     """
     return math.cos(self)
 
@@ -219,11 +223,13 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 @pxt.udf(is_method=True)
 def tan(self: float) -> float:
     """
-    Return the tangent of the given angle, in radians.
+    Return the tangent of `self`, an angle in radians.
 
-    Equivalent to Python [`math.tan()`](https://docs.python.org/3/library/math.html#math.tan).
+    Equivalent to Python [`math.tan()`](https://docs.python.org/3/library/math.html#math.tan). Raises an error for
+    infinity.
 
-    Raises an error for infinity.
+    For an angle in degrees, apply [`radians()`][pixeltable.functions.math.radians] first, as in
+    `t.x.radians().tan()`.
     """
     return math.tan(self)
 
@@ -237,7 +243,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 @pxt.udf(is_method=True)
 def asin(self: float) -> float:
     """
-    Return the arc sine of the given number, in radians.
+    Return the arc sine of the given number, in radians. The result is in the range `[-pi/2, pi/2]`.
 
     Equivalent to Python [`math.asin()`](https://docs.python.org/3/library/math.html#math.asin).
 
@@ -255,7 +261,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 @pxt.udf(is_method=True)
 def acos(self: float) -> float:
     """
-    Return the arc cosine of the given number, in radians.
+    Return the arc cosine of the given number, in radians. The result is in the range `[0, pi]`.
 
     Equivalent to Python [`math.acos()`](https://docs.python.org/3/library/math.html#math.acos).
 
@@ -273,7 +279,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 @pxt.udf(is_method=True)
 def atan(self: float) -> float:
     """
-    Return the arc tangent of the given number, in radians.
+    Return the arc tangent of the given number, in radians. The result is in the range `(-pi/2, pi/2)`.
 
     Equivalent to Python [`math.atan()`](https://docs.python.org/3/library/math.html#math.atan).
     """
@@ -291,6 +297,8 @@ def degrees(self: float) -> float:
     """
     Convert an angle from radians to degrees.
 
+    The inverse of [`radians()`][pixeltable.functions.math.radians].
+
     Equivalent to Python [`math.degrees()`](https://docs.python.org/3/library/math.html#math.degrees).
     """
     return math.degrees(self)
@@ -306,6 +314,8 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 def radians(self: float) -> float:
     """
     Convert an angle from degrees to radians.
+
+    The inverse of [`degrees()`][pixeltable.functions.math.degrees].
 
     Equivalent to Python [`math.radians()`](https://docs.python.org/3/library/math.html#math.radians).
     """
@@ -323,7 +333,8 @@ def sign(self: float) -> float:
     """
     Return the sign of the given number: `-1.0` if it is negative, `1.0` if it is positive, and `0.0` if it is zero.
 
-    NaN is returned unchanged.
+    Equivalent to [`numpy.sign()`](https://numpy.org/doc/stable/reference/generated/numpy.sign.html). NaN is returned
+    unchanged.
     """
     if math.isnan(self):
         return self
@@ -333,10 +344,8 @@ def sign(self: float) -> float:
 @sign.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
     # Postgres' sign() returns 0 for NaN; in Postgres, unlike in IEEE 754, NaN compares equal to NaN
-    return sql.case(
-        (self == sql.literal_column("'NaN'::double precision"), sql.cast(self, sql.Float)),
-        else_=sql.func.sign(self, type_=sql.Float),
-    )
+    nan = sql.literal_column("'NaN'::double precision", sql.Float)
+    return sql.case((self == nan, nan), else_=sql.func.sign(self, type_=sql.Float))
 
 
 @pxt.udf(is_method=True)
