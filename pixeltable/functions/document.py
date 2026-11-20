@@ -157,7 +157,7 @@ class document_splitter(pxt.PxtIterator):
     | Separator | HTML, Markdown, Office | PDF | TXT |
     |---|---|---|---|
     | `'heading'` | Splits at headings | No effect | No effect |
-    | `'paragraph'` | Splits at headings and paragraphs | Not supported: raises an error | No effect |
+    | `'paragraph'` | Splits at headings and paragraphs | Not supported: the whole `insert()` fails | No effect |
     | `'page'` | No effect | Splits at pages | No effect |
     | `'sentence'` | Splits at headings, paragraphs and sentences | Splits into sentences | Splits into sentences |
     | `'token_limit'`, `'char_limit'` | Splits long chunks | Splits long chunks | Splits long chunks |
@@ -459,8 +459,8 @@ class document_splitter(pxt.PxtIterator):
         if Separator.PARAGRAPH in self._separators:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Paragraph splitting is not currently supported for PDF documents. Please contact'
-                ' us at https://github.com/pixeltable/pixeltable/issues if you need this feature.',
+                "Separator 'paragraph' is not supported for PDF documents; "
+                "use 'page', 'sentence', 'token_limit' or 'char_limit'",
             )
 
         doc: PdfDocument = self._doc_handle.pdf_doc
@@ -582,7 +582,7 @@ class document_splitter(pxt.PxtIterator):
         if Element.IMAGE in elements and separators != [Separator.PAGE]:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                "Image elements are only supported for the 'page' separator on PDF documents",
+                "elements=['image'] requires separators='page' with no other separators",
             )
         if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
             if Separator.TOKEN_LIMIT in separators and Separator.CHAR_LIMIT in separators:

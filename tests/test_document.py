@@ -150,17 +150,23 @@ class TestDocument:
         invalid_separators = ['page, sentence', 'paragraph, sentence', 'char_limit, sentence', 'token_limit, sentence']
         for sep in invalid_separators:
             with pxt_raises(
-                pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Image elements are only supported for the 'page' separator"
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=re.escape("elements=['image'] requires separators='page' with no other separators"),
             ):
                 _ = pxt.create_view(
                     'chunks', t, iterator=document_splitter(document=t.doc, separators=sep, elements=['image'])
                 )
 
         pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
+        html_file = next(f for f in self.valid_doc_paths() if f.endswith('.html'))
         t = pxt.create_table('docs', {'doc': pxt.Document | None}, if_exists='replace')
-        _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='paragraph'))
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'not currently supported.+contact us'):
-            t.insert(doc=pdf_file)
+        _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='page,paragraph'))
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Separator 'paragraph' is not supported for PDF documents; use 'page', 'sentence', 'token_limit'",
+        ):
+            t.insert([{'doc': html_file}, {'doc': pdf_file}], on_error='ignore')
+        assert t.count() == 0
 
         # RequestError message will depend on which dependencies are installed.
         with pxt_raises(
