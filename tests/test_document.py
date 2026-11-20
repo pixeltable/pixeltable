@@ -139,6 +139,7 @@ class TestDocument:
         invalid_metadata = [
             'chapter',  # invalid
             'bounding_box',  # removed
+            'sourceline',  # removed
             'page, title, chapter',  # mix of valid and invalid
             'page title',  # separator
         ]
@@ -202,7 +203,7 @@ class TestDocument:
 
         # run all combinations of (headings, paragraph, sentence) x (token_limit, char_limit, None)
         # and make sure they extract the same text in aggregate
-        all_metadata = ['title', 'heading', 'sourceline', 'page']
+        all_metadata = ['title', 'heading', 'page']
         # combinations are given as (sep1, sep2, limit, metadata)
         sep1_values = ['', 'heading', 'page', 'sentence']
         if not pdf:
@@ -299,7 +300,7 @@ class TestDocument:
         assert status.num_excs == 0
 
         # verify that only the requested metadata is present in the view
-        md_elements = ['title', 'heading', 'sourceline']
+        md_elements = ['title', 'heading', 'page']
         md_tuples = list(
             itertools.chain.from_iterable(itertools.combinations(md_elements, i) for i in range(len(md_elements) + 1))
         )
@@ -390,7 +391,7 @@ class TestDocument:
                 separators='sentence, char_limit',
                 limit=50,
                 overlap=0,
-                metadata='title,heading,sourceline,page',
+                metadata='title,heading,page',
             ),
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
@@ -401,7 +402,6 @@ class TestDocument:
             assert len(r['text']) <= 50
             assert r['title'] == ''
             assert r['heading'] is None
-            assert r['sourceline'] is None
             assert r['page'] is None
             assert r['doc'].endswith('pxtbrief.txt')
 

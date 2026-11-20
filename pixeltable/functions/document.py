@@ -30,7 +30,6 @@ class Element(Enum):
 class ChunkMetadata(Enum):
     TITLE = 1
     HEADING = 2
-    SOURCELINE = 3
     PAGE = 4
 
 
@@ -59,7 +58,6 @@ class DocumentSectionMetadata:
     """Metadata for a subsection of a document (ie, a structural element like a heading or paragraph)"""
 
     # html and markdown metadata
-    sourceline: int | None = None
     # the stack of headings up to the most recently observed one;
     # eg, if the most recent one was an h2, 'headings' would contain keys 1 and 2, but nothing below that
     heading: Heading | None = None
@@ -135,14 +133,12 @@ class DocumentChunk(TypedDict, total=False):
     image: PIL.Image.Image
     title: str | None
     heading: Heading | None
-    sourceline: int | None
     page: int | None
 
 
 _METADATA_COLUMN_TYPES = {
     ChunkMetadata.TITLE: ts.String | None,
     ChunkMetadata.HEADING: Heading | None,
-    ChunkMetadata.SOURCELINE: ts.Int | None,
     ChunkMetadata.PAGE: ts.Int | None,
 }
 
@@ -180,8 +176,6 @@ class document_splitter(pxt.PxtIterator):
         - `heading` (`Heading | None`): The heading hierarchy at the start of the chunk, with the text of each
             currently open heading level under the keys `h1` through `h6` (HTML, Markdown and Office documents
             only). Present if `'heading'` is specified in `metadata`.
-        - `sourceline` (`pxt.Int | None`): The source line number of the start of the chunk (HTML only).
-            Present if `'sourceline'` is specified in `metadata`.
         - `page` (`pxt.Int | None`): The 0-based page number of the chunk. Set only for PDF documents, and only if
             `separators` includes `'page'`; otherwise `None`. Present if `'page'` is specified in `metadata`.
 
@@ -200,8 +194,8 @@ class document_splitter(pxt.PxtIterator):
         overlap: the number of tokens or characters shared by consecutive chunks. Can only be specified
              together with `limit`, and must be smaller than it. Defaults to 0.
         metadata: additional metadata fields to include in the output. Options are:
-             `'title'` (HTML), `'heading'` (HTML, Markdown and Office), `'sourceline'` (HTML), `'page'` (PDF). The
-             input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
+             `'title'` (HTML), `'heading'` (HTML, Markdown and Office), `'page'` (PDF). The input may be a
+             comma-separated string, e.g., `'title,heading'`.
         skip_tags: list of HTML tags to skip when processing HTML documents.
         spacy_model: Name of the spaCy model to use for sentence segmentation. This parameter is ignored unless
             the `'sentence'` separator is specified.
@@ -340,8 +334,6 @@ class document_splitter(pxt.PxtIterator):
                     result['title'] = self._doc_title
                 elif md_field == ChunkMetadata.HEADING:
                     result['heading'] = section.metadata.heading
-                elif md_field == ChunkMetadata.SOURCELINE:
-                    result['sourceline'] = section.metadata.sourceline
                 elif md_field == ChunkMetadata.PAGE:
                     result['page'] = section.metadata.page
 
@@ -358,12 +350,10 @@ class document_splitter(pxt.PxtIterator):
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
 
         headings: dict[str, str] = {}  # current state of observed headings (level -> text)
-        sourceline = 0  # most recently seen sourceline
 
         def update_metadata(el: bs4.Tag) -> None:
             # update current state
-            nonlocal headings, sourceline
-            sourceline = el.sourceline
+            nonlocal headings
             if el.name in _HTML_HEADINGS:
                 # remove the previously seen lower levels
                 lower_levels = [lv for lv in headings if lv > el.name]
@@ -372,9 +362,9 @@ class document_splitter(pxt.PxtIterator):
                 headings[el.name] = el.get_text().strip()
 
         def emit() -> Iterator[DocumentSection]:
-            nonlocal accumulated_text, headings, sourceline
+            nonlocal accumulated_text, headings
             if len(accumulated_text) > 0:
-                md = DocumentSectionMetadata(sourceline=sourceline, heading=cast(Heading, headings.copy()))
+                md = DocumentSectionMetadata(heading=cast(Heading, headings.copy()))
                 full_text = ' '.join(accumulated_text)
                 full_text = ftfy.fix_text(full_text)
                 yield DocumentSection(text=full_text, metadata=md)
@@ -382,7 +372,7 @@ class document_splitter(pxt.PxtIterator):
 
         def process_element(el: Tag | NavigableString) -> Iterator[DocumentSection]:
             # process the element and emit sections as necessary
-            nonlocal accumulated_text, headings, sourceline, emit_on_heading, emit_on_paragraph
+            nonlocal accumulated_text, headings, emit_on_heading, emit_on_paragraph
 
             if el.name in self._skip_tags:
                 return
@@ -401,7 +391,6 @@ class document_splitter(pxt.PxtIterator):
             elif el.name == 'p':
                 if emit_on_paragraph:
                     yield from emit()
-                update_metadata(el)
             for child in el.children:
                 assert isinstance(child, (bs4.element.Tag, bs4.NavigableString)), type(el)
                 yield from process_element(child)
@@ -434,7 +423,7 @@ class document_splitter(pxt.PxtIterator):
         def emit() -> Iterator[DocumentSection]:
             nonlocal accumulated_text, headings
             if len(accumulated_text) > 0:
-                metadata = DocumentSectionMetadata(sourceline=0, heading=cast(Heading, headings.copy()))
+                metadata = DocumentSectionMetadata(heading=cast(Heading, headings.copy()))
                 yield DocumentSection(text=ftfy.fix_text(' '.join(accumulated_text)), metadata=metadata)
                 accumulated_text = []
 
