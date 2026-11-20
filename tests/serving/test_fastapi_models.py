@@ -305,6 +305,7 @@ class TestFastAPIModels:
             match_columns=[Asks.question],  # type: ignore[arg-type]
         )
         router.add_query_route(path='/asked', query=asked)
+        router.add_query_route(path='/doc', query=pxt.retrieval_udf(Docs, limit=1))
         client = make_test_client(router)
 
         TableModel.create_all(p(''))
@@ -314,6 +315,7 @@ class TestFastAPIModels:
         assert client.post('/ins', json={'question': 'alpha'}).json() == {'hits': ['alpha']}
         assert client.post('/comp', json={'question': 'beta'}).json() == {'hits': ['beta']}
         assert client.post('/asked', json={'question': 'alpha'}).json() == [['alpha']]
+        assert client.post('/doc', json={'body': 'beta'}).json() == {'body': 'beta'}
         assert client.post('/del', json={'question': 'alpha'}).json() == {'num_rows': 1}
 
     def test_bind(self, db_root: DatabaseRoot) -> None:

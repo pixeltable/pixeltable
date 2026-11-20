@@ -45,7 +45,7 @@ def import_csv(
 
 def export_csv(
     table_or_query: pxt.Table | pxt.Query,
-    file_path: str | Path,
+    file_path: str | os.PathLike,
     *,
     delimiter: str = ',',
     quoting: int = csv.QUOTE_MINIMAL,

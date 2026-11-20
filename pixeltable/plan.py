@@ -852,7 +852,9 @@ class Planner:
             return input
 
     @classmethod
-    def _add_cell_reconstruction_node(cls, expr_list: list[exprs.Expr], input: exec.ExecNode) -> exec.ExecNode:
+    def _add_cell_reconstruction_node(
+        cls, expr_list: list[exprs.Expr], sql_col_refs: exprs.ExprSet[exprs.ColumnRef], input: exec.ExecNode
+    ) -> exec.ExecNode:
         """
         Add a CellReconstructionNode, if required by any of the exprs in expr_list.
 
@@ -862,6 +864,9 @@ class Planner:
         2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
         The json-typed ColumnRefs that JsonPaths are anchored on also need the node, which loads their objects that are
         stored in remote chunks.
+        Only ColumnRefs whose slots the SQL scan populates (members of sql_col_refs) are reconstructed. A ColumnRef
+        that appears only inside an expr computed in SQL, or only in an order-by or join clause, has no value in the
+        row.
         """
 
         def json_filter(e: exprs.Expr) -> bool:
@@ -883,20 +888,22 @@ class Planner:
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
 
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
-        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef) and e in sql_col_refs]
         json_ref_ids = {e._expr_id for e in json_refs}
         json_path_anchors = [
             e.anchor
             for e in json_candidates
             if isinstance(e, exprs.JsonPath)
             and isinstance(e.anchor, exprs.ColumnRef)
+            and e.anchor in sql_col_refs
             and e.anchor._expr_id not in json_ref_ids
         ]
-        array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
-        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
-        binary_refs = list(
-            exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
+        array_candidates = exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False)
+        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef) and e in sql_col_refs]
+        binary_candidates = exprs.Expr.list_subexprs(
+            expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False
         )
+        binary_refs = [e for e in binary_candidates if e in sql_col_refs]
         if len(json_refs) > 0 or len(json_path_anchors) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
             return exec.CellReconstructionNode(
                 json_refs, array_refs, binary_refs, json_path_anchors, input.row_builder, input=input
@@ -1449,7 +1456,11 @@ class Planner:
             )
 
         plan = cls._add_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
-        plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, plan)
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        # the SqlNode's select list also has the iterator args and outputs that it adds for unstored iterator columns
+        sql_col_refs = exprs.ExprSet(e for e in sql_node.select_list if isinstance(e, exprs.ColumnRef))
+        plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, sql_col_refs, plan)
 
         if analyzer.filter is not None:
             plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
