@@ -504,28 +504,27 @@ class ModalScheduler(Scheduler):
 
     def __init__(self, resource_pool: str, dispatcher: Dispatcher):
         super().__init__(resource_pool, dispatcher)
-        udf_path = resource_pool.removeprefix(self._POOL_PREFIX)
-        resources = env.Env.get().udf_resources()[udf_path]
-        self.client = ModalServerClient(udf_path, resources.timeout_seconds)
-        self.call_slots = asyncio.Semaphore(resources.max_containers)
+        self_path = resource_pool.removeprefix(self._POOL_PREFIX)
+        udf_config = env.Env.get().udf_configs()[self_path]
+        self.client = ModalServerClient(udf_config.setting_path, udf_config.resources.timeout_seconds)
+        self.call_slots = asyncio.Semaphore(udf_config.resources.max_containers)
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
 
     @classmethod
-    def get_resource_pool(cls, udf_path: str) -> str:
-        """Return the resource pool of the calls to the UDF at udf_path."""
-        return f'{cls._POOL_PREFIX}{udf_path}'
+    def get_resource_pool(cls, self_path: str) -> str:
+        """Return the resource pool of the calls to the UDF with self_path."""
+        return f'{cls._POOL_PREFIX}{self_path}'
 
     @classmethod
     def matches(cls, resource_pool: str) -> bool:
         return resource_pool.startswith(cls._POOL_PREFIX)
 
     async def _main_loop(self) -> None:
-        # connect() deploys the App if this process hasn't yet; connecting at the first call avoids a deploy for a
-        # query without rows
+        # connect() looks up the Server's URL at the first call, do that only once we have something to work on
         item = await self.queue.get()
-        # an exception in connect() fails the query, while _exec() turns the exception of a call into errors of that
-        # call's rows
+        # an exception in connect() fails the plan's execution, while _exec() turns the exception of a call into
+        # errors of that call's rows
         await self.client.connect()
         while True:
             # with all of the Server's containers busy, Modal queues a call, and the time in the queue counts against

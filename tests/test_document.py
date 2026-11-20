@@ -3,6 +3,7 @@ import itertools
 import json
 import os
 import re
+import zipfile
 from typing import Any
 
 import PIL.Image
@@ -69,6 +70,56 @@ class TestDocument:
         status = doc_t.insert([{'doc': p} for p in file_paths], on_error='ignore')
         assert status.num_rows == len(file_paths)
         assert status.num_excs >= len(file_paths)
+
+    def test_insert_invalid_docs(self, uses_db: None, tmp_path: Any) -> None:
+        skip_test_if_not_installed('markitdown', 'mistune')
+
+        expected: dict[str, str] = {}
+        for ext, format_name in (('html', 'HTML'), ('md', 'Markdown'), ('xml', 'XML'), ('txt', 'Text')):
+            path = str(tmp_path / f'bad.{ext}')
+            with open(path, 'wb') as fp:
+                fp.write(b'\xff\xfe\x00not utf-8')
+            expected[path] = format_name
+        pdf_path = str(tmp_path / 'bad.pdf')
+        with open(pdf_path, 'wb') as fp:
+            fp.write(b'not a pdf')
+        expected[pdf_path] = 'PDF'
+        for ext in ('docx', 'pptx', 'xlsx'):
+            path = str(tmp_path / f'bad.{ext}')
+            with zipfile.ZipFile(path, 'w') as zf:
+                zf.writestr('[Content_Types].xml', '<not valid')
+            expected[path] = 'Office'
+        for ext in ('doc', 'ppt'):
+            path = str(tmp_path / f'bad.{ext}')
+            with open(path, 'wb') as fp:
+                fp.write(bytes.fromhex('d0cf11e0a1b11ae1') + bytes(range(256)) * 4)
+            expected[path] = 'Office'
+
+        t = pxt.create_table('docs', {'doc': pxt.Document})
+        for path in expected:
+            status = t.insert([{'doc': path}], on_error='ignore')
+            assert status.num_excs == 1, path
+        rows = t.select(t.doc.errortype, t.doc.errormsg).collect()
+        assert rows['doc_errortype'] == ['RequestError'] * len(expected)
+        assert sorted(rows['doc_errormsg']) == sorted(
+            f'Not a valid {format_name} document: {path}' for path, format_name in expected.items()
+        )
+
+        xls_path = str(tmp_path / 'sheet.xls')
+        with open(xls_path, 'wb') as fp:
+            fp.write(bytes.fromhex('d0cf11e0a1b11ae1') + bytes(range(256)) * 4)
+        xls_t = pxt.create_table('xls_docs', {'doc': pxt.Document})
+        status = xls_t.insert([{'doc': xls_path}], on_error='ignore')
+        assert status.num_excs == 1
+        row = xls_t.select(xls_t.doc.errortype, xls_t.doc.errormsg).collect()[0]
+        assert row['doc_errortype'] == 'RequestError'
+        assert row['doc_errormsg'].startswith(f'Cannot read {xls_path}: ')
+        assert 'markitdown[xls]' in row['doc_errormsg']
+
+        dir_path = tmp_path / 'folder.txt'
+        dir_path.mkdir()
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=f'Cannot read document {re.escape(str(dir_path))}: '):
+            get_document_handle(str(dir_path))
 
     def test_get_document_handle(self, init_env: None) -> None:
         skip_test_if_not_installed('markitdown', 'mistune')
@@ -181,8 +232,13 @@ class TestDocument:
         else:
             assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
 
-        def open_doc_files() -> set[str]:
-            return {f.path for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions}
+        def open_doc_files() -> set[str] | None:
+            try:
+                return {f.path for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions}
+            except psutil.AccessDenied:
+                # On Windows, open_files() stats every open path, and the stat is refused for a file deleted while
+                # still open (under \$Extend\$Deleted), whatever its extension
+                return None
 
         open_doc_files_before = open_doc_files()
 
@@ -276,8 +332,10 @@ class TestDocument:
             pxt.drop_table('chunks')
 
         # Verify that document splitter does not leave open files behind
-        leaked_doc_files = open_doc_files() - open_doc_files_before
-        assert not leaked_doc_files, leaked_doc_files
+        open_doc_files_after = open_doc_files()
+        if open_doc_files_before is not None and open_doc_files_after is not None:
+            leaked_doc_files = open_doc_files_after - open_doc_files_before
+            assert not leaked_doc_files, leaked_doc_files
 
     def test_doc_splitter_headings(self, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy')

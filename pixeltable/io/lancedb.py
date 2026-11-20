@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import queue
 import shutil
 from concurrent import futures
@@ -19,7 +20,7 @@ _END = object()
 
 def export_lancedb(
     table_or_query: pxt.Table | pxt.Query,
-    db_uri: Path,
+    db_uri: str | os.PathLike,
     table_name: str,
     batch_size_bytes: int = 128 * 2**20,
     if_exists: Literal['error', 'overwrite', 'append'] = 'error',
@@ -36,7 +37,7 @@ def export_lancedb(
 
     Args:
         table_or_query : Table or Query to export.
-        db_uri: Local Path to the LanceDB database.
+        db_uri: Local path to the LanceDB database.
         table_name : Name of the table in the LanceDB database.
         batch_size_bytes : Maximum size in bytes for each batch.
         if_exists: Determines the behavior if the table already exists. Must be one of the following:
@@ -62,6 +63,7 @@ def export_lancedb(
     else:
         query = table_or_query
 
+    db_uri = Path(db_uri)
     db_exists = False
     if db_uri.exists():
         if not db_uri.is_dir():

@@ -111,6 +111,7 @@ class TestSecret:
                 {**instance, 'service_name': 'rolled', 'state': 'FAILED'},
             ],
             'dev': [{**instance, 'service_name': 'worker', 'state': 'AVAILABLE'}],
+            'local-main-0123456789ab': [],
         }
         fake_control_plane.responses.update(
             {
@@ -119,6 +120,7 @@ class TestSecret:
                     'reports': [
                         {'db': 'main', 'current': {'state': 'AVAILABLE'}},
                         {'db': 'dev', 'current': {'state': 'STOPPED'}},
+                        {'db': 'local-main-0123456789ab', 'current': {'state': 'AVAILABLE'}},
                     ]
                 },
                 'list_services': lambda request: {'instances': instances[request['db']]},
@@ -130,7 +132,12 @@ class TestSecret:
             ['pxt', 'service', 'restart', 'pxt://acme:main/ingest'],
             ['pxt', 'service', 'restart', 'pxt://acme:main/rolled'],
         ]
-        org_restarts = [*restarts, ['pxt', 'service', 'restart', 'pxt://acme:dev/worker']]
+        # a local database has no pods: an update deploys its UDF servers with the new values
+        org_restarts = [
+            *restarts,
+            ['pxt', 'service', 'restart', 'pxt://acme:dev/worker'],
+            ['pxt', 'db', 'update', 'pxt://acme:local-main-0123456789ab'],
+        ]
 
         # set
         r = pxt_secret('set', 'pxt://acme:main', 'OPENAI_API_KEY=test=value', 'CUSTOM_TOKEN=custom-value', '--json')

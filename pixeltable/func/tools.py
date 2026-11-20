@@ -1,4 +1,3 @@
-import json
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
@@ -6,6 +5,7 @@ import pydantic
 
 from pixeltable import exceptions as excs, type_system as ts
 
+from .aggregate_function import AggregateFunction
 from .function import Function
 from .signature import Parameter
 from .udf import udf
@@ -32,6 +32,29 @@ class Tool(pydantic.BaseModel):
     fn: Function
     name: str | None = None
     description: str | None = None
+
+    @pydantic.model_validator(mode='after')
+    def _validate_fn(self) -> 'Tool':
+        if isinstance(self.fn, AggregateFunction):
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
+        tool_name = self.name or self.fn.name
+        if self.fn.is_polymorphic:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Tool {tool_name!r}: a function with overloads cannot be a tool'
+            )
+        for param in self.parameters.values():
+            if param.col_type is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Tool {tool_name!r}: variadic parameter {param.name!r} is not supported',
+                )
+            if _tool_arg_extractor(param.col_type) is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Tool {tool_name!r}: parameter {param.name!r} has unsupported type `{param.col_type}`; '
+                    'supported types are String, Int, Float, Bool, UUID and Json',
+                )
+        return self
 
     @property
     def parameters(self) -> dict[str, Parameter]:
@@ -63,19 +86,26 @@ class Tool(pydantic.BaseModel):
         return self.fn(**kwargs)
 
     def __extract_tool_arg(self, param: Parameter, kwargs: 'exprs.Expr') -> 'exprs.FunctionCall':
-        if param.col_type.is_string_type():
-            return _extract_str_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_int_type():
-            return _extract_int_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_float_type():
-            return _extract_float_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_bool_type():
-            return _extract_bool_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_json_type():
-            return _extract_json_tool_arg(kwargs, param_name=param.name)
-        if param.col_type.is_uuid_type():
-            return _extract_uuid_tool_arg(kwargs, param_name=param.name)
-        raise AssertionError(param.col_type)
+        extractor = _tool_arg_extractor(param.col_type)
+        assert extractor is not None, param.col_type
+        return extractor(kwargs, param_name=param.name)
+
+
+def _tool_arg_extractor(col_type: ts.ColumnType) -> Function | None:
+    """Returns the UDF that extracts a tool argument of col_type, or None if tools don't support col_type."""
+    if col_type.is_string_type():
+        return _extract_str_tool_arg
+    if col_type.is_int_type():
+        return _extract_int_tool_arg
+    if col_type.is_float_type():
+        return _extract_float_tool_arg
+    if col_type.is_bool_type():
+        return _extract_bool_tool_arg
+    if col_type.is_json_type():
+        return _extract_json_tool_arg
+    if col_type.is_uuid_type():
+        return _extract_uuid_tool_arg
+    return None
 
 
 class ToolChoice(pydantic.BaseModel):
@@ -149,9 +179,8 @@ def _extract_bool_tool_arg(kwargs: dict[str, Any], param_name: str) -> bool | No
 
 @udf
 def _extract_json_tool_arg(kwargs: dict[str, Any], param_name: str) -> ts.Json | None:
-    if param_name in kwargs:
-        return json.loads(kwargs[param_name])
-    return None
+    # providers decode the arguments before they get here, so a Json value is already a dict, list, str, etc.
+    return _extract_arg(lambda val: val, kwargs, param_name)
 
 
 @udf

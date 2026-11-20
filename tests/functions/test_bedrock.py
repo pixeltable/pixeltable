@@ -181,8 +181,8 @@ def test_unavailable_video_model_error() -> None:
     )
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.expensive
+@pytest.mark.skip_merge_queue
 @pytest.mark.usefixtures('bedrock_us_east_1')
 @rerun_on_network_error()
 class TestBedrock:
@@ -419,6 +419,7 @@ class TestBedrock:
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
+    @pytest.mark.very_expensive
     # the account allows one concurrent Luma Ray request, so a run that overlaps another (a second CI run, or a local
     # one) is throttled until the other's generation finishes, which takes up to a few minutes
     @rerun(reruns=3, reruns_delay=120, only_rerun=['ThrottlingException', *NETWORK_ERROR_PATTERNS])

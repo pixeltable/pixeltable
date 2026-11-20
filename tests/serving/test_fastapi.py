@@ -1925,7 +1925,7 @@ class TestFastAPI:
         for col, decode in decoders.items():
             decode(fetch_presigned(rows[0][col], expires_s=3600, host_suffix=edge_host))
 
-    @pytest.mark.very_expensive
+    @pytest.mark.skip_merge_queue
     def test_s3_media_urls(self, db_root: DatabaseRoot) -> None:
         """Media stored in the user's own S3 bucket comes back from insert and query routes as a URL that S3Store
         signed with the caller's AWS credentials; no control plane is involved."""

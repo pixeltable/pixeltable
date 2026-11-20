@@ -1,131 +1,22 @@
 """Client side of the UDFs in the pixeltable.udf setting, which run on Modal Servers (pixeltable.serving.modal_server).
 
-Contains the encoding of a call's request and response, and the client that sends a UDF's calls to its Server.
+Contains the client that sends a UDF's calls to its Server through Modal's proxy.
 """
 
 import asyncio
-import dataclasses
-import json
 import logging
-import pickle
 import time
-from typing import Any
 
 import httpx
-from typing_extensions import Self
 
-from pixeltable import exceptions as excs, exprs, func, type_system as ts
+from pixeltable import exceptions as excs
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.service import proxy_protocol
+from pixeltable.service import udf_servers
 
 from .interfaces import FnCallArgs
 
 _logger = logging.getLogger('pixeltable')
-
-
-@dataclasses.dataclass(frozen=True)
-class UdfCallRequest:
-    """One call to a UDF, as sent to ModalServer.run().
-
-    As in FnCallArgs, a call has either args and kwargs, for one row, or batch_args and batch_kwargs, with one value
-    per row, for a batched UDF.
-    """
-
-    # ModalServer.run() calls the UDF's overload with this signature
-    signature: func.Signature
-    # the name of the calling process's default time zone (Env.default_time_zone)
-    time_zone: str
-    args: list[Any] | None = None
-    kwargs: dict[str, Any] | None = None
-    batch_args: list[list[Any]] | None = None
-    batch_kwargs: dict[str, list[Any]] | None = None
-
-    def encode(self, fn_call: exprs.FunctionCall) -> bytes:
-        # self.signature gives no column type to a value passed through *args or **kwargs
-        arg_types = [arg.col_type for arg in fn_call.args]
-        kwarg_types = {name: arg.col_type for name, arg in fn_call.kwargs.items()}
-        encode_media = proxy_protocol.encode_media_files
-        wire: dict[str, Any] = {'signature': self.signature.as_dict(), 'time_zone': self.time_zone}
-        if self.batch_args is not None:
-            assert self.batch_kwargs is not None
-            wire['batch_args'] = [
-                [encode_media(val, arg_types[i]) for val in vals] for i, vals in enumerate(self.batch_args)
-            ]
-            wire['batch_kwargs'] = {
-                name: [encode_media(val, kwarg_types[name]) for val in vals] for name, vals in self.batch_kwargs.items()
-            }
-        else:
-            assert self.args is not None and self.kwargs is not None
-            wire['args'] = [encode_media(val, arg_types[i]) for i, val in enumerate(self.args)]
-            wire['kwargs'] = {name: encode_media(val, kwarg_types[name]) for name, val in self.kwargs.items()}
-        return _encode_body(wire)
-
-    @classmethod
-    def decode(cls, body: bytes) -> Self:
-        wire = _decode_body(body)
-        return cls(
-            func.Signature.from_dict(wire['signature']),
-            wire['time_zone'],
-            wire.get('args'),
-            wire.get('kwargs'),
-            wire.get('batch_args'),
-            wire.get('batch_kwargs'),
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class UdfCallResponse:
-    """The result of a ModalServer.run() call."""
-
-    # one value per row of the request; None if error is set
-    values: list[Any] | None
-    # the exception raised by the UDF, which becomes the error of every row of the request
-    error: Exception | None
-    # how long the UDF ran in the container
-    duration_seconds: float
-    # Modal's task ID of the container that ran the call
-    task_id: str | None
-
-    def encode(self, return_type: ts.ColumnType) -> bytes:
-        values = self.values
-        if values is not None:
-            values = [proxy_protocol.encode_media_files(val, return_type) for val in values]
-        return _encode_body(
-            {
-                'values': values,
-                'error': None if self.error is None else self._pickled_error(),
-                'duration_seconds': self.duration_seconds,
-                'task_id': self.task_id,
-            }
-        )
-
-    @classmethod
-    def decode(cls, body: bytes) -> Self:
-        wire = _decode_body(body)
-        error = None if wire['error'] is None else pickle.loads(wire['error'])
-        return cls(wire['values'], error, wire['duration_seconds'], wire['task_id'])
-
-    def _pickled_error(self) -> bytes:
-        """Pickle error, or a RuntimeError with its type and message if error does not survive pickling."""
-        assert self.error is not None
-        try:
-            data = pickle.dumps(self.error)
-            pickle.loads(data)
-        except Exception:
-            data = pickle.dumps(RuntimeError(f'{type(self.error).__name__}: {self.error}'))
-        return data
-
-
-def _encode_body(wire: dict[str, Any]) -> bytes:
-    sink = proxy_protocol.InlinePartSink()
-    head = json.dumps(proxy_protocol.serialize_args(wire, sink), separators=(',', ':')).encode()
-    return proxy_protocol.encode_body(head, sink.binary_parts)
-
-
-def _decode_body(body: bytes) -> dict[str, Any]:
-    head, parts = proxy_protocol.decode_body(body)
-    return proxy_protocol.deserialize_value(json.loads(head), parts)
 
 
 # how long a call waits for the Server to start a container
@@ -137,22 +28,19 @@ _PROBE_SECONDS = 1.0
 _CONNECT_SECONDS = 10
 
 
-@register_client('modal', credential_param='proxy_secret')
-def _(proxy_key: str, proxy_secret: str) -> httpx.AsyncClient:
+@register_client('modal', credential_param=None)
+def _() -> httpx.AsyncClient:
     # with HTTP/2, concurrent calls to a Server share one connection
     # retries=2 retries a failed connection attempt up to twice; httpx never resends a request
     transport = httpx.AsyncHTTPTransport(http2=True, retries=2)
-    return httpx.AsyncClient(transport=transport, headers={'Modal-Key': proxy_key, 'Modal-Secret': proxy_secret})
-
-
-# the key of the process's ModalApp in Env.get_resource_pool_info()
-_APP_REGISTRY_KEY = 'modal-app'
+    return httpx.AsyncClient(transport=transport)
 
 
 class ModalServerClient:
     """Sends calls to one UDF's Server, from one event loop.
 
-    - A ModalScheduler creates one instance per query; the instance's asyncio tasks belong to the query's event loop.
+    - A ModalScheduler creates one instance per execution of a plan; the instance's asyncio tasks belong to the
+      plan's event loop.
     - call() POSTs each call's UdfCallRequest to the Server right away.
     - While calls are active, _monitor() sends a GET to the Server at least every _PROBE_SECONDS.
     - A GET answered with 503 means that the Server has no running container, so no POST sent before that GET can
@@ -170,10 +58,11 @@ class ModalServerClient:
     - send GETs only while a call waits for a container
     """
 
-    udf_path: str
+    setting_path: str
     timeout: httpx.Timeout
-    # the Server's URL; set by connect()
+    # set by connect()
     url: str | None
+    headers: dict[str, str] | None
     # clear if the last GET or POST found no running container
     container_running: asyncio.Event
     # the POSTs in flight, each with its send time (time.monotonic())
@@ -183,10 +72,11 @@ class ModalServerClient:
     # runs _monitor() while num_active_calls > 0
     monitor: asyncio.Task[None] | None
 
-    def __init__(self, udf_path: str, timeout_seconds: int) -> None:
-        self.udf_path = udf_path
+    def __init__(self, setting_path: str, timeout_seconds: int) -> None:
+        self.setting_path = setting_path
         self.timeout = httpx.Timeout(timeout_seconds, connect=_CONNECT_SECONDS)
         self.url = None
+        self.headers = None
         self.container_running = asyncio.Event()
         self.container_running.set()
         self.posts = {}
@@ -194,27 +84,29 @@ class ModalServerClient:
         self.monitor = None
 
     async def connect(self) -> None:
-        """Look up the Server's URL."""
-        if self.url is None:
-            # get_client('modal') needs h2 for HTTP/2, and h2 is installed with modal; without modal, get_client() would
-            # raise an ImportError for h2, which doesn't say to install modal
-            Env.get().require_package('modal')
-            # get_client() raises MISSING_CREDENTIALS if the proxy token isn't configured; checking that here avoids
-            # deploying the App when every call would fail
-            get_runtime().get_client('modal')
-            from pixeltable.serving.modal_server import ModalApp  # modal is an optional package
+        """Look up the Server's URL and the headers."""
+        if self.url is not None:
+            return
+        endpoints = Env.get().udf_endpoints
+        if endpoints is None:
+            # a local database's lookup fingerprints the project and calls the control plane
+            endpoints = await asyncio.to_thread(udf_servers.udf_endpoints)
+        url = endpoints.server_urls.get(self.setting_path)
+        if url is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{self.setting_path!r} is in the `pixeltable.udf` setting, but the database has no UDF server for '
+                'it. Run `pxt db update` to deploy it.',
+            )
+        self.url = url
+        self.headers = endpoints.headers
 
-            app = Env.get().get_resource_pool_info(_APP_REGISTRY_KEY, ModalApp)
-            # server_url() deploys the App if this process hasn't yet; a deploy takes seconds to minutes and blocks in
-            # Modal's client, so it runs in a thread
-            self.url = await asyncio.to_thread(app.server_url, self.udf_path)
-
-    async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
+    async def call(self, call_args: FnCallArgs) -> udf_servers.UdfCallResponse:
         """Run call_args on the Server."""
         assert self.url is not None
         time_zone = Env.get().default_time_zone
         assert time_zone is not None
-        request_body = UdfCallRequest(
+        request_body = udf_servers.UdfCallRequest(
             call_args.pxt_fn.signature,
             time_zone.key,
             call_args.args,
@@ -247,21 +139,34 @@ class ModalServerClient:
                 self.monitor = None
 
         if response.status_code != 200:
+            # endpoints from before a redeploy get 401 (another release's secret) or an error of the stopped servers
+            Env.drop_udf_endpoints()
+        if response.status_code == 401:
+            # Modal's proxy answers 401 for a proxy token that it doesn't accept, and UdfServer.handle() for a wrong
+            # secret; both are in UdfEndpoints.headers
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_AUTH_ERROR,
+                f'The UDF server of {self.setting_path} refused the credentials of this process (HTTP 401). If the UDF '
+                'servers were deployed again, run the operation again.',
+            )
+        if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
-                f'Modal call of {self.udf_path} failed with status {response.status_code}: {response.text}',
+                f'The call to the UDF server of {self.setting_path} failed with status {response.status_code}: '
+                f'{response.text}',
             )
-        result = UdfCallResponse.decode(response.content)
+        result = udf_servers.UdfCallResponse.decode(response.content)
         _logger.debug(
-            f'Modal call of {self.udf_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
-            f'UDF {result.duration_seconds:.2f}s, container {result.task_id}'
+            f'Modal call of {self.setting_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
+            f'UDF {result.duration_seconds:.2f}s, container {result.container_id}'
         )
         return result
 
     async def _post(self, http_client: httpx.AsyncClient, request_body: bytes) -> httpx.Response | None:
         """POST request_body to the Server and return the response, or None if the Server had no running container."""
-        assert self.url is not None
-        post = asyncio.create_task(http_client.post(self.url, content=request_body, timeout=self.timeout))
+        post = asyncio.create_task(
+            http_client.post(self.url, content=request_body, headers=self.headers, timeout=self.timeout)
+        )
         self.posts[post] = time.monotonic()
         try:
             # unlike awaiting post, asyncio.wait() returns normally when _monitor() cancels post
@@ -282,14 +187,14 @@ class ModalServerClient:
         except httpx.ReadTimeout as exc:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
-                f'Modal call of {self.udf_path} got no response within {self.timeout.read}s (timeout_seconds in the '
-                'pixeltable.udf setting)',
+                f'The call to the UDF server of {self.setting_path} got no response within {self.timeout.read}s '
+                '(`timeout_seconds` in the `pixeltable.udf` setting)',
             ) from exc
         except httpx.TransportError as exc:
             # other transport errors, such as RemoteProtocolError, can also come after the UDF ran, so the call isn't
             # sent again
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR, f'Modal call of {self.udf_path} failed: {exc!r}'
+                excs.ErrorCode.PROVIDER_ERROR, f'The call to the UDF server of {self.setting_path} failed: {exc!r}'
             ) from exc
 
         # Modal answers 503 only when the Server has no running container; with every container busy, it queues the
@@ -298,16 +203,16 @@ class ModalServerClient:
 
     async def _monitor(self, http_client: httpx.AsyncClient) -> None:
         """Send GETs to the Server, set container_running from the answers, and cancel the POSTs that can't complete."""
-        assert self.url is not None
         attempt = 0
         while True:
             sent = time.monotonic()
             # GETs during calls don't make Modal start more containers: a GET every 200 ms during sequential calls
             # started none (measured)
             try:
-                status: int | None = (await http_client.get(self.url, timeout=_CONNECT_SECONDS)).status_code
+                response = await http_client.get(self.url, headers=self.headers, timeout=_CONNECT_SECONDS)
+                status: int | None = response.status_code
             except httpx.HTTPError as exc:
-                _logger.debug(f'GET of the Modal Server of {self.udf_path} failed: {exc!r}')
+                _logger.debug(f'GET of the Modal Server of {self.setting_path} failed: {exc!r}')
                 status = None
 
             if status == 503:
@@ -317,7 +222,7 @@ class ModalServerClient:
                 for post in stuck:
                     post.cancel()
                 if len(stuck) > 0:
-                    _logger.debug(f'No Modal container of {self.udf_path} is running; cancelled {len(stuck)} POSTs')
+                    _logger.debug(f'No Modal container of {self.setting_path} is running; cancelled {len(stuck)} POSTs')
 
                 # after a 503, the first GETs come sooner, to catch a container that starts within seconds
                 await asyncio.sleep(min(_PROBE_SECONDS, 0.1 * 2**attempt))
@@ -330,11 +235,11 @@ class ModalServerClient:
 
     async def _wait_for_container(self, deadline: float) -> None:
         """Wait until _monitor() finds a running container, or raise PROVIDER_ERROR at deadline."""
-        # TODO: detect a Server whose containers fail in ModalServer.start(), instead of waiting _CONTAINER_WAIT_SECONDS
+        # TODO: detect a Server whose containers fail in UdfServer.start(), instead of waiting _CONTAINER_WAIT_SECONDS
         try:
             await asyncio.wait_for(self.container_running.wait(), max(0.0, deadline - time.monotonic()))
         except TimeoutError:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
-                f'No Modal container of {self.udf_path} was ready within {_CONTAINER_WAIT_SECONDS}s',
+                f'The UDF server of {self.setting_path} had no container ready within {_CONTAINER_WAIT_SECONDS}s',
             ) from None

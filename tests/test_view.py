@@ -1597,6 +1597,10 @@ class TestView:
             {'id': 4, 'icol': 1},
         ]
 
+        nv = pxt.create_view(p('nv'), t, additional_columns={'note': pxt.String | None})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"batch_update\(\): cannot insert into View 'nv'"):
+            nv.batch_update([{'_rowid': (999,), 'note': 'x'}], if_not_exists='insert')
+
     def test_recompute_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = test_tbl

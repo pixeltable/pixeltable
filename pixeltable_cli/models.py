@@ -214,14 +214,18 @@ class RecomputeBody(BaseModel):
     columns: list[str]
     errors_only: bool = False
     cascade: bool = True
+    dry_run: bool = False  # validate the request as the real run does and report the plan, without recomputing
 
 
 class RecomputeResponse(BaseModel):
     path: str
-    columns: list[str]  # <table>.<column> for each recomputed column, and for each dependent that cascaded
-    num_rows: int
-    num_excs: int
-    cols_with_excs: list[str]
+    # <table>.<column> for each recomputed column, and for each dependent that cascaded; for a dry run, the
+    # requested columns
+    columns: list[str]
+    num_rows: int  # for a dry run, the number of rows in the table
+    num_excs: int | None = None  # None for a dry run
+    cols_with_excs: list[str] | None = None  # None for a dry run
+    dry_run: bool = False
 
 
 class RevertResponse(BaseModel):
