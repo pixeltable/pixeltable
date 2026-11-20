@@ -1,4 +1,5 @@
 import base64
+import threading
 from io import BytesIO
 from pathlib import Path
 from typing import IO
@@ -32,12 +33,16 @@ def load(path: str) -> PIL.Image.Image:
 
 
 def save(image: PIL.Image.Image, fp: str | Path | IO[bytes], format: str | None = None) -> None:
-    """Save image to fp. Without a format, Pillow derives it from the path."""
-    # Image.save() writes its encoder settings onto the image object while it runs. Two threads that save the same
-    # image at the same time would use each other's settings. _new() gives each save its own image object that shares
-    # the pixel data, so that no pixels are copied.
-    image.load()
-    image._new(image.im).save(fp, format=format)  # type: ignore[attr-defined]
+    """Save image to fp. Without a format, Pillow derives it from the path.
+
+    Image.save() keeps its encoder settings on the image while it runs. Two threads that save the same image at the
+    same time would use each other's settings, so save() holds a lock per image.
+    """
+    # The lock is stored on the image, because a PIL image is not hashable and cannot be the key of a dict of locks.
+    # dict.setdefault() is atomic, so two threads get the same lock.
+    save_lock = image.__dict__.setdefault('_pxt_save_lock', threading.Lock())
+    with save_lock:
+        image.save(fp, format=format)
 
 
 def to_base64(image: PIL.Image.Image | str, format: str | None = None) -> str:
