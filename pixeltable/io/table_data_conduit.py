@@ -85,6 +85,7 @@ class TableDataConduit:
         assert source_format is None or TableDataConduitFormat.is_valid(source_format), (
             f'Invalid source_format {source_format}'
         )
+        # fsdecode, not fspath: a bytes __fspath__() must become a str
         if isinstance(source, os.PathLike):
             source = os.fsdecode(source)
         if isinstance(source, Sequence) and len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
