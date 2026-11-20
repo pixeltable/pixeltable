@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import typing
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -14,17 +13,6 @@ from pixeltable.utils.transactional_directory import transactional_directory
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
-
-
-_IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003
-
-
-def _is_link(path: Path) -> bool:
-    try:
-        st = path.lstat()
-    except OSError:
-        return False
-    return stat.S_ISLNK(st.st_mode) or getattr(st, 'st_reparse_tag', 0) == _IO_REPARSE_TAG_MOUNT_POINT
 
 
 def export_parquet(
@@ -60,8 +48,7 @@ def export_parquet(
 
     Args:
         table_or_query : Table or Query to export.
-        parquet_path : Path to directory to write the parquet files to. Must not be a symbolic link or a
-            Windows directory junction.
+        parquet_path : Path to directory to write the parquet files to. Must not be a symbolic link.
         partition_size_bytes : The maximum target size for each chunk. Default 100_000_000 bytes.
         inline_images : If True, images are stored inline in the parquet file. This is useful
                         for small images, to be imported as pytorch dataset. But can be inefficient
@@ -85,10 +72,10 @@ def export_parquet(
         )
 
     path = Path(parquet_path)
-    if _is_link(path):
+    if path.is_symlink():
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f"export_parquet(): '{path!s}' is a symbolic link or junction; pass the directory it points to instead",
+            f"export_parquet(): '{path!s}' is a symbolic link; pass the directory it points to instead",
         )
     if if_exists == 'replace' and path.exists() and not path.is_dir():
         raise excs.RequestError(
