@@ -261,6 +261,11 @@ jobs:
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
         # -n comes from the matrix
         run: |
+          if [[ "$RUNNER_OS" == 'macOS' ]]; then
+            clang -dynamiclib -O2 -o "$RUNNER_TEMP/sendlog.dylib" scripts/ci-experiment-sendlog.c
+            export EXP_SEND_LOG_PATH="$RUNNER_TEMP/exp-sendlog.txt"
+            export DYLD_INSERT_LIBRARIES="$RUNNER_TEMP/sendlog.dylib"
+          fi
           if [[ "$RUNNER_OS" != 'Windows' ]]; then
             ./scripts/ci-experiment-watch.sh &
             exp_watch_pid=$!

@@ -35,28 +35,20 @@ check_hangs() {
         ./scripts/dump-pg-state.sh 2>&1 | sed 's/^/EXP-HANG pg: /'
         echo "EXP-HANG lsof of client pid $client_pid:"
         lsof -n -P -p "$client_pid" 2>&1 | sed 's/^/EXP-HANG lsof: /'
-        if [[ "$(uname)" == 'Darwin' ]]; then
-            sample "$client_pid" 2 -mayDie -file "$RUNNER_TEMP/exp-sample-$client_pid.txt" > /dev/null 2>&1
-            sed 's/^/EXP-HANG sample: /' "$RUNNER_TEMP/exp-sample-$client_pid.txt" 2> /dev/null | head -150
-            echo "EXP-HANG lldb: stack of the poll() caller; look for the socket fd followed by events (0x9 read, 0xc write, 0xd both)"
-            perl -e 'alarm shift; exec @ARGV' 90 sudo lldb -p "$client_pid" --batch \
-                -o 'thread select 1' -o 'bt 8' -o 'frame select 1' -o 'register read sp fp' \
-                -o 'memory read --size 4 --format x --count 128 $sp' \
-                -o 'detach' 2>&1 | grep -vE '^\s+0x[0-9a-f]+ <\+' | sed 's/^/EXP-HANG lldb: /'
-        fi
         echo "EXP-HANG sending SIGUSR2 to $client_pid for the psycopg generator dump and flush probe"
         kill -USR2 "$client_pid" 2> /dev/null
         sleep 20 > /dev/null 2>&1
+        local marker
+        marker=$(cat "$RUNNER_TEMP/exp-probe-$client_pid" 2> /dev/null)
+        echo "EXP-HANG probe result for $client_pid: ${marker:-<none>}"
+        echo "EXP-HANG send() failures logged by pid $client_pid so far:"
+        grep " pid $client_pid " "$EXP_SEND_LOG_PATH" 2> /dev/null | sed 's/^/EXP-HANG   /'
         echo "EXP-HANG backend $backend_pid 20 s after the probe: $(pg_query "SELECT state, extract(epoch FROM now() - state_change)::int, left(regexp_replace(query, '\s+', ' ', 'g'), 150) FROM pg_stat_activity WHERE pid = $backend_pid")"
-        sleep 60 > /dev/null 2>&1
-        local after
-        after=$(pg_query "SELECT state, extract(epoch FROM now() - state_change)::int, left(regexp_replace(query, '\s+', ' ', 'g'), 150) FROM pg_stat_activity WHERE pid = $backend_pid")
-        echo "EXP-HANG backend $backend_pid 80 s after the probe: ${after:-<backend gone>}"
-        if [[ "$after" == 'idle in transaction '* ]]; then
-            echo "EXP-HANG still stuck; killing worker $client_pid so that xdist replaces it and the run continues"
+        if [[ "$marker" == 'psycopg busy=1'* ]]; then
+            echo "EXP-HANG CONFIRMED HANG: worker $client_pid is blocked in psycopg with a busy connection; killing it so that xdist replaces it"
             kill -9 "$client_pid" 2> /dev/null
         else
-            echo "EXP-HANG backend $backend_pid progressed after the probe; leaving worker $client_pid running"
+            echo "EXP-HANG not blocked in psycopg (long transaction, not a hang); leaving worker $client_pid running"
         fi
     done <<< "$rows"
 }
@@ -83,8 +75,20 @@ sample_memory() {
     fi
 }
 
+tail_sendlog() {
+    [[ -n "$EXP_SEND_LOG_PATH" && -f "$EXP_SEND_LOG_PATH" ]] || return
+    local lines
+    lines=$(wc -l < "$EXP_SEND_LOG_PATH")
+    if ((lines > sendlog_seen)); then
+        tail -n $((lines - sendlog_seen)) "$EXP_SEND_LOG_PATH"
+        sendlog_seen=$lines
+    fi
+}
+
+sendlog_seen=0
 while true; do
     sample_memory
+    tail_sendlog
     if ((iteration % 2 == 0)); then
         check_hangs
     fi
