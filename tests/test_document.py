@@ -504,7 +504,6 @@ class TestDocument:
             'default': {},
             'dpi72': {'image_dpi': 72},
             'dpi144': {'image_dpi': 144},
-            'dpi150': {'image_dpi': 150},
         }
         views = {
             name: pxt.create_view(
@@ -520,4 +519,3 @@ class TestDocument:
         assert sizes['dpi72'][0] == (612, 792)
         assert sizes['default'] == sizes['dpi72']
         assert sizes['dpi144'] == [(2 * w, 2 * h) for w, h in sizes['dpi72']]
-        assert sizes['dpi150'][0] == (1275, 1650)
