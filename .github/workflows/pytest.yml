@@ -264,7 +264,7 @@ jobs:
           if [[ "$RUNNER_OS" == 'macOS' ]]; then
             clang -dynamiclib -O2 -o "$RUNNER_TEMP/sendlog.dylib" scripts/ci-experiment-sendlog.c
             export EXP_SEND_LOG_PATH="$RUNNER_TEMP/exp-sendlog.txt"
-            export DYLD_INSERT_LIBRARIES="$RUNNER_TEMP/sendlog.dylib"
+            export EXP_DYLD="$RUNNER_TEMP/sendlog.dylib"
           fi
           if [[ "$RUNNER_OS" != 'Windows' ]]; then
             ./scripts/ci-experiment-watch.sh &
@@ -290,7 +290,10 @@ jobs:
           echo 'xdist workers             : ${{ matrix.xdist-workers }}'
           echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'
           ${{ matrix.pre-test-cmd }}
-          pytest -v --strict-markers -n ${{ matrix.xdist-workers }} --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" -m '${{ matrix.pytest-markers }}' $PYTEST_COVERAGE_OPTS
+          DYLD_INSERT_LIBRARIES="${EXP_DYLD:-}" pytest -v --strict-markers -n ${{ matrix.xdist-workers }} --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" -m '${{ matrix.pytest-markers }}' $PYTEST_COVERAGE_OPTS
+      - name: EXP show the logged send() failures
+        if: ${{ always() && runner.os == 'macOS' }}
+        run: cat "$RUNNER_TEMP/exp-sendlog.txt" 2> /dev/null || echo 'no send() failures logged'
       - name: Run the OpenTelemetry instrumentation tests
         # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
         # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel and serve

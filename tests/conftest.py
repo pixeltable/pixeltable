@@ -88,8 +88,16 @@ def pytest_configure(config: PytestConfig) -> None:
         signal.signal(signal.SIGUSR2, _exp_psycopg_probe)
         if sys.platform == 'darwin':
             print(f'EXP-SENDLOG pid {os.getpid()} interposer loaded: {_exp_sendlog_loaded()}', file=_EXP_OUT)
+            if 'PYTEST_XDIST_WORKER' in os.environ:
+                # arm64e system binaries that a test spawns can't load the arm64 interposer and abort
+                os.environ.pop('DYLD_INSERT_LIBRARIES', None)
     if sys.platform == 'linux':
         config.pluginmanager.register(_ExpRssPlugin(), 'exp-rss')
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodeready(node: Any) -> None:
+    os.environ.pop('DYLD_INSERT_LIBRARIES', None)
 
 
 def _exp_sendlog_loaded() -> bool:
