@@ -16,6 +16,7 @@ from pixeltable_cli.types import CheckReport, SchemaChangeOp, SchemaPlan, TableD
 from pixeltable_cli.utils import PxtPath
 
 from ..globals import PY_RERUN_HINT
+from . import typescript
 from .definition import TableModelMeta
 from .diff import PY_DESTRUCTIVE_HINT
 
@@ -119,6 +120,8 @@ def schema_check(app_file: str) -> CheckReport:
 
 def _model_bases(app_file: str) -> list[TableModelMeta]:
     """The model bases in app_file."""
+    if typescript.is_typescript_file(app_file):
+        return typescript.model_bases(app_file)
     bases = get_model_bases(load_app_module(app_file, subject='schema file'))
     if len(bases) == 0:
         raise excs.RequestError(
