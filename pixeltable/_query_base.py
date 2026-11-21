@@ -17,6 +17,7 @@ import pandas as pd
 
 from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog import fold_identifier, is_valid_identifier
+from pixeltable.catalog.model import TableModelMeta
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.type_system import ColumnType
@@ -246,7 +247,7 @@ class QueryBase(ABC):
             return None
         if not isinstance(v_expr, exprs.Literal):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be a constant; got: {v_expr}'
+                excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be a constant; got: {v_expr!s}'
             )
         if range is not None:
             if range[0] is not None and not (v_expr.val >= range[0]):
@@ -455,7 +456,7 @@ class QueryBase(ABC):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
             expr.check_method_refs()
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
-                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr!s}')
             if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
                 # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
                 # such as `snapshot.select(base_tbl.col)`
@@ -471,7 +472,7 @@ class QueryBase(ABC):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f"That expression cannot be evaluated in the context of this query's tables "
-                    f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}',
+                    f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr!s}',
                 )
             select_list.append((expr, name))
 
@@ -497,6 +498,7 @@ class QueryBase(ABC):
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
+            sample_clause=copy.deepcopy(self.sample_clause),
         )
 
     def where(self, pred: exprs.Expr) -> Self:
@@ -562,12 +564,12 @@ class QueryBase(ABC):
             if not on.is_bound_by(joined_tbls):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'`on` expression cannot be evaluated in the context of the joined tables: {on}',
+                    f'`on` expression cannot be evaluated in the context of the joined tables: {on!s}',
                 )
             if not on.col_type.is_bool_type():
                 raise excs.RequestError(
                     excs.ErrorCode.TYPE_MISMATCH,
-                    f'`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on}',
+                    f'`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on!s}',
                 )
             return on
         elif not isinstance(on, Sequence) or len(on) == 0:
@@ -585,7 +587,7 @@ class QueryBase(ABC):
             if not col_ref.is_bound_by(joined_tbls):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'`on` expression cannot be evaluated in the context of the joined tables: {col_ref}',
+                    f'`on` expression cannot be evaluated in the context of the joined tables: {col_ref!s}',
                 )
             col_refs.append(col_ref)
 
@@ -634,15 +636,15 @@ class QueryBase(ABC):
 
     def join(
         self,
-        other: catalog.Table,
+        other: catalog.Table | TableModelMeta,
         on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: JoinType.LiteralType = 'inner',
     ) -> Self:
         """
-        Join this Query with a table.
+        Join this Query with a table, or with a model that is bound to one.
 
         Args:
-            other: the table to join with
+            other: the table to join with, or a model that is bound to one
             on: the join condition, which can be either a) references to one or more columns or b) a boolean
                 expression.
 
@@ -685,6 +687,8 @@ class QueryBase(ABC):
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         assert len(self._from_clause.tbls) > 0
+        if isinstance(other, TableModelMeta):
+            other = other.table
         # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
         if self._from_clause.tbls[0].is_data_versioned() != other._is_data_versioned():
             raise excs.RequestError(
@@ -848,6 +852,12 @@ class QueryBase(ABC):
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> Self:
         """Add an order-by clause to this Query.
 
+        A current limitation is that each expression must have a SQL translation, which means that ordering by calls
+        to user-defined `@pxt.udf` functions or JSON paths (or by unstored computed columns that include those) is
+        currently not supported.
+        As a workaround, consider adding the ordering expression as a stored computed column of a scalar type and
+        ordering by that column instead.
+
         Args:
             expr_list: expressions to order by
             asc: whether to order in ascending order (True) or descending order (False).
@@ -930,7 +940,7 @@ class QueryBase(ABC):
         if not isinstance(limit_expr, (exprs.Literal, exprs.Variable)):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                f'limit(): parameter must be an int constant or query parameter; got: {n}',
+                f'limit(): parameter must be an int constant or query parameter; got: {n!s}',
             )
         offset_expr = None
         if offset is not None:
@@ -938,7 +948,7 @@ class QueryBase(ABC):
             if not isinstance(offset_expr, (exprs.Literal, exprs.Variable)):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
-                    f'offset: parameter must be an int constant or query parameter; got: {offset}',
+                    f'offset: parameter must be an int constant or query parameter; got: {offset!s}',
                 )
 
         return type(self)(
@@ -1063,7 +1073,7 @@ class QueryBase(ABC):
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f"That expression cannot be evaluated in the context of this query's tables "
-                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}',
+                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr!s}',
                     )
                 stratify_exprs.append(expr)
 

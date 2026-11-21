@@ -199,7 +199,7 @@ class EmbeddingIndex:
             )
             if fn is not None
         ]
-        parts = [f'column={self.column}', *embeds]
+        parts = [f'column={self.column!s}', *embeds]
         # Only surface metric/precision when they deviate from their defaults.
         if self.metric != 'cosine':
             parts.append(f'metric={self.metric!r}')
@@ -217,7 +217,7 @@ class BtreeIndex:
     column: Any
 
     def __repr__(self) -> str:
-        return f'BtreeIndex(column={self.column})'
+        return f'BtreeIndex(column={self.column!s})'
 
 
 # An index specification defined as a class attribute in a TableModel or ViewModel definition.
@@ -341,10 +341,17 @@ class _ModelNamespace(dict):
         spec: ColumnSpec
         if isinstance(value, Column):
             spec = value.to_column_spec()
-            if ('type' in spec) == ('value' in spec):
+            if 'type' in spec and 'value' in spec:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column specification for {name!r} must define `type` or `value`, but not both',
+                    f'Column specification for {name!r} cannot define both `type` and `value`: a computed column '
+                    'takes its type from `value`; to change it, cast the value with `.astype()`',
+                )
+            if 'type' not in spec and 'value' not in spec:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column specification for {name!r} defines neither `type` nor `value`; pass `type=` to '
+                    'Column() for a stored column (a type annotation does not set it) or `value=` for a computed one',
                 )
         else:
             # Computed column expression.
@@ -357,7 +364,7 @@ class _ModelNamespace(dict):
             if _contains_aggregate(expr):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column {name!r} aggregates over the table: {expr}\nA computed column is evaluated one '
+                    f'Column {name!r} aggregates over the table: {expr!s}\nA computed column is evaluated one '
                     'row at a time, so it cannot aggregate.',
                 )
             spec = {'value': expr}
@@ -729,6 +736,25 @@ class TableModelMeta(type):
         """The models defined on this base, in declaration order."""
         return list(cls.__registered_models__.values())
 
+    def constant_columns(cls) -> dict[str, exprs.Expr]:
+        """Return the value expression of each computed column that references no column, by column name.
+
+        Excludes a value expression that calls a non-deterministic function, such as uuid4(), or a query function, which
+        reads another table.
+        """
+        constants: dict[str, exprs.Expr] = {}
+        for name, col_spec in cls.__columns__.items():
+            value = col_spec.get('value')
+            if value is None or value.contains_(cls=exprs.ColumnRef) or value.contains_(cls=ColumnRefByName):
+                continue
+            if value.contains_(
+                cls=exprs.FunctionCall,
+                filter=lambda e: not e.fn.is_deterministic or isinstance(e.fn, func.QueryTemplateFunction),
+            ):
+                continue
+            constants[name] = value
+        return constants
+
     def referenced_functions(cls) -> list[func.Function]:
         """Every function this model references, without duplicates."""
         defined_exprs: list[exprs.Expr] = [
@@ -811,7 +837,7 @@ class TableModelMeta(type):
                     spec['type'], allow_builtin_types=False
                 )
             if 'value' in spec:
-                spec['value'] = bind_query_templates(spec['value'].copy(), catalog_dir)
+                spec['value'] = bind_query_templates(spec['value'], catalog_dir)
             columns[name] = spec
 
         bound_path = f'{catalog_dir}{table_spec["name"]}'
@@ -867,13 +893,11 @@ class TableModelMeta(type):
         tbl_id = uuid4()  # we need a table id
         handle = TableVersionHandle(catalog.TableVersionKey(tbl_id, None))
         base = None if spec['base'] is None else spec['base'].to_defined_query()
-        # prepare_model() substitutes column references in place, so hand it copies: inspecting a model must
-        # leave what it defines untouched
         columns: dict[str, ColumnSpec] = {}
         for col_name, col_spec in cls.__columns__.items():
             copied = col_spec.copy()
             if 'value' in copied:
-                copied['value'] = bind_query_templates(copied['value'].copy(), None)
+                copied['value'] = bind_query_templates(copied['value'], None)
             columns[col_name] = copied
         iterator, cols, idxs = prepare_model(
             handle, columns, spec['display_name'], spec['iterator'], base, cls.__indexes__, spec['is_data_versioned']

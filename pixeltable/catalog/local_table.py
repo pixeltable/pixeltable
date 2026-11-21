@@ -41,6 +41,7 @@ from .globals import (
     fold_mapping_keys,
     is_valid_identifier,
 )
+from .path import ROOT_PATH
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
@@ -287,7 +288,9 @@ class LocalTable(Table):
                 # the compute plan checks for the required columns that the outputs read
                 data_source.reqd_col_names.clear()
                 data_source.prepare_for_insert_into_table()
-                input_rows = [row for batch in data_source.valid_row_batch() for row in batch]
+                # TODO: this materializes all input rows; streaming them into the compute plan (RowDataNode accepts a
+                # stream) would bound memory, but create_compute_plan() currently validates and filters a list
+                input_rows = list(data_source.rows())
 
                 output_cols = path.columns()
                 if output_md is not None:
@@ -369,6 +372,27 @@ class LocalTable(Table):
             return helper
 
         return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
+
+    def _column_description(self, column: ColumnRef, html: bool, catalog_uri: pxt.catalog.Path = ROOT_PATH) -> str:
+        from pixeltable.catalog import retrying_read
+
+        def op() -> DescriptionHelper:
+            col_name = column.col_md.name
+            owner = get_runtime().catalog.get_table_by_id(column.col_md.qcolid.tbl_id)
+            assert owner is not None
+            owner_path = owner._path().with_catalog(catalog_uri)
+            # TODO: is this what we want? it's printing the path of the containing table, not of the context table
+            helper = DescriptionHelper()
+            helper.append(f'Column\n{col_name!r}\n(of table {owner_path!r})')
+            col_df, _ = owner._col_descriptor([col_name])
+            helper.append(col_df)
+            idxs = owner._index_descriptor([col_name])
+            if len(idxs) > 0:
+                helper.append(idxs)
+            return helper
+
+        helper = retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
+        return helper.to_html() if html else helper.to_string()
 
     def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
         """Generates column descriptor DataFrame and a list of vertical separators.
@@ -522,15 +546,10 @@ class LocalTable(Table):
         schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
-        from pixeltable.catalog import retry_md_write_loop
-
         self._validate_column_schema(schema)
         schema = fold_mapping_keys(schema)
 
-        # a retry loop is necessary because drop column needs it
-        # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
-        def do_add_columns() -> list[Column] | None:
+        def get_new_cols() -> list[Column]:
             self._check_mutable('add columns to')
 
             # make a copy of schema so del operations below don't modify the caller's dict
@@ -540,25 +559,16 @@ class LocalTable(Table):
             cols_to_ignore = self._ignore_or_drop_existing_columns(
                 list(schema_copy.keys()), IfExistsParam.validated(if_exists, 'if_exists')
             )
-            # if all columns to be added already exist and user asked to ignore
-            # existing columns, there's nothing to do.
             for cname in cols_to_ignore:
                 assert cname in schema_copy
                 del schema_copy[cname]
-            if len(schema_copy) == 0:
-                return None
             new_cols = [Column.create(name, spec) for name, spec in schema_copy.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
             return new_cols
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        new_cols = do_add_columns()
-        if new_cols is None:
-            return UpdateStatus()
-
-        assert self._tbl_version is not None
-        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
+        get_runtime().catalog.add_columns(self._tbl_version_path, get_new_cols)
         FileCache.get().emit_eviction_warnings()
         # TODO: return the row count here?
         return UpdateStatus()
@@ -652,7 +662,7 @@ class LocalTable(Table):
         if not value_expr.is_bound_by([self._tbl_version_path]):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'The value expression of column {col_name!r} ({value_expr}) is not bound by {self._display_str()}',
+                f'The value expression of column {col_name!r} ({value_expr!s}) is not bound by {self._display_str()}',
             )
 
     @classmethod
@@ -730,7 +740,7 @@ class LocalTable(Table):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    sorted(f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views)
+                    sorted(f'view: {view._path()}, predicate: {predicate!s}' for view, predicate in dependent_views)
                 )
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -789,17 +799,20 @@ class LocalTable(Table):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
                 )
-
-            # TODO(PXT-960): follow up: allow alteration if it doesn't invalidate any dependents, and doesn't change
-            # their column types.
-            dependent_user_cols = self._get_dependent_user_cols(col)
-            if len(dependent_user_cols) > 0:
+            if new_col_type == col.col_type:
+                return
+            if col.col_type.nullable or new_col_type != col.col_type.copy(nullable=True):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot alter column {col.name!r} because the following columns depend on it: '
-                    f'{", ".join(c.qualified_name for c in dependent_user_cols)}',
+                    f'Column {col.name!r} type cannot be changed from {col.col_type} to {new_col_type}',
                 )
-
+            dependents = get_runtime().catalog.get_non_nullable_dependents(col)
+            if len(dependents) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r} cannot become nullable: non-nullable columns depend on it: '
+                    f'{", ".join(dependents)}',
+                )
             self._tbl_version.get().alter_column(col, new_col_type)
 
         do_alter_column()
@@ -841,9 +854,6 @@ class LocalTable(Table):
             self._verify_computed_col_value(col.name, new_value_expr)
 
             tv = self._tbl_version.get()
-            if recompute:
-                assert tv.is_data_versioned, 'TODO: implement recompute for operational tables [PXT-1101]'
-
             result = tv.alter_computed_column(col, new_value_expr, recompute=recompute, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
             return result
@@ -1118,6 +1128,7 @@ class LocalTable(Table):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1129,6 +1140,7 @@ class LocalTable(Table):
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1143,6 +1155,7 @@ class LocalTable(Table):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1173,6 +1186,7 @@ class LocalTable(Table):
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
+        *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
@@ -1244,45 +1258,11 @@ class LocalTable(Table):
         cat = get_runtime().catalog
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         with cat.begin_data_write_xact(tvps=[self._tbl_version_path]):
-            self._check_mutable('recompute columns of')
-            if len(columns) == 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.MISSING_REQUIRED, 'At least one column must be specified to recompute'
-                )
-            if errors_only and len(columns) > 1:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use errors_only=True with multiple columns'
-                )
-
-            col_names: list[str] = []
-            for column in columns:
-                col_name: str
-                col: Column
-                if isinstance(column, str):
-                    col = self._tbl_version_path.get_column(column)
-                    if col is None:
-                        raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
-                    col_name = col.name
-                else:
-                    assert isinstance(column, ColumnRef)
-                    col = column.col
-                    if not self._tbl_version_path.has_column(col.qid):
-                        raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col.name}')
-                    col_name = col.name
-                if not col.is_computed:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is not a computed column'
-                    )
-                if col.get_tbl().id != self._tbl_version_path.tbl_id:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {col_name}'
-                    )
-                col_names.append(col_name)
-
+            col_names = self._recompute_col_names(columns, errors_only)
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'`where` predicate ({where}) is not bound by {self._display_str()}',
+                    f'`where` predicate ({where!s}) is not bound by {self._display_str()}',
                 )
 
             tv = self._tbl_version.get()
@@ -1291,6 +1271,45 @@ class LocalTable(Table):
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()
             return result
+
+    def _check_recompute(self, *columns: str | ColumnRef, errors_only: bool = False) -> list[str]:
+        with get_runtime().catalog.begin_data_read_xact(tvps=[self._tbl_version_path]):
+            return self._recompute_col_names(columns, errors_only)
+
+    def _recompute_col_names(self, columns: Sequence[str | ColumnRef], errors_only: bool) -> list[str]:
+        """Validate the arguments of recompute_columns() and return the names of the columns to recompute."""
+        self._check_mutable('recompute columns of')
+        if len(columns) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, 'At least one column must be specified to recompute'
+            )
+        if errors_only and len(columns) > 1:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use errors_only=True with multiple columns'
+            )
+
+        col_names: list[str] = []
+        for column in columns:
+            resolved_column: Column
+            if isinstance(column, str):
+                resolved_column = self._tbl_version_path.get_column(column)
+                if resolved_column is None:
+                    raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
+            else:
+                assert isinstance(column, ColumnRef)
+                resolved_column = column.col
+                if not self._tbl_version_path.has_column(resolved_column.qid):
+                    raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {resolved_column.name}')
+            if not resolved_column.is_computed:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {resolved_column.name!r} is not a computed column'
+                )
+            if resolved_column.get_tbl().id != self._tbl_version_path.tbl_id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {resolved_column.name}'
+                )
+            col_names.append(resolved_column.name)
+        return col_names
 
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         raise NotImplementedError
@@ -1353,9 +1372,9 @@ class LocalTable(Table):
                     created_at=datetime.datetime.fromtimestamp(vers_md.version_md.created_at, tz=datetime.timezone.utc),
                     user=vers_md.version_md.user,
                     change_type=change_type,
-                    inserts=rcs.ins_rows,
-                    updates=rcs.upd_rows,
-                    deletes=rcs.del_rows,
+                    inserts=rcs.inserted_rows,
+                    updates=rcs.updated_rows,
+                    deletes=rcs.deleted_rows,
                     errors=rcs.num_excs,
                     schema_change=schema_change,
                 )

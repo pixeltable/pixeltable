@@ -701,7 +701,7 @@ def _list(target: str | None, *, as_json: bool) -> None:
             print(f'    generation {describe_receipt(d.receipt)}')
         for route in d.spec.routes:
             served = ', '.join(route.outputs) if len(route.outputs) > 0 else '-'
-            accepted = ', '.join([*route.inputs, *(f'{n} (file)' for n in route.uploadfile_inputs)])
+            accepted = ', '.join(f'{n} (file)' if n in route.uploadfile_inputs else n for n in route.inputs)
             print(
                 f'    {route.method:<5s} {route.path:<24s} {route.route_type:<8s} in: {accepted or "-"}  out: {served}'
             )

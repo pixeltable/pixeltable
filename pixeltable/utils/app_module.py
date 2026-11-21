@@ -15,12 +15,12 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
-from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
+from pixeltable.catalog import Catalog, ProhibitedWriteError, is_valid_identifier, model
 from pixeltable.catalog.model import diff
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
-from pixeltable.runtime import get_runtime
+from pixeltable.func.symbols import load_error_msg
 from pixeltable.utils.project import in_environment
 from pixeltable_cli.types import CheckReport, RouteSpec, ServiceSpec
 
@@ -65,24 +65,20 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     path = Path(file).resolve()
     name = module_name(file, subject=subject)
 
-    # resolve the catalog first: initializing it writes, which freeze() would refuse
-    catalog = get_runtime().catalog
     try:
         registry = FunctionRegistry.get()
-        with _lock, catalog.freeze():
-            _evict_project_modules()
-            # a file written after this process started is invisible to a finder that cached its directory
-            importlib.invalidate_caches()
+        with _lock, Catalog.freeze():
+            root = Config.get().project_root
+            assert root is not None  # module_name() refuses a file outside a project root
+            # evict before importing: importlib returns a module in sys.modules without reading its file again
+            evict_modules(root)
             return registry.import_module(name)
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)
         ) from e
-    except excs.Error as e:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {file}: {e}') from e
     except Exception as e:
-        reason = f'{type(e).__name__}: {e}' if str(e) else type(e).__name__
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {file}: {reason}') from e
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, load_error_msg(file, e)) from e
 
 
 def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
@@ -106,16 +102,16 @@ def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
     )
 
 
-def _evict_project_modules() -> None:
-    """Remove the project's own modules from sys.modules, and their udfs from the registry.
+def evict_modules(root: Path) -> None:
+    """Remove the modules under root from sys.modules, and their udfs from the registry.
 
-    Removing project modules allows us to have them re-imported, in response to changes to the source files.
+    Removing these modules allows us to have them re-imported, in response to changes to the source files. Also
+    clear importlib's directory caches, so an import finds a newly created module file.
 
-    The standard library and installed packages stay loaded, including when the environment sits inside the
-    project root (eg, a .venv).
+    The standard library and installed packages stay loaded, including when the environment sits inside root
+    (eg, a .venv).
     """
-    root = Config.get().project_root
-    assert root is not None  # module_name() refuses a file outside a project root
+    importlib.invalidate_caches()
     registry = FunctionRegistry.get()
     for name, module in list(sys.modules.items()):
         module_file = getattr(module, '__file__', None)
@@ -130,6 +126,8 @@ def _evict_project_modules() -> None:
         if resolved.is_relative_to(root):
             registry.deregister_module(name)
             sys.modules.pop(name, None)
+    # the next import can bring code that differs from the version of the UDF servers' project
+    Env.drop_udf_endpoints()
 
 
 def _prohibited_write_msg(file: str, subject: str, exc: ProhibitedWriteError) -> str:
@@ -200,7 +198,16 @@ def validate_models(models: dict[str, model.TableModelMeta], base_path: str) -> 
 def check_report(file: str, bases: list[model.TableModelMeta]) -> CheckReport:
     """What checking a file on its own reports: whether it is valid, and what to fix or to know about."""
     errors = check_udf_references(bases)
-    return CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=shadowed_project_modules())
+    warnings = [
+        f'{cls.__name__}.{name} references no column, so every row computes it from the same inputs: {value!s}. '
+        'Python code in a model body, such as str(), % or `is None`, runs once, at class definition. '
+        'Use == None instead of `is None`, and + or pxtf.string.format() instead of str() or %.'
+        for base in bases
+        for cls in base.defined_models()
+        for name, value in cls.constant_columns().items()
+    ]
+    warnings.extend(shadowed_project_modules())
+    return CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=warnings)
 
 
 def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:

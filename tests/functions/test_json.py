@@ -16,12 +16,29 @@ from ..utils import (
     rerun_on_network_error,
     skip_test_if_no_config,
     skip_test_if_not_installed,
+    validate_update_status,
 )
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestJson:
+    def test_loads(self, uses_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'n': pxt.Int, 's': pxt.String | None})
+        rows = [
+            {'n': 0, 's': '{"a": [1, 2], "b": null}'},
+            {'n': 1, 's': 'null'},
+            {'n': 2, 's': '{'},
+            {'n': 3, 's': None},
+        ]
+        t.insert(rows)
+        status = t.add_computed_column(parsed=pxtf.json.loads(t.s), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.parsed, err=t.parsed.errormsg).order_by(t.n).collect()
+        assert res['parsed'] == [{'a': [1, 2], 'b': None}, None, None, None]
+        assert 'Expecting property name' in res['err'][2]
+        assert t.select(a=t.parsed.a[1]).order_by(t.n).collect()['a'] == [2, None, None, None]
+
     def test_list_iterator(self, uses_db: None) -> None:
         schema = {
             'id': pxt.Int | None,
@@ -97,6 +114,23 @@ class TestJson:
         assert res['my_int'] == [j for i in range(50) for j in range(i + 1)]
         assert res['my_str'] == [f'string_{j}' if j < i else None for i in range(50) for j in range(i + 1)]
 
+    def test_list_iterator_null(self, uses_db: None) -> None:
+        schema = {'id': pxt.Int, 'col_1': pxt.Json[[{'a': pxt.Int}]] | None, 'col_2': pxt.Json[[int]] | None}
+        t = pxt.create_table('test_table', schema)
+        t.insert([{'id': 0, 'col_1': [{'a': 0}, {'a': 1}], 'col_2': [0, 1]}, {'id': 1, 'col_1': None, 'col_2': None}])
+        v1 = pxt.create_view('test_view_1', t, iterator=pxtf.json.list_iterator(t.col_1))
+        v2 = pxt.create_view('test_view_2', t, iterator=pxtf.json.list_iterator(x=t.col_2, mode='padded'))
+        validate_update_status(
+            t.insert([{'id': 2, 'col_1': None, 'col_2': None}, {'id': 3, 'col_1': [{'a': 3}], 'col_2': [3]}]),
+            expected_rows=4,
+        )
+        res = v1.order_by(v1.id, v1.pos).select(v1.id, v1.a).collect()
+        assert res['id'] == [0, 0, 3]
+        assert res['a'] == [0, 1, 3]
+        res = v2.order_by(v2.id, v2.pos).select(v2.id, v2.x).collect()
+        assert res['id'] == [0, 0, 3]
+        assert res['x'] == [0, 1, 3]
+
     def test_list_iterator_type_cast(self, uses_db: None) -> None:
         """Iterator args that cast paths into untyped json with astype()."""
 
@@ -169,9 +203,41 @@ class TestJson:
         with pytest.raises(Exception, match='scalar'):
             tnum.select(tnum.scalar, n=tnum.scalar.len()).collect()
 
-        # TODO: selecting a pushed-down json function without also selecting the source column fails, because the
-        # column's slot is never materialized (cell-reconstruction bug); re-enable once fixed.
-        # assert [r['n'] for r in t.order_by(t.id).select(n=t.j.len()).collect()] == [3, 0, 2, 0, 5, 0, None]
+        assert [r['n'] for r in t.order_by(t.id).select(n=t.j.len()).collect()] == [3, 0, 2, 0, 5, 0, None]
+
+    def test_sql_fn_without_source_col(self, uses_db: None) -> None:
+        """A json function computed in SQL works without the source column in the select list."""
+        t = pxt.create_table('json_sql_fn', {'id': pxt.Int, 'j': pxt.Json | None})
+        t.insert([{'id': 1, 'j': [1, 2]}, {'id': 2, 'j': [3.5]}, {'id': 3, 'j': None}])
+
+        def col(expr: pxt.exprs.Expr) -> list:
+            return [r['o'] for r in t.order_by(t.id).select(o=expr).collect()]
+
+        assert col(t.j.len()) == [2, 1, None]
+        assert col(t.j.is_empty()) == [False, False, True]
+        assert col(t.j.sum()) == [3.0, 3.5, None]
+        assert col(t.j.min()) == [1.0, 3.5, None]
+        assert col(t.j.max()) == [2.0, 3.5, None]
+        assert col(t.j.mean()) == [1.5, 3.5, None]
+        assert col(pxtf.json.dumps(t.j)) == ['[1, 2]', '[3.5]', None]
+        rs = t.order_by(t.id).select(t.j, n=t.j.len()).collect()
+        assert [(r['j'], r['n']) for r in rs] == [([1, 2], 2), ([3.5], 1), (None, None)]
+        assert [r['id'] for r in t.order_by(t.j.len(), t.id).select(t.id).collect()] == [2, 1, 3]
+        u = pxt.create_table('json_sql_fn_join', {'n': pxt.Int})
+        u.insert([{'n': 1}, {'n': 2}])
+        rs = t.join(u, on=t.j.len() == u.n).order_by(t.id).select(t.id).collect()
+        assert [r['id'] for r in rs] == [1, 2]
+
+        # add_computed_column() fills the existing rows
+        validate_update_status(t.add_computed_column(n=t.j.len()), expected_rows=3)
+        t.add_computed_column(s=pxtf.json.dumps(t.j))
+        assert col(t.n) == [2, 1, None]
+        assert col(t.s) == ['[1, 2]', '[3.5]', None]
+
+        t.update({'j': [4, 5, 6]}, where=t.id == 1, cascade=False)
+        validate_update_status(t.recompute_columns('s', 'n'), expected_rows=3)
+        assert col(t.n) == [3, 1, None]
+        assert col(t.s) == ['[4, 5, 6]', '[3.5]', None]
 
     def test_contains(self, uses_db: None) -> None:
         t = pxt.create_table('json_contains', {'id': pxt.Int | None, 'j': pxt.Json | None})
@@ -530,7 +596,8 @@ class TestJson:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'merge\(\) is only defined for two JSON objects'):
             tn.where(tn.a != None).select(o=tn.a.merge(tn.b)).collect()
 
-    @pytest.mark.very_expensive  # Downloads a Hugging Face model
+    @pytest.mark.skip_merge_queue  # Downloads a Hugging Face model
+    @pytest.mark.xdist_group('large_model')
     @rerun_on_network_error()
     def test_list_iterator_appl(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         """
@@ -572,6 +639,7 @@ class TestJson:
                 'col_3': pxt.String | None,  # primitive type
                 'col_4': pxt.Json | None,  # untyped json
                 'col_5': pxt.Json[list] | None,  # typed json, but with an untyped subscript
+                'col_6': pxt.Json[list[str]] | None,
             },
         )
 
@@ -587,13 +655,36 @@ class TestJson:
         ):
             pxtf.json.list_iterator(t.col_1, my_int=t.col_2)
 
-        invalid_type_cases = (t.col_2, t.col_3, t.col_4, t.col_5)
-        for expr in invalid_type_cases:
+        for expr in (t.col_2, t.col_6):
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                match=r'list_iterator\(\): Expected a type for `elements` matching `list\[dict\]`',
+                match=r'list_iterator\(\): a list of values that are not dicts needs the keyword form, which names the '
+                rf'output column: `list_iterator\(value={expr!s}\)`',
             ):
                 pxtf.json.list_iterator(expr)
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'list_iterator\(\): `elements` needs a Json list of dicts'
+        ):
+            pxtf.json.list_iterator(t.col_3)
+        for expr in (t.col_4, t.col_5):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=r'cast an untyped value with `.astype\(pxt.Json\[list\[Item\]\] \| None\)`',
+            ):
+                pxtf.json.list_iterator(expr)
+
+        # the form the error message suggests works on untyped json
+        class Item(TypedDict):
+            a: int
+
+        t.insert([{'col_2': [7], 'col_4': {'stops': [{'a': 1}, {'a': 2}]}, 'col_6': ['fault']}])
+        v = pxt.create_view(
+            'test_view', t, iterator=pxtf.json.list_iterator(t.col_4.stops.astype(pxt.Json[list[Item]] | None))
+        )
+        assert v.order_by(v.pos).collect()['a'] == [1, 2]
+        v2 = pxt.create_view('test_view_2', t, iterator=pxtf.json.list_iterator(value=t.col_2, code=t.col_6))
+        assert v2.collect()['value'] == [7]
+        assert v2.collect()['code'] == ['fault']
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'list_iterator\(\): No inputs provided'):
             pxtf.json.list_iterator()
@@ -605,6 +696,7 @@ class TestJson:
         for expr in invalid_type_cases_2:
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                match=r'list_iterator\(\): Expected a type for `my_int` matching `list`',
+                match=r'list_iterator\(\): `my_int` needs a typed Json list, such as `pxt.Json\[list\[str\]\]`; '
+                r'cast an untyped value with `.astype\(pxt.Json\[list\[str\]\] \| None\)`',
             ):
                 pxtf.json.list_iterator(my_int=expr)

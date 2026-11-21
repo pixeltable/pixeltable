@@ -257,6 +257,18 @@ class TestString:
         for row in res:
             assert row['out'] == row['s'][0:4]
 
+        # slice(stop=n) without a start agrees between the SQL and Python paths, for any n
+        for stop in (0, 3, 1000, -2, -1000):
+            sql_res = t.order_by(t.s).select(t.s, out=t.s.slice(stop=stop)).collect()
+            py_res = t.order_by(t.s).select(out=noop_str(t.s).slice(stop=stop)).collect()
+            expected = [s[:stop] for s in sql_res['s']]
+            assert sql_res['out'] == expected, stop
+            assert py_res['out'] == expected, stop
+        prefix = next(s for s in self.TEST_STRS if len(s) > 10)[:3]
+        hits = t.where(t.s.slice(stop=3) == prefix).order_by(t.s).select(t.s).collect()['s']
+        assert hits == [s for s in self.TEST_STRS if s[:3] == prefix]
+        assert len(hits) > 0
+
     def test_match(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
@@ -354,6 +366,19 @@ class TestString:
         assert status.num_excs == 0
         row = t.head()[1]
         assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
+
+        # null values for *args and **kwargs go to the UDF
+        t.add_computed_column(s4=format('{0} {1} {2}', t.input, t.input, t.input))
+        status = t.insert(input=None)
+        assert status.num_excs == 0
+        row = t.where(t.input == None).collect()[0]
+        assert row == {
+            'input': None,
+            's1': 'ABC None',
+            's2': 'DEF None',
+            's3': 'GHI None JKL None',
+            's4': 'None None None',
+        }
 
     def test_string_splitter(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')

@@ -28,7 +28,7 @@ def _get_combined_ordering(
     """Returns an ordering that's compatible with both o1 and o2, or an empty list if no such ordering exists"""
     result: list[tuple[exprs.Expr, bool]] = []
     for (e1, asc1), (e2, asc2) in zip(o1, o2):
-        if e1.id != e2.id:
+        if e1._expr_id != e2._expr_id:
             return []
         if asc1 is not None and asc2 is not None and asc1 != asc2:
             return []
@@ -113,7 +113,15 @@ class Analyzer:
             self.stratify_exprs = [e.resolve_computed_cols() for e in sample_clause.stratify_exprs]
         else:
             self.stratify_exprs = []
-        self.order_by_clause = [OrderByItem(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
+
+        self.order_by_clause = []
+        for orig_expr, asc in order_by_clause:
+            e = orig_expr.resolve_computed_cols()
+            # fix up ordering by on-read validated media cols: we order by the unvalidated stored value
+            if isinstance(e, exprs.ColumnRef) and e.perform_validation:
+                e = e.components[0]
+            self._validate_order_by_expr(e, orig_expr)
+            self.order_by_clause.append(OrderByItem(e, asc))
 
         self.sql_where_clause = None
         self.filter = None
@@ -133,7 +141,7 @@ class Analyzer:
         if self.filter is not None:
             if sample_clause is not None:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter {self.filter} not expressible in SQL'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter {self.filter!s} not expressible in SQL'
                 )
             self.all_exprs.append(self.filter)
 
@@ -169,12 +177,13 @@ class Analyzer:
             self.group_by_clause = []
 
         # check that select list only contains aggregate output
-        grouping_expr_ids = {e.id for e in self.group_by_clause}
+        grouping_expr_ids = {e._expr_id for e in self.group_by_clause}
         is_agg_output = [self._determine_agg_status(e, grouping_expr_ids)[0] for e in self.select_list]
         if is_agg_output.count(False) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
-                f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}',
+                'Invalid non-aggregate expression in aggregate query: '
+                f'{self.select_list[is_agg_output.index(False)]!s}',
             )
 
         # check that Where clause and filter doesn't contain aggregates
@@ -183,13 +192,13 @@ class Analyzer:
         ):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
-                f'where() cannot contain aggregate functions: {self.sql_where_clause}',
+                f'where() cannot contain aggregate functions: {self.sql_where_clause!s}',
             )
         if self.filter is not None and any(
             _is_std_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
         ):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter}'
+                excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter!s}'
             )
 
         # sort-based aggregation relies on the SQL scan returning rows in group order
@@ -208,42 +217,76 @@ class Analyzer:
             if not self.sql_elements.contains(e):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION,
-                    f'Invalid grouping expression, needs to be expressible in SQL: {e}. '
+                    f'Invalid grouping expression, needs to be expressible in SQL: {e!s}. '
+                    f'No SQL translation: {", ".join(self._no_sql_subexprs(e))}. '
                     'Store the value in a computed column of a scalar type (cast with .astype() if needed) '
                     'and use that column with distinct() or group_by().',
                 )
             if e.contains_(filter=_is_std_agg_fn_call):
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e}'
+                    excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e!s}'
                 )
+
+    def _validate_order_by_expr(self, e: exprs.Expr, orig_expr: exprs.Expr) -> None:
+        """Raise if e, an order_by() expr after substitutions, has no SQL translation.
+
+        orig_expr is the expr passed to order_by() and needed for the error message.
+        """
+        # SimilarityExpr is turned into SQL by as_order_by_clause()
+        if isinstance(e, exprs.SimilarityExpr) or self.sql_elements.contains(e):
+            return
+        if e.contains_(cls=exprs.FunctionCall, filter=lambda fn_call: bool(fn_call.is_agg_fn_call)):
+            # an aggregate cannot be a computed column
+            workaround = 'As a workaround, you can sort the collected rows.'
+        else:
+            workaround = (
+                'As a workaround, you can add the value as a stored computed column of a scalar type '
+                '(cast with .astype() if needed) and use that column with order_by().'
+            )
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_EXPRESSION,
+            f'Invalid order_by() expression, needs to be expressible in SQL: {orig_expr!s}. '
+            f'No SQL translation: {", ".join(self._no_sql_subexprs(e))}. {workaround}',
+        )
+
+    def _no_sql_subexprs(self, e: exprs.Expr) -> list[str]:
+        """Return the printed form of the smallest subexprs of e without a SQL translation."""
+        # a dict removes duplicate printed forms and keeps their order
+        return list(
+            dict.fromkeys(
+                str(s)
+                for s in e.subexprs()
+                if not self.sql_elements.contains(s) and self.sql_elements.contains_all(s.components)
+            )
+        )
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
         """Determine whether expr is the input to or output of an aggregate function.
         Returns:
             (<is output>, <is input>)
         """
-        if e.id in grouping_expr_ids:
+        if e._expr_id in grouping_expr_ids:
             return True, True
         elif _is_std_agg_fn_call(e):
             for c in e.components:
                 _, is_input = self._determine_agg_status(c, grouping_expr_ids)
                 if not is_input:
-                    raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e}')
+                    raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e!s}')
             return True, False
-        elif isinstance(e, (exprs.Literal, exprs.Variable)):
-            return True, True
         elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
             # we already know that this isn't a grouping expr
             return False, True
+        elif len(e.components) == 0:
+            # e does not reference a table column
+            return True, True
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
-            assert len(e.components) > 0
             statuses: list[tuple[bool, bool]] = [self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
             is_output = all(out for out, _ in statuses)
             is_input = all(inp for _, inp in statuses)
             if not is_output and not is_input:
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression, mixes aggregate with non-aggregate: {e}'
+                    excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression, mixes aggregate with non-aggregate: {e!s}'
                 )
             return is_output, is_input
 
@@ -263,15 +306,19 @@ class Analyzer:
         row_builder.set_slot_idxs(self.agg_fn_calls)
         row_builder.set_slot_idxs(self.agg_order_by)
 
-    def get_window_fn_ob_clause(self) -> OrderByClause | None:
-        clause: list[OrderByClause] = []
+    def get_window_fn_orderings(self) -> list[OrderByClause]:
+        """Return the ordering required by each window function."""
+        orderings: list[OrderByClause] = []
         for fn_call in self.window_fn_calls:
             # window functions require ordering by the group_by/order_by clauses
             group_by_exprs, order_by_exprs = fn_call.get_window_sort_exprs()
-            clause.append(
+            orderings.append(
                 [OrderByItem(e, None) for e in group_by_exprs] + [OrderByItem(e, True) for e in order_by_exprs]
             )
-        return combine_order_by_clauses(clause)
+        return orderings
+
+    def get_window_fn_ob_clause(self) -> OrderByClause | None:
+        return combine_order_by_clauses(self.get_window_fn_orderings())
 
     def has_agg(self) -> bool:
         """True if there is any kind of aggregation in the query"""
@@ -279,18 +326,28 @@ class Analyzer:
 
 
 class Planner:
+    _ROW_BATCH_SIZE = 1024
+
     @classmethod
     def create_insert_plan(
-        cls, tbl: catalog.TableVersion, source: list[dict[str, Any]] | SqlDataSource, ignore_errors: bool
+        cls,
+        tbl: catalog.TableVersion,
+        source: Iterable[dict[str, Any]] | SqlDataSource,
+        ignore_errors: bool,
+        skip_existing_keys: bool = False,
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource."""
+        """Creates a plan for TableVersion.insert() from either a stream of row dicts or a SqlDataSource.
+
+        With skip_existing_keys, the plan drops each row whose primary key is already in tbl, before computing its
+        computed columns.
+        """
         assert not tbl.is_view
         output_cols = cls._compute_output_cols(tbl, for_insert=True)
         assert len(output_cols) > 0
         cls.__check_valid_columns(tbl, output_cols, 'inserted into')
 
         row_builder = exprs.RowBuilder([], output_cols, [], tbl)
-        plan, batch_size = cls._create_input_plan(tbl, source, row_builder)
+        plan = cls._create_input_plan(tbl, source, row_builder, skip_existing_keys=skip_existing_keys)
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
             plan = exec.ExprEvalNode(
@@ -300,7 +357,7 @@ class Planner:
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=cls._ROW_BATCH_SIZE, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
         return plan
 
@@ -321,29 +378,29 @@ class Planner:
     def _create_input_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: list[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | SqlDataSource,
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
-    ) -> tuple[exec.ExecNode, int]:
+        skip_existing_keys: bool = False,
+    ) -> exec.ExecNode:
         """
-        Creates the input stage shared by insert/compute plans: materializes 'source' (in-memory rows or a
+        Create the input stage shared by insert/compute plans from 'source' (a stream of row dicts or a
         SqlDataSource, containing values for the mutable columns of 'tbl'), plus a prefetch node for media
-        inputs. Returns the plan and its exec batch size.
+        inputs.
         """
         from pixeltable.io.data_sources import SqlDataSource
 
         plan: exec.ExecNode
-        batch_size: int
         if isinstance(source, SqlDataSource):
             plan = exec.SqlDataNode(tbl.handle, source, row_builder)
-            batch_size = 1024
         else:
-            assert isinstance(source, list)
-            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
-            batch_size = 0
+            plan = exec.RowDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
 
+        if skip_existing_keys:
+            # ahead of the prefetch node: a skipped row's media isn't fetched
+            plan = exec.AntiJoinNode(tbl.handle, row_builder, plan)
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
-        return plan, batch_size
+        return plan
 
     @classmethod
     def columns_to_compute(
@@ -404,6 +461,20 @@ class Planner:
         ]
 
     @classmethod
+    def check_required_input_columns(
+        cls, path: catalog.TablePath, rows: Iterable[dict[str, Any]], outputs: Iterable[catalog.ColumnVersionMd] | None
+    ) -> None:
+        """Raise an error if a row lacks a value for one of the `required_input_columns()`."""
+        required_col_names = [md.name for md in cls.required_input_columns(path, outputs)]
+        for row in rows:
+            missing_col_names = [name for name in required_col_names if name not in row]
+            if len(missing_col_names) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED,
+                    f'Missing required column(s) ({", ".join(missing_col_names)}) in row {row}',
+                )
+
+    @classmethod
     def create_compute_plan(
         cls,
         path: catalog.TableVersionPath,
@@ -418,7 +489,7 @@ class Planner:
 
         Plan shape:
         - the input rows are handled identically to insert:
-            - InMemoryDataNode
+            - RowDataNode
             - PrefetchNode
         - each table in 'path' adds its incremental nodes:
             - ExprEvalNode + FilterNode for view predicate enforcement
@@ -429,14 +500,7 @@ class Planner:
         base_tv = tvs[0].get()
         assert base_tv.is_insertable
 
-        required_col_names = [md.name for md in cls.required_input_columns(path, outputs)]
-        for row in rows:
-            missing_col_names = [name for name in required_col_names if name not in row]
-            if len(missing_col_names) > 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.MISSING_REQUIRED,
-                    f'Missing required column(s) ({", ".join(missing_col_names)}) in row {row}',
-                )
+        cls.check_required_input_columns(path, rows, outputs)
 
         # columns to materialize, base to target; each level's columns are computed at that level's stage
         compute_qids = {md.qcolid for md in cls.columns_to_compute(path, outputs)}
@@ -467,10 +531,10 @@ class Planner:
             assert result is not None
             return result
 
-        # InMemoryDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
+        # RowDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
         input_col_names = {e.col_md.name for e in row_builder.input_exprs if isinstance(e, exprs.ColumnRef)}
         rows = [{name: val for name, val in row.items() if name in input_col_names} for row in rows]
-        plan, _ = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
+        plan = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
         # the plan preserves input row order (all ExprEvalNodes maintain input order), so output rows map
         # positionally to input rows; avail: exprs whose slots are materialized so far
         materialized = exprs.ExprSet(row_builder.input_exprs)
@@ -509,7 +573,7 @@ class Planner:
 
     @classmethod
     def create_query_insert_plan(
-        cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool
+        cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool, skip_existing_keys: bool = False
     ) -> exec.ExecNode:
         assert not tbl.is_view
         # The compiled plan owns the planner-mutated select-list exprs (with slot_idx assigned).
@@ -517,17 +581,23 @@ class Planner:
         # the pre-compile copies and don't carry slot_idx).
         compiled = query._create_query_plan()
         plan: exec.ExecNode = compiled.exec_root
+        # The query result can have an arbitrary number of rows; stream it so that it isn't held in memory at once.
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        sql_node.set_stream_results(True)
         output_cols = [tbl.cols_by_name.get(col_name) for col_name in compiled.select_list_schema]
         assert all(col is not None for col in output_cols)
         plan.row_builder.set_table_output(
             tbl, expr_cols=[(col, e.slot_idx) for col, e in zip(output_cols, compiled.select_list_exprs)]
         )
+        if skip_existing_keys:
+            plan = exec.AntiJoinNode(tbl.handle, plan.row_builder, plan)
         needs_cell_materialization = any(col.col_type.needs_cell_materialization() for col in output_cols)
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=cls._ROW_BATCH_SIZE, ignore_errors=ignore_errors))
 
         return plan
 
@@ -782,7 +852,9 @@ class Planner:
             return input
 
     @classmethod
-    def _add_cell_reconstruction_node(cls, expr_list: list[exprs.Expr], input: exec.ExecNode) -> exec.ExecNode:
+    def _add_cell_reconstruction_node(
+        cls, expr_list: list[exprs.Expr], sql_col_refs: exprs.ExprSet[exprs.ColumnRef], input: exec.ExecNode
+    ) -> exec.ExecNode:
         """
         Add a CellReconstructionNode, if required by any of the exprs in expr_list.
 
@@ -792,6 +864,9 @@ class Planner:
         2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
         The json-typed ColumnRefs that JsonPaths are anchored on also need the node, which loads their objects that are
         stored in remote chunks.
+        Only ColumnRefs whose slots the SQL scan populates (members of sql_col_refs) are reconstructed. A ColumnRef
+        that appears only inside an expr computed in SQL, or only in an order-by or join clause, has no value in the
+        row.
         """
 
         def json_filter(e: exprs.Expr) -> bool:
@@ -813,20 +888,22 @@ class Planner:
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
 
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
-        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
-        json_ref_ids = {e.id for e in json_refs}
+        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef) and e in sql_col_refs]
+        json_ref_ids = {e._expr_id for e in json_refs}
         json_path_anchors = [
             e.anchor
             for e in json_candidates
             if isinstance(e, exprs.JsonPath)
             and isinstance(e.anchor, exprs.ColumnRef)
-            and e.anchor.id not in json_ref_ids
+            and e.anchor in sql_col_refs
+            and e.anchor._expr_id not in json_ref_ids
         ]
-        array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
-        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
-        binary_refs = list(
-            exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
+        array_candidates = exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False)
+        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef) and e in sql_col_refs]
+        binary_candidates = exprs.Expr.list_subexprs(
+            expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False
         )
+        binary_refs = [e for e in binary_candidates if e in sql_col_refs]
         if len(json_refs) > 0 or len(json_path_anchors) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
             return exec.CellReconstructionNode(
                 json_refs, array_refs, binary_refs, json_path_anchors, input.row_builder, input=input
@@ -1066,6 +1143,12 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
+        # This scan reads every base row created at the current version, which is an arbitrary number of rows. Stream
+        # it so that it isn't held in memory at once.
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        sql_node.set_stream_results(True)
+        exec_ctx.batch_size = cls._ROW_BATCH_SIZE
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):
@@ -1081,35 +1164,14 @@ class Planner:
             if join_clause.join_predicate is not None and analyzer.sql_elements.get(join_clause.join_predicate) is None:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Join predicate {join_clause.join_predicate} not expressible in SQL',
+                    f'Join predicate {join_clause.join_predicate!s} not expressible in SQL',
                 )
 
     @classmethod
-    def _create_combined_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> OrderByClause | None:
-        """Verify that the various ordering requirements don't conflict and return a combined ordering"""
-        ob_clauses: list[OrderByClause] = [analyzer.order_by_clause.copy()]
-
-        if verify_agg:
-            ordering: OrderByClause
-            for fn_call in analyzer.window_fn_calls:
-                # window functions require ordering by the group_by/order_by clauses
-                gb, ob = fn_call.get_window_sort_exprs()
-                ordering = [OrderByItem(e, None) for e in gb] + [OrderByItem(e, True) for e in ob]
-                ob_clauses.append(ordering)
-            for fn_call in analyzer.agg_fn_calls:
-                # agg functions with an ordering requirement are implicitly ascending
-                ordering = [OrderByItem(e, None) for e in analyzer.group_by_clause] + [
-                    OrderByItem(e, True) for e in fn_call.get_agg_order_by()
-                ]
-                ob_clauses.append(ordering)
-
-        if len(ob_clauses) == 0:
-            return None
-        elif len(ob_clauses) == 1:
-            return ob_clauses[0]
-
-        combined_ordering = ob_clauses[0]
-        for ordering in ob_clauses[1:]:
+    def _combine_orderings(cls, orderings: list[OrderByClause]) -> OrderByClause:
+        """Return an ordering that satisfies all orderings; raises if they conflict."""
+        combined_ordering: OrderByClause = []
+        for ordering in orderings:
             combined = combine_order_by_clauses([combined_ordering, ordering])
             if combined is None:
                 raise excs.RequestError(
@@ -1119,6 +1181,38 @@ class Planner:
                 )
             combined_ordering = combined
         return combined_ordering
+
+    @classmethod
+    def _create_agg_input_ordering(cls, analyzer: Analyzer) -> OrderByClause:
+        """
+        Combine the ordering requirements of the order_by() clause, the window functions, the grouping exprs and
+        the aggregate functions into the ordering of the AggregationNode input.
+
+        Raises if they conflict.
+        """
+        # AggregationNode only needs equal grouping values to be adjacent: order the grouping exprs like the
+        # order_by() clause, followed by the remaining ones
+        order_by_ids = [item.expr._expr_id for item in analyzer.order_by_clause]
+        grouping_exprs_by_id = {e._expr_id: e for e in analyzer.group_by_clause}
+        ordered_exprs = [grouping_exprs_by_id[expr_id] for expr_id in order_by_ids if expr_id in grouping_exprs_by_id]
+        ordered_exprs.extend(e for e in analyzer.group_by_clause if e._expr_id not in order_by_ids)
+        grouping_ordering = [OrderByItem(e, None) for e in ordered_exprs]
+        if combine_order_by_clauses([analyzer.order_by_clause, grouping_ordering]) is None:
+            # TODO(PXT-1827): sort the output of AggregationNode instead of raising
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot order by {print_order_by_clause(analyzer.order_by_clause)}: '
+                f'order_by() is limited to the grouping expressions '
+                f'({", ".join(str(e) for e in analyzer.group_by_clause)}) when part of an aggregate query '
+                'cannot run in SQL. As a workaround, you can sort the collected rows.',
+            )
+        orderings = [analyzer.order_by_clause, *analyzer.get_window_fn_orderings(), grouping_ordering]
+        # agg functions with an ordering requirement are implicitly ascending
+        orderings.extend(
+            grouping_ordering + [OrderByItem(e, True) for e in fn_call.get_agg_order_by()]
+            for fn_call in analyzer.agg_fn_calls
+        )
+        return cls._combine_orderings(orderings)
 
     @classmethod
     def _add_save_node(cls, input_node: exec.ExecNode) -> exec.ExecNode:
@@ -1132,7 +1226,7 @@ class Planner:
     @classmethod
     def _is_contained_in(cls, l1: Iterable[exprs.Expr], l2: Iterable[exprs.Expr]) -> bool:
         """Returns True if l1 is contained in l2"""
-        return {e.id for e in l1} <= {e.id for e in l2}
+        return {e._expr_id for e in l1} <= {e._expr_id for e in l2}
 
     @classmethod
     def _add_prefetch_node(
@@ -1268,19 +1362,16 @@ class Planner:
         if deleted_at_current_version is None:
             deleted_at_current_version = []
         sql_elements = analyzer.sql_elements
-        is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
-            analyzer.window_fn_calls
-        )
         ctx = exec.ExecContext(row_builder)
 
-        combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
+        # raises if the order_by() clause and the window functions require conflicting orderings
+        _ = cls._combine_orderings([analyzer.order_by_clause, *analyzer.get_window_fn_orderings()])
         cls._verify_join_clauses(analyzer)
 
-        # materialized with SQL table scans (ie, single-table SELECT statements):
+        # materialized in SQL, by the SqlScanNode or SqlJoinNode:
         # - Select list subexprs that aren't aggregates. In a grouping aggregation, only the args of aggregate and
         # window function calls; the rest of the analyzer's select list is aggregate output, which is not allowed to be
         # materialized in the inner scan.
-        # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
         # - all stratify exprs
@@ -1315,25 +1406,28 @@ class Planner:
         # don't round-trip cleanly through SQL parameter binding)
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
-        # create table scans; each scan produces subexprs of (sql_exprs + join clauses)
-        join_exprs = exprs.ExprSet(
-            join_clause.join_predicate
-            for join_clause in analyzer.from_clause.join_clauses
-            if join_clause.join_predicate is not None
-        )
-        scan_target_exprs = sql_exprs | join_exprs
-        tbl_scan_plans: list[exec.SqlScanNode] = []
         plan: exec.ExecNode
-        for tbl in analyzer.from_clause.tvps:
-            # materialize all subexprs of scan_target_exprs that are bound by tbl
+        tbl = analyzer.from_clause.tvps[-1]
+        if len(analyzer.from_clause.join_clauses) > 0:
+            # SqlJoinNode does not apply these arguments
+            assert len(columns) == 0
+            assert len(created_at_current_version) == 0 and len(deleted_at_current_version) == 0
+            assert exclude_deleted_at_current_version is None
+            plan = exec.SqlJoinNode(
+                row_builder,
+                tbls=analyzer.from_clause.tvps,
+                join_clauses=analyzer.from_clause.join_clauses,
+                select_list=sql_exprs,
+                cell_md_col_refs=cls._cell_md_col_refs(sql_exprs),
+            )
+        else:
             tbl_scan_exprs = exprs.ExprSet(
                 exprs.Expr.list_subexprs(
-                    scan_target_exprs,
+                    sql_exprs,
                     filter=lambda e: e.is_bound_by([tbl]) and not isinstance(e, exprs.Literal),
                     traverse_matches=False,
                 )
             )
-
             plan = exec.SqlScanNode(
                 tbl,
                 row_builder,
@@ -1345,17 +1439,6 @@ class Planner:
                 deleted_at_current_version=deleted_at_current_version,
                 exclude_deleted_at_current_version=exclude_deleted_at_current_version,
             )
-            tbl_scan_plans.append(plan)
-
-        if len(analyzer.from_clause.join_clauses) > 0:
-            plan = exec.SqlJoinNode(
-                row_builder,
-                inputs=tbl_scan_plans,
-                join_clauses=analyzer.from_clause.join_clauses,
-                select_list=sql_exprs,
-            )
-        else:
-            plan = tbl_scan_plans[0]
 
         if analyzer.sql_where_clause is not None:
             plan.set_where(analyzer.sql_where_clause)
@@ -1373,7 +1456,11 @@ class Planner:
             )
 
         plan = cls._add_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
-        plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, plan)
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        # the SqlNode's select list also has the iterator args and outputs that it adds for unstored iterator columns
+        sql_col_refs = exprs.ExprSet(e for e in sql_node.select_list if isinstance(e, exprs.ColumnRef))
+        plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, sql_col_refs, plan)
 
         if analyzer.filter is not None:
             plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
@@ -1409,9 +1496,9 @@ class Planner:
                     plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
                     plan.set_gc(False)
 
-                assert combined_ordering is not None
+                # AggregationNode starts a new group whenever the grouping exprs change value
                 input_sql_node = plan.get_node(exec.SqlNode)
-                input_sql_node.set_order_by(combined_ordering)
+                input_sql_node.set_order_by(cls._create_agg_input_ordering(analyzer))
                 plan = exec.AggregationNode(
                     tbl.tbl_version,
                     row_builder,

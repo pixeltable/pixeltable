@@ -1,0 +1,95 @@
+---
+title: 'Pydantic AI Harness'
+description: 'Read-only catalog tools and a memory table for a Pydantic AI Harness agent'
+---
+
+A [Pydantic AI Harness](https://pydantic.dev/docs/ai/harness/) agent can search tables already in your catalog, and it can keep its notes in one of those tables. Use either piece, or both. The Harness guide is [Pixeltable](https://pydantic.dev/docs/ai/harness/pixeltable/). Pydantic models as column values are [Working with Pydantic](/howto/providers/working-with-pydantic).
+
+`Pixeltable(['hr.handbook'])` is a capability. The list is an allowlist of table paths or directory prefixes. `PixeltableMemoryStore(table_name='hr.memory')` is the store you pass to `Memory`. The store creates that table on first use.
+
+## Install
+
+Python 3.11 to 3.14. The `pixeltable` extra installs Pixeltable 0.7.21 or later.
+
+```bash
+pip install 'pydantic-ai-harness[pixeltable]>=0.66.0' 'pydantic-ai-slim[openai]'
+```
+
+`pydantic-ai-slim[openai]` installs the `openai` package. The example model and `pixeltable.functions.openai.embeddings` both call it. Export `OPENAI_API_KEY` before the insert and before `run_sync()`. Pixeltable does not load a `.env` file.
+
+## Example
+
+In `app.py`, declare the handbook on a `TableModel` and the embedding index in `__indexes__`. Run `pxt init` once in the project, then `pxt schema update app.py hr`, which creates `hr.handbook`. See [Embedding indexes](/platform/embedding-indexes). The [Harness guide](https://pydantic.dev/docs/ai/harness/pixeltable/) uses `create_dir()`, `create_table()`, and `add_embedding_index()` for the same table in a notebook.
+
+```python
+import pixeltable as pxt
+from pixeltable.functions.openai import embeddings
+
+TableModel = pxt.model_base()
+embed = embeddings.using(model='text-embedding-3-small')
+
+
+class Handbook(TableModel, name='handbook'):
+    topic: pxt.String
+    text: pxt.String
+
+    __indexes__ = [pxt.EmbeddingIndex(text, embedding=embed)]
+```
+
+```bash
+pxt schema update app.py hr
+```
+
+Importing `app.py` declares the model but does not attach it to the table. Call `bind_all()` with the same last argument as `pxt schema update` first, or `insert()` raises `NOT_BOUND`. `insert()` calls OpenAI to embed `text`.
+
+```python
+from app import Handbook, TableModel
+
+TableModel.bind_all('hr')
+
+Handbook.insert([
+    {
+        'topic': 'expenses',
+        'text': 'Meals during business travel are reimbursed up to 60 EUR per day.',
+    }
+])
+```
+
+The first `run_sync()` creates `hr.memory`.
+
+```python
+from pydantic_ai import Agent
+from pydantic_ai_harness import Memory, Pixeltable
+from pydantic_ai_harness.memory import PixeltableMemoryStore
+
+agent = Agent(
+    'openai:gpt-6.1-sol',
+    capabilities=[
+        Pixeltable(['hr.handbook']),
+        Memory(PixeltableMemoryStore(table_name='hr.memory')),
+    ],
+)
+result = agent.run_sync('Can I expense a 75 EUR dinner? Remember that I travel monthly.')
+print(result.output)
+```
+
+A video example indexes transcripts and frame captions, then searches that stored text: [`pixeltable_video.py`](https://github.com/pydantic/pydantic-ai/blob/main/src/pydantic_ai_harness/examples/pixeltable_video.py).
+
+## Tools and memory
+
+| Tool | Effect |
+| --- | --- |
+| `list_tables` | Returns the allowed table and view paths. |
+| `describe_table` | Returns the kind, comment, columns (type, `is_computed`, `is_stored`), and indexes. |
+| `query_table` | Returns rows matching equality filters, such as `{"status": "open"}`. Timestamp, date, and UUID values are ISO strings. |
+| `similarity_search` | Returns the nearest rows from an embedding index, with a similarity score. Each call embeds the query with that index's embedding function, which can be a paid model call. |
+
+`query_table` and `similarity_search` return `{"table", "rows", "truncated"}`. The default caps are 20 rows and 8000 characters (`max_rows` and `max_chars` on `Pixeltable`). Results skip media, array, binary, unstored computed columns, and unstored iterator outputs. Naming one of those columns in a projection or a filter is an error, and the tool asks the model to retry. A versioned path such as `'hr.handbook:3'` is refused.
+
+`['*']` allowlists the whole catalog, including a memory table. Two `Pixeltable` capabilities on one agent share `id='pixeltable'`. The same configuration stated twice is one capability. Two that differ in any setting (`tables`, `max_rows`, `max_chars`, `guidance`) raise `UserError`. To keep both, give each its own `id` and wrap them in `PrefixTools` from `pydantic_ai.capabilities`.
+
+Writes to `PixeltableMemoryStore` are compare-and-set, and each mutation keeps an operation receipt, so a retried tool call replays instead of applying twice. `Memory(write_metadata=...)` raises `UserError` on this store. A deleted or overwritten memory stays readable at an earlier version, such as `pxt.get_table('hr.memory:3')`. Drop the table to remove that history. `store.table` is the Pixeltable table. Filter `kind == 'file'` for memory rows, and send writes and deletes through the store. A memory write inserts rows, and `insert()` logs a line that begins `Inserted 1 row with 0 errors` followed by the elapsed time. Set `PIXELTABLE_VERBOSITY=0` to silence it.
+
+While Harness is on 0.x, the API can change between minor releases. Deprecation warnings and the release notes name the replacement. See the [version policy](https://pydantic.dev/docs/ai/harness/#version-policy).
+
+`Pixeltable` loads from an [agent spec](https://pydantic.dev/docs/ai/core-concepts/agent-spec/) when you pass `custom_capability_types=[Pixeltable]`. `PixeltableMemoryStore` stays in Python. The spec backends for `Memory` are `memory`, `file`, and `sqlite`.

@@ -67,6 +67,7 @@ from ..utils import (
     get_video_files,
     home_bucket_uri,
     new_db_uri,
+    no_local_db_env,
     pxt_raises,
     skip_test_if_not_installed,
 )
@@ -78,6 +79,7 @@ from .conftest import (
     BackgroundPxt,
     PxtRunner,
     assert_in_agreement,
+    daemon_pid,
     db_diff,
     db_update,
     disposable_db,
@@ -271,25 +273,50 @@ class TestService:
         assert listing['type'] == 'array'
         assert 'ServiceInstance' in listing['$defs']
 
-    def test_config_must_agree(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
+    def test_differing_config(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, session_project: pathlib.Path
+    ) -> None:
+        """A service inherits the daemon's config values, so a caller with other values restarts the daemon first.
+
+        A secret in the config file of a project with a pixeltable.udf setting is refused.
+        """
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('basic.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
         differing = {'OPENAI_API_KEY': 'sk-not-the-one-the-daemon-has'}
 
-        # the plan and the service are both refused, and the refusal names the variable and the remedy
-        for args in (('diff', app, target), ('update', app, target, '-f')):
-            r = cli('service', *args, env_overrides=differing, check=False)
-            assert r.returncode == 1, r.stdout
-            assert 'OPENAI_API_KEY' in r.stderr
-            assert 'pxt daemon restart' in r.stderr
-        assert get_services(cli, target) == {}, 'a refused update started something'
+        pid = daemon_pid(cli)
 
-        # the same commands run for a caller whose environment the daemon shares
+        # the plan restarts the daemon with the caller's value; rc 2 is 'changes pending'
+        r = cli('service', 'diff', app, target, env_overrides=differing, check=False)
+        assert r.returncode == 2, r.stderr
+        restarted_pid = daemon_pid(cli)
+        assert restarted_pid != pid
+
+        # the update runs on that daemon
+        cli('service', 'update', app, target, '-f', env_overrides=differing)
+        assert daemon_pid(cli) == restarted_pid
+        running = cli('service', 'list', target, '--json', env_overrides=differing).json
+        assert [s['name'] for s in running] == ['ingest']
+
+        # the same commands run for a caller without the variable
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
+
+        # a secret in the config file of a project with a pixeltable.udf setting
+        config_file = session_project / 'pixeltable.toml'
+        config = config_file.read_text(encoding='utf-8')
+        config_file.write_text(
+            f"{config}\n[openai]\napi_key = 'sk-project'\n\n[pixeltable.udf.'pixeltable.functions.video.clip']\n",
+            encoding='utf-8',
+        )
+        try:
+            r = cli('service', 'diff', app, target, check=False)
+            assert r.returncode == 1
+            assert "'openai.api_key' in" in r.stderr and 'is a secret' in r.stderr, r.stderr
+        finally:
+            config_file.write_text(config, encoding='utf-8')
 
     def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The first service: declare, see what is pending, apply it, use it, take it down."""
@@ -930,6 +957,8 @@ class TestService:
         # the plain rendering shows the routes under each service
         out = cli('service', 'list', f'{target}/clips').stdout
         assert '/clips' in out and 'video (file)' in out, out
+        # upload inputs must appear exactly once, as 'name (file)', not also as a plain name before it
+        assert 'video, video' not in out, out
 
     def test_media(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, sample_file_server: SampleFileServer
@@ -1461,7 +1490,9 @@ class TestService:
 class TestCloudService:
     """`pxt service` against a hosted database."""
 
-    def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_service_lifecycle(
+        self, cli: PxtRunner, project: pathlib.Path, current_db: str, daemon_port: int, tmp_path: pathlib.Path
+    ) -> None:
         app_file = str(project / APP_FILE)
         schema_update(cli, project, app_file, current_db)
         # the database is shared, so it serves whatever routes the run before this one left registered
@@ -1493,6 +1524,9 @@ class TestCloudService:
         service_update(cli, project, app_file, current_db)
         reconciled = service_diff(cli, project, app_file, current_db)
         assert reconciled['in_agreement'], reconciled['services']
+        # a daemon of its own, started without a local database, finds the services in agreement too
+        no_local_db = {**no_local_db_env('embedded', tmp_path), 'PXT_PORT': str(daemon_port)}
+        assert service_diff(cli, project, app_file, current_db, env_overrides=no_local_db)['in_agreement']
 
         # stopping keeps the registration, so an update starts it again
         cli('service', 'stop', f'{current_db}/ingest', cwd=project)
@@ -2144,6 +2178,7 @@ class TestServiceOtel:
     )
     def test_run_otel(
         self,
+        init_env: None,
         tmp_path: pathlib.Path,
         monkeypatch: pytest.MonkeyPatch,
         excluded_urls_env: dict[str, str],

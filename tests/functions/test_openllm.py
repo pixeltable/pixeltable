@@ -28,8 +28,8 @@ def skip_test_if_no_openllm() -> None:
         pytest.skip('OpenLLM daemon is not reachable.')
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestOpenLLM:
     def test_chat_completions(self, uses_db: None) -> None:

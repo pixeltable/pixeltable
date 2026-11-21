@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -20,7 +19,7 @@ from pixeltable.type_system import sa_type_as_dict
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps, warn_if_pxtfs_destination
 
-from .globals import MediaValidation, fold_identifier, is_system_column_name, is_valid_identifier
+from .globals import MediaValidation, fold_identifier, is_reserved_column_name, is_valid_identifier
 from .types import ColumnVersionMd, QColumnId
 
 if TYPE_CHECKING:
@@ -348,7 +347,7 @@ class Column:
     def validate_name(cls, name: str) -> None:
         """Check that a name is usable as a pixeltable column name"""
         folded_name = fold_identifier(name)
-        if is_system_column_name(folded_name) or is_python_keyword(folded_name):
+        if is_reserved_column_name(folded_name):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_COLUMN_NAME,
                 f'{name!r} is a reserved name in Pixeltable; please choose a different column name.',
@@ -522,13 +521,14 @@ class Column:
         if self._value_expr.contains_(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_std_agg_fn_call):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
-                f'Column {self.name!r}: aggregate functions are not supported in computed columns:\n{self.value_expr}',
+                f'Column {self.name!r}: aggregate functions are not supported in computed columns:\n'
+                f'{self.value_expr!s}',
             )
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
-                f'computed with window functions:\n{self.value_expr}',
+                f'computed with window functions:\n{self.value_expr!s}',
             )
 
     def has_window_fn_call(self) -> bool:

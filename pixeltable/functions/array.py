@@ -9,7 +9,6 @@ Example:
 """
 
 import pixeltable as pxt
-from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf(is_method=True)
@@ -27,7 +26,7 @@ def to_list(self: pxt.Array) -> pxt.Json:
     return self.tolist()
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['to_list']
 
 
 def __dir__() -> list[str]:

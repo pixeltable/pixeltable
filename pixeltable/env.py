@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import datetime
 import http.server
 import importlib
@@ -11,7 +12,6 @@ import logging
 import math
 import os
 import shutil
-import subprocess
 import threading
 import types
 import typing
@@ -19,12 +19,13 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Literal, NamedTuple, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, NamedTuple, TypeVar, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import psutil
+import pydantic
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener
@@ -32,8 +33,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.service.resources import UdfResources
+from pixeltable.utils import fault_injection
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import Dbms, PostgresqlDbms
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import (
     ObjectPath,
@@ -53,6 +57,28 @@ _logger = logging.getLogger(__name__)
 LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
 T = TypeVar('T')
+
+_UDF_RESOURCES_ADAPTER = pydantic.TypeAdapter(dict[str, UdfResources])
+
+
+@dataclasses.dataclass(frozen=True)
+class UdfConfig:
+    """A UDF's entry in the pixeltable.udf setting."""
+
+    # the UDF's path in the setting; the control plane identifies the UDF's server by it
+    setting_path: str
+    resources: UdfResources
+
+
+@dataclasses.dataclass(frozen=True)
+class UdfEndpoints:
+    """The URLs of a database's UDF servers, and the headers that authorize calls to them."""
+
+    # keyed by the UDF's path in the pixeltable.udf setting
+    server_urls: dict[str, str]
+    # sent with every request
+    headers: dict[str, str] = dataclasses.field(repr=False)
+
 
 _DEFAULT_PROXY_DOMAIN = 'pxt.run'
 # The tunnel load balancer also listens on 9000, the default before 443; PIXELTABLE_CLOUD_HOST=pxt.run:9000 picks it
@@ -126,6 +152,7 @@ class Env:
     _tmp_dir: Path | None  # any tmp files, in one TempStore directory per process
     _services_dir: Path | None  # registry of local services
     _sa_engine: sql.engine.base.Engine | None
+    _catalog_id: str | None  # SystemInfoMd.catalog_id of the connected database
     _pgdata_dir: Path | None
     _db_name: str | None
     _db_server: pixeltable_pgserver.PostgresServer | None  # set only when running in local environment
@@ -157,7 +184,14 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
+    # the last result of udf_configs(), with the config setting that produced it
+    _udf_configs_cache: tuple[dict[str, Any], dict[str, UdfConfig]] | None
+    # the endpoints of the UDF servers; valid until this process changes the local database's deployment, re-imports
+    # project code or gets a failed call, each of which drops them
+    _udf_endpoints: UdfEndpoints | None
     _dbms: Dbms | None
+    _db_lock: threading.Lock  # serializes ensure_connected()
+    _db_connected: bool
 
     @classmethod
     def get(cls) -> Env:
@@ -167,11 +201,11 @@ class Env:
         # hit the assertion in _init_env())
         with cls._init_lock:
             if cls._instance is None:
-                cls._init_env()
+                cls._init_env(connect=False)
         return cls._instance
 
     @classmethod
-    def _init_env(cls, reinit_db: bool = False) -> None:
+    def _init_env(cls, reinit_db: bool = False, *, connect: bool = True) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
         if cls._instance is not None:
@@ -179,8 +213,9 @@ class Env:
         cls._instance = None
         env = Env()
         try:
-            env._set_up(reinit_db=reinit_db)
-            env._upgrade_metadata()
+            env._set_up()
+            if connect:
+                env.ensure_connected(reinit_db=reinit_db)
             cls._instance = env
         finally:
             # Reset the initializing flag, even if setup fails.
@@ -199,6 +234,7 @@ class Env:
         self._tmp_dir = None  # any tmp files
         self._services_dir = None
         self._sa_engine = None
+        self._catalog_id = None
         self._pgdata_dir = None
         self._db_name = None
         self._db_server = None
@@ -217,7 +253,11 @@ class Env:
 
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
+        self._udf_configs_cache = None
+        self._udf_endpoints = None
         self._dbms = None
+        self._db_lock = threading.Lock()
+        self._db_connected = False
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
         # a table is materialized, so a ColumnRef can resolve its table against the right catalog. Lives here
@@ -228,7 +268,7 @@ class Env:
 
     @property
     def db_url(self) -> str:
-        assert self._db_url is not None
+        assert self._db_connected
         return self._db_url
 
     @property
@@ -280,16 +320,12 @@ class Env:
 
     @default_time_zone.setter
     def default_time_zone(self, tz: ZoneInfo | None) -> None:
-        """
-        This is not a publicly visible setter; it is only for testing purposes.
-        """
-        if tz is None:
-            tz_name = self._get_tz_name()
-        else:
-            assert isinstance(tz, ZoneInfo)
-            tz_name = tz.key
-        self.engine.dispose()
-        self._create_engine(time_zone_name=tz_name)
+        """Set the default time zone, or the configured one if tz is None."""
+        self._default_time_zone = ZoneInfo(self._get_tz_name()) if tz is None else tz
+        if self._db_connected:
+            # the engine's connections use the default time zone
+            self.engine.dispose()
+            self._create_engine()
 
     def record_tbl_catalog_uri(self, tbl_id: UUID, catalog_uri: CatalogPath) -> None:
         """Record which catalog a table belongs to. The mapping is immutable per table id."""
@@ -309,13 +345,24 @@ class Env:
 
     @property
     def dbms(self) -> Dbms:
-        assert self._dbms is not None
+        assert self._db_connected
         return self._dbms
 
     @property
     def is_local(self) -> bool:
-        assert self._db_url is not None  # is_local should be called only after db initialization
+        assert self._db_connected
         return self._db_server is not None
+
+    def has_local_db(self) -> bool:
+        """Whether the install has a local database. A call doesn't start Postgres."""
+        config = Config.get()
+        if self._db_connected or config.get_string_value('DB_CONNECT_STR') is not None:
+            return True
+        # initdb writes PG_VERSION; a data directory without it has no cluster
+        return (self._configured_pgdata_dir(config) / 'PG_VERSION').is_file()
+
+    def _configured_pgdata_dir(self, config: Config) -> Path:
+        return Path(config.lookup_env('pixeltable', 'pgdata', str(config.home / 'pgdata')))
 
     def is_notebook(self) -> bool:
         """Return True if running in a Jupyter notebook."""
@@ -338,22 +385,25 @@ class Env:
 
         Returns:
             str: The time zone name.
+
+        Raises:
+            RequestError: INVALID_CONFIGURATION if the configured time zone is not a known zone.
         """
         tz_name = Config.get().get_string_value('time_zone')
         if tz_name is not None:
             # Validate tzname
-            if not isinstance(tz_name, str):
-                _logger.error('Invalid time zone specified in configuration.')
-            else:
-                try:
-                    _ = ZoneInfo(tz_name)
-                except ZoneInfoNotFoundError:
-                    _logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+            try:
+                _ = ZoneInfo(tz_name)
+            except (ZoneInfoNotFoundError, ValueError) as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f"Invalid value for configuration parameter 'pixeltable.time_zone': {tz_name}",
+                ) from e
         else:
             tz_name = tzlocal.get_localzone_name()
         return tz_name
 
-    def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
+    def _set_up(self) -> None:
         if self._initialized:
             return
 
@@ -362,6 +412,7 @@ class Env:
         config = Config.get()
 
         self._initialized = True
+        self._default_time_zone = ZoneInfo(self._get_tz_name())
 
         self._media_dir = Config.get().home / 'media'
         self._file_cache_dir = Config.get().home / 'file_cache'
@@ -500,42 +551,71 @@ class Env:
         self._managed_logging_handlers.append((uvicorn_logger, fh))
 
         self.clear_tmp_dir()
-        tz_name = self._get_tz_name()
+        self._set_up_runtime()
 
-        # configure pixeltable database
-        self._init_db(config)
+    def ensure_connected(self, reinit_db: bool = False) -> None:
+        """Start or connect to the database, create its metadata and upgrade it, unless that already happened."""
+        if self._db_connected:
+            return
+        with self._db_lock:
+            if self._db_connected:
+                return
+            try:
+                self._set_up_db(reinit_db)
+            except BaseException:
+                self._disconnect()
+                raise
+            self._db_connected = True
 
-        if reinit_db and not self.is_local:
+    def _set_up_db(self, reinit_db: bool) -> None:
+        self._init_db(Config.get())
+        is_local = self._db_server is not None
+        if reinit_db and not is_local:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'Reinitializing pixeltable database is not supported when running in non-local environment',
             )
 
-        if self.is_local:
+        redacted_db_url = redact_db_url(self._db_url)
+        if is_local:
             # Embedded postmaster: create or reset the database as needed.
-            if reinit_db and self._store_db_exists(self._db_name):
-                self._drop_store_db()
+            with self._store_db_lock():
+                if reinit_db and self._store_db_exists(self._db_name):
+                    self._drop_store_db()
 
-            create_db = not self._store_db_exists(self._db_name)
-            if create_db:
-                _logger.info(f'creating database at: {self.redacted_db_url}')
-                self._create_store_db()
-            else:
-                _logger.info(f'found database at: {self.redacted_db_url}')
+                create_db = not self._store_db_exists(self._db_name)
+                if create_db:
+                    _logger.info(f'creating database at: {redacted_db_url}')
+                    self._create_store_db()
+                else:
+                    _logger.info(f'found database at: {redacted_db_url}')
         else:
             # External DB: pre-provisioned; no local setup needed.
-            _logger.info(f'Using external database at: {self.redacted_db_url}')
+            _logger.info(f'Using external database at: {redacted_db_url}')
 
-        # Create the SQLAlchemy engine. This will also set the default time zone.
-        self._create_engine(time_zone_name=tz_name, echo=echo)
+        self._create_engine()
 
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
+        self.console_logger.info(f'Connected to Pixeltable database at: {redacted_db_url}')
+        fault_injection.process_fault(FaultLocation.ENV_SET_UP_DB_BEFORE_UPGRADE)
+        self._upgrade_metadata()
+        from pixeltable import metadata
 
-        # we now have a home directory and db; start other services
-        self._set_up_runtime()
+        # after the upgrade, which adds catalog_id to the metadata of an older version
+        self._catalog_id = metadata.catalog_id(self._sa_engine)
+
+    def _disconnect(self) -> None:
+        if self._sa_engine is not None:
+            self._sa_engine.dispose()
+        self._sa_engine = None
+        self._catalog_id = None
+        self._dbms = None
+        self._db_url = None
+        self._db_name = None
+        self._db_server = None
+        self._pgdata_dir = None
 
     def _init_db(self, config: Config) -> None:
         """
@@ -565,7 +645,7 @@ class Env:
                 # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            _logger.info(f'Using database at: {self.redacted_db_url}')
+            _logger.info(f'Using database at: {redact_db_url(self._db_url)}')
         else:
             # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
             from pixeltable.catalog.globals import fold_identifier
@@ -574,7 +654,7 @@ class Env:
             if configured_name:
                 validate_db_name(configured_name)
             folded_name = fold_identifier(configured_name) if configured_name else 'pixeltable'
-            self._pgdata_dir = Path(config.lookup_env('pixeltable', 'pgdata', str(config.home / 'pgdata')))
+            self._pgdata_dir = self._configured_pgdata_dir(config)
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._set_local_db(folded_name)
             # Legacy database (with an unfolded name) fallback
@@ -613,9 +693,10 @@ class Env:
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
-    def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
+    def _create_engine(self) -> None:
         # Add timezone and application_name options to connection string
-        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+        assert self._default_time_zone is not None
+        updated_url = add_option_to_db_url(self._db_url, f'-c timezone={self._default_time_zone.key}')
         updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
         config = Config.get()
@@ -628,23 +709,16 @@ class Env:
 
         self._sa_engine = sql.create_engine(
             updated_url,
-            echo=echo,
             isolation_level=self._dbms.transaction_isolation_level,
             pool_size=pool_size,
             max_overflow=pool_max_overflow,
             pool_pre_ping=True,
         )
 
-        _logger.info(f'Created SQLAlchemy engine at: {self.redacted_db_url}')
+        _logger.info(f'Created SQLAlchemy engine at: {redact_db_url(self._db_url)}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
         _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
-
-        with self.engine.begin() as conn:
-            tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
-            assert isinstance(tz_name, str)
-            _logger.info(f'Database time zone is now: {tz_name}')
-            self._default_time_zone = ZoneInfo(tz_name)
 
     def _set_local_db(self, db_name: str) -> None:
         """Point this Env at `db_name` on the embedded server."""
@@ -652,6 +726,17 @@ class Env:
         self._db_name = db_name
         self._db_url = self._db_server.get_uri(database=db_name, driver='psycopg')
         self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+
+    @contextlib.contextmanager
+    def _store_db_lock(self) -> Iterator[None]:
+        """Serialize creating and dropping this Env's database across processes."""
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
+        try:
+            with engine.begin() as conn:
+                conn.execute(sql.text('SELECT pg_advisory_xact_lock(hashtext(:db_name))'), {'db_name': self._db_name})
+                yield
+        finally:
+            engine.dispose()
 
     def _store_db_exists(self, db_name: str) -> bool:
         """Whether `db_name`, defaulting to this Env's database, exists in the store."""
@@ -678,7 +763,7 @@ class Env:
             engine.dispose()
 
         # enable pgvector
-        engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self._db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
@@ -829,6 +914,8 @@ class Env:
         - the user might prefer a hardware-accelerated encoder (eg, h264_nvenc or h264_videotoolbox)
         - allow user override via a config option 'video_encoder'
         """
+        from pixeltable.utils.av import run_ffmpeg
+
         # look for available encoders, in this order
         candidates = [
             'libx264',  # GPL, best quality
@@ -837,7 +924,7 @@ class Env:
 
         try:
             # Get list of available encoders
-            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+            result = run_ffmpeg(['-encoders'], timeout=10)
 
             if result.returncode == 0:
                 available_encoders = result.stdout
@@ -915,6 +1002,7 @@ class Env:
         self.__register_package('twelvelabs')
         self.__register_package('uvicorn')
         self.__register_package('vllm')
+        self.__register_package('vlmrun')
         self.__register_package('voyageai')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
@@ -1019,8 +1107,74 @@ class Env:
             return info
 
     @property
+    def udf_endpoints(self) -> UdfEndpoints | None:
+        return self._udf_endpoints
+
+    @udf_endpoints.setter
+    def udf_endpoints(self, endpoints: UdfEndpoints | None) -> None:
+        self._udf_endpoints = endpoints
+
+    @classmethod
+    def drop_udf_endpoints(cls) -> None:
+        """Make the next udf_servers.udf_endpoints() look up the endpoints of the UDF servers again."""
+        # not Env.get(): it would create an Env, which has no endpoints to drop
+        if cls._instance is not None:
+            cls._instance._udf_endpoints = None
+
+    def udf_configs(self) -> dict[str, UdfConfig]:
+        """Return the entries of the pixeltable.udf setting, keyed by each UDF's self_path."""
+        # pixeltable.func imports this module
+        from pixeltable import func
+        from pixeltable.func.symbols import resolve_symbol
+
+        config = Config.get()
+        setting = config.get_value('udf', dict)
+        if setting is None:
+            return {}
+        cache = self._udf_configs_cache
+        if cache is not None and cache[0] == setting:
+            return cache[1]
+        source = config.describe_setting('pixeltable', 'udf')
+        try:
+            entries = _UDF_RESOURCES_ADAPTER.validate_python(setting)
+        except pydantic.ValidationError as e:
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid {source}:\n{e}') from e
+
+        result: dict[str, UdfConfig] = {}
+        for path, resources in entries.items():
+            try:
+                fn = resolve_symbol(path)
+            except AttributeError:
+                fn = None
+            if not isinstance(fn, func.CallableFunction):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{source}: {path!r} is not a UDF declared with @pxt.udf'
+                )
+            if not fn.is_builtin:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {path!r} is not a built-in UDF; only built-in UDFs run on Modal',
+                )
+            if any(inspect.iscoroutinefunction(py_fn) for py_fn in fn.py_fns):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {path!r} is async; only synchronous UDFs run on Modal',
+                )
+            assert fn.self_path is not None
+            # a module that re-exports a UDF gives it a second path, which resolves to the same UDF
+            if fn.self_path in result:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {result[fn.self_path].setting_path!r} and {path!r} are the same UDF',
+                )
+            result[fn.self_path] = UdfConfig(path, resources)
+        self._udf_configs_cache = (setting, result)
+        return result
+
+    @property
     def pgdata_dir(self) -> Path | None:
         """Data directory of the embedded Postgres server; None when Pixeltable uses an external database."""
+        assert self._db_connected
         return self._pgdata_dir
 
     @property
@@ -1063,8 +1217,13 @@ class Env:
 
     @property
     def engine(self) -> sql.engine.base.Engine:
-        assert self._sa_engine is not None
+        assert self._db_connected
         return self._sa_engine
+
+    @property
+    def catalog_id(self) -> str:
+        assert self._db_connected
+        return self._catalog_id
 
     def _clean_up(self) -> None:
         """
@@ -1243,7 +1402,10 @@ class RateLimitsInfo:
                 self.has_exc = False
                 for k, v in kwargs.items():
                     if v is not None:
-                        self.resource_limits[k].update(request_ts, *v)
+                        if k in self.resource_limits:
+                            self.resource_limits[k].update(request_ts, *v)
+                        else:
+                            self.resource_limits[k] = RateLimitInfo(k, request_ts, *v)
                         _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
 
     def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:

@@ -16,7 +16,6 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
@@ -242,7 +241,7 @@ async def responses(
     return json.loads(result.text)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'responses']
 
 
 def __dir__() -> list[str]:

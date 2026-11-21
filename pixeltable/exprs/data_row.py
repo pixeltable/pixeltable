@@ -237,6 +237,7 @@ class DataRow:
         target.vals = self.vals.copy()
         target.has_val = self.has_val.copy()
         target.excs = self.excs.copy()
+        target._may_have_exc = self._may_have_exc
         target.pk = self.pk
         target.file_urls = self.file_urls.copy()
         target.file_paths = self.file_paths.copy()

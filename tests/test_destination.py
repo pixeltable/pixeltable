@@ -45,16 +45,18 @@ from .utils import (
 @rerun_on_network_error()
 class TestDestination:
     # The destinations exercised below, each mapped to its parametrization. Every target other than
-    # LOCAL_STORE talks to an external object store, so those params run only on the very_expensive tier.
+    # LOCAL_STORE talks to an external object store, so those params are marked skip_merge_queue.
     TESTED_DESTINATIONS: ClassVar[dict[StorageTarget, object]] = {
-        StorageTarget.AZURE_STORE: pytest.param(StorageTarget.AZURE_STORE, marks=pytest.mark.very_expensive),
-        StorageTarget.B2_STORE: pytest.param(StorageTarget.B2_STORE, marks=pytest.mark.very_expensive),
-        StorageTarget.GCS_STORE: pytest.param(StorageTarget.GCS_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.AZURE_STORE: pytest.param(StorageTarget.AZURE_STORE, marks=pytest.mark.skip_merge_queue),
+        StorageTarget.B2_STORE: pytest.param(StorageTarget.B2_STORE, marks=pytest.mark.skip_merge_queue),
+        StorageTarget.GCS_STORE: pytest.param(StorageTarget.GCS_STORE, marks=pytest.mark.skip_merge_queue),
         StorageTarget.LOCAL_STORE: pytest.param(StorageTarget.LOCAL_STORE),
-        StorageTarget.PIXELTABLE_STORE: pytest.param(StorageTarget.PIXELTABLE_STORE, marks=pytest.mark.very_expensive),
-        StorageTarget.R2_STORE: pytest.param(StorageTarget.R2_STORE, marks=pytest.mark.very_expensive),
-        StorageTarget.S3_STORE: pytest.param(StorageTarget.S3_STORE, marks=pytest.mark.very_expensive),
-        StorageTarget.TIGRIS_STORE: pytest.param(StorageTarget.TIGRIS_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.PIXELTABLE_STORE: pytest.param(
+            StorageTarget.PIXELTABLE_STORE, marks=pytest.mark.skip_merge_queue
+        ),
+        StorageTarget.R2_STORE: pytest.param(StorageTarget.R2_STORE, marks=pytest.mark.skip_merge_queue),
+        StorageTarget.S3_STORE: pytest.param(StorageTarget.S3_STORE, marks=pytest.mark.skip_merge_queue),
+        StorageTarget.TIGRIS_STORE: pytest.param(StorageTarget.TIGRIS_STORE, marks=pytest.mark.skip_merge_queue),
     }
 
     @classmethod
@@ -145,7 +147,7 @@ class TestDestination:
                 img_rot=t.img.rotate(90), destination='tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
             )
 
-    @pytest.mark.very_expensive
+    @pytest.mark.skip_merge_queue
     def test_invalid_bucket(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image | None})
@@ -564,7 +566,7 @@ class TestDestination:
         assert dest.local_path.read_bytes() == b'cross-device payload'
         assert not src_path.exists()
 
-    @pytest.mark.very_expensive
+    @pytest.mark.skip_merge_queue
     def test_dest_all(self, db_root: DatabaseRoot) -> None:
         """Test destination with all available storage targets"""
         p = db_root.make_catalog_path
@@ -793,7 +795,7 @@ class TestDestination:
         pxt.drop_table(t)
 
     @pytest.mark.db_roots('local', reason='media destination/object-store internals')
-    @pytest.mark.very_expensive
+    @pytest.mark.skip_merge_queue
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs
@@ -916,7 +918,7 @@ class TestDestination:
     }
 
     @pytest.mark.db_roots('local', reason='media destination/object-store internals')
-    @pytest.mark.very_expensive
+    @pytest.mark.skip_merge_queue
     @pytest.mark.parametrize('dest_id', PUBLIC_TEST_OBJECTS.keys())
     def test_public_download(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test downloading a media object from a public Store"""

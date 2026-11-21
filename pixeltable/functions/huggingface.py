@@ -21,7 +21,6 @@ import pixeltable.type_system as ts
 from pixeltable import env, telemetry, telemetry_schemas
 from pixeltable.func import Batch
 from pixeltable.functions.model_support import normalize_image_mode, resolve_torch_device
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 T = TypeVar('T')
@@ -918,7 +917,7 @@ def vit_for_image_classification(
     Args:
         image: The image to classify.
         model_id: The pretrained model to use for the classification.
-        top_k: The number of classes to return.
+        top_k: The number of classes to return; if it exceeds the number of classes, all classes are returned.
 
     Returns:
         A dictionary containing the output of the image classification model, in the following format:
@@ -963,7 +962,7 @@ def vit_for_image_classification(
         logits = outputs.logits
 
     probs = torch.softmax(logits, dim=-1)
-    top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, min(top_k, probs.shape[-1]), dim=-1)
 
     # There is no official post_process method for ViT models; for consistency, we structure the output
     # the same way as the output of the DETR model given by `post_process_object_detection`.
@@ -1187,7 +1186,7 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
     Args:
         text: The text to classify.
         model_id: The pretrained model to use for classification.
-        top_k: The number of top predictions to return.
+        top_k: The number of top predictions to return; if it exceeds the number of labels, all labels are returned.
 
     Returns:
         A dictionary containing classification results with scores, labels, and label text.
@@ -1216,7 +1215,7 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
         logits = outputs.logits
 
     probs = torch.softmax(logits, dim=-1)
-    top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, min(top_k, probs.shape[-1]), dim=-1)
 
     results: list[list[TextClassificationResponse]] = []
     for i in range(len(text)):
@@ -1707,19 +1706,13 @@ def text_to_image(
         model_id,
         AutoPipelineForText2Image.from_pretrained,
         device=device,
-        dtype=torch.float16 if device == 'cuda' else torch.float32,
-        device_map='auto' if device == 'cuda' else None,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
         safety_checker=None,
         requires_safety_checker=False,
     )
 
-    try:
-        if device == 'cuda' and hasattr(pipeline, 'enable_model_cpu_offload'):
-            pipeline.enable_model_cpu_offload()
-        if hasattr(pipeline, 'enable_memory_efficient_attention'):
-            pipeline.enable_memory_efficient_attention()
-    except Exception:
-        pass  # Ignore optimization failures
+    if device == 'cuda':
+        pipeline.enable_model_cpu_offload()
 
     generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
@@ -1907,19 +1900,13 @@ def image_to_image(
         model_id,
         AutoPipelineForImage2Image.from_pretrained,
         device=device,
-        dtype=torch.float16 if device == 'cuda' else torch.float32,
-        device_map='auto' if device == 'cuda' else None,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
         safety_checker=None,
         requires_safety_checker=False,
     )
 
-    try:
-        if device == 'cuda' and hasattr(pipeline, 'enable_model_cpu_offload'):
-            pipeline.enable_model_cpu_offload()
-        if hasattr(pipeline, 'enable_memory_efficient_attention'):
-            pipeline.enable_memory_efficient_attention()
-    except Exception:
-        pass  # Ignore optimization failures
+    if device == 'cuda':
+        pipeline.enable_model_cpu_offload()
 
     generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
@@ -2163,13 +2150,8 @@ def image_to_video(
         variant='fp16' if device == 'cuda' else None,
     )
 
-    try:
-        if device == 'cuda' and hasattr(pipe, 'enable_model_cpu_offload'):
-            pipe.enable_model_cpu_offload()
-        if hasattr(pipe, 'enable_memory_efficient_attention'):
-            pipe.enable_memory_efficient_attention()
-    except Exception:
-        pass  # Ignore optimization failures
+    if device == 'cuda':
+        pipe.enable_model_cpu_offload()
 
     generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
@@ -2267,7 +2249,31 @@ _speecht5_embeddings_dataset: list[Any] = []  # contains only the speecht5 embed
 _processor_cache: dict[tuple, Any] = {}
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'automatic_speech_recognition',
+    'clip',
+    'cross_encoder',
+    'detr_for_object_detection',
+    'detr_for_segmentation',
+    'detr_to_coco',
+    'image_captioning',
+    'image_to_image',
+    'image_to_video',
+    'question_answering',
+    'sam3_for_segmentation',
+    'sam3_for_video_segmentation',
+    'sam_automatic_mask_generation',
+    'sentence_transformer',
+    'speech2text_for_conditional_generation',
+    'summarization',
+    'text_classification',
+    'text_generation',
+    'text_to_image',
+    'text_to_speech',
+    'token_classification',
+    'translation',
+    'vit_for_image_classification',
+]
 
 
 def __dir__() -> list[str]:

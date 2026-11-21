@@ -82,7 +82,7 @@ def _snowflake_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
 
     if col_type.is_json_type():
         Env.get().require_package('snowflake.sqlalchemy')
-        from snowflake.sqlalchemy import VARIANT  # type: ignore[import-untyped]
+        from snowflake.sqlalchemy import VARIANT
 
         return VARIANT()
     return col_type.to_sa_type()

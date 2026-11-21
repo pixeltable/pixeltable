@@ -26,10 +26,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config, env_var_name
+from pixeltable.config import Config
 from pixeltable.service import management_client
 
-from .daemon_state import compare_env_values, config_fingerprint, state as daemon_state
+from .daemon_state import compare_env_values, config_fingerprint, fingerprinted_settings, state as daemon_state
 from .router import Method, RawResponse, Request
 from .routes import router
 
@@ -53,7 +53,7 @@ _ENV_HEADER = 'x-pxt-env-fingerprint'
 def _changed_settings(names: list[str]) -> str:
     """One line per changed setting: how the file or the environment holding it spells it, and where it is."""
     config = Config.get()
-    keys = {env_var_name(ck.section, ck.key): ck for ck in config.env_keys()}
+    keys = fingerprinted_settings()
     lines: list[str] = []
     for name in names:
         ck = keys.get(name)
@@ -93,7 +93,10 @@ class _DaemonHandler(BaseHTTPRequestHandler):
     def _dispatch(self, method: Method) -> None:
         refusal = self._refusal(method)
         if refusal is not None:
-            self._send_json({'detail': refusal[1]}, refusal[0])
+            # closing the connection with the body unread resets it, and on Windows a reset can discard the refusal
+            # before the client reads it (WinError 10053)
+            if self._read_body() is not None:
+                self._send_json({'detail': refusal[1]}, refusal[0])
             return
 
         # Users edit the config file directly, so pick up an edit here rather than at the next daemon
@@ -200,8 +203,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     'detail': f'configuration has changed since the daemon started:\n{_changed_settings(changed)}\n\n'
-                    'The daemon reads configuration once at startup. '
-                    'Run `pxt daemon restart` to pick up the new configuration.',
+                    'The daemon reads configuration once at startup.',
                     'error_code': 'STALE_CONFIG',
                 },
                 http.HTTPStatus.CONFLICT,
@@ -231,8 +233,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             {
                 'detail': 'the daemon started with a different environment:\n'
                 + '\n'.join(detail)
-                + '\n\nThe daemon reads the environment once at startup. '
-                'Run `pxt daemon restart` to pick up your environment.',
+                + '\n\nThe daemon reads the environment once at startup.',
                 'error_code': 'STALE_CONFIG',
             },
             http.HTTPStatus.CONFLICT,

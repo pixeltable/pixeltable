@@ -48,21 +48,6 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
     return parts.org, parts.db
 
 
-def resolve_db_uri(db_uri: str | None, prog: str = 'pxt') -> tuple[str, str]:
-    """Parse pxt://org:db and return (org, db), defaulting to the configured pixeltable.db_uri. Exits on error."""
-    if db_uri is None:
-        resp = models.ConfigResponse.model_validate(get_request('/api/config'))
-        configured = next((e.value for e in resp.entries if (e.section, e.key) == ('pixeltable', 'db_uri')), None)
-        if configured is None:
-            print(
-                f'{prog}: error: no database URI given, and no db_uri is set in the Pixeltable config file',
-                file=sys.stderr,
-            )
-            sys.exit(EXIT_ERROR)
-        db_uri = configured
-    return parse_db_uri(db_uri, prog=prog)
-
-
 def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     """Parse pxt://org and return org. Exits on error."""
     parts = split_pxt_uri(uri)

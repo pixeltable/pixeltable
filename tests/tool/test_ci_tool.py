@@ -1,18 +1,27 @@
+import pathlib
+
 import pytest
 
 from tool.ci_tool import (
     ALTERNATIVE_PLATFORMS,
     BASIC_PLATFORMS,
+    DEFAULT_MARKERS,
+    EXPENSIVE_MARKERS,
     EXPENSIVE_PLATFORMS,
-    EXPENSIVE_PYTEST,
+    LARGE_PLATFORM,
     MAIN_PLATFORM,
+    RESOURCE_INTENSIVE_MARKERS,
     TRIGGERS,
-    VERY_EXPENSIVE_PYTEST,
+    VERY_EXPENSIVE_MARKERS,
     build_configs,
 )
 
+from ..notebook_markers import NOTEBOOK_MARKERS
+
 # The triggers under which a fully populated matrix is generated; 'pull_request' deliberately runs a reduced one.
 FULL_TRIGGERS = tuple(t for t in TRIGGERS if t != 'pull_request')
+# Each trigger with the force_all values that CI passes for it (a dispatch builds the same matrix as the schedule)
+SCHEDULES = [('pull_request', False), ('merge_group', False), ('schedule', False), ('schedule', True)]
 
 
 class TestBuildConfigs:
@@ -27,7 +36,7 @@ class TestBuildConfigs:
         assert sum(cfg.test_category == 'lint' for cfg in configs) == 1
         assert any(cfg.test_category == 'py' and cfg.os == MAIN_PLATFORM for cfg in configs)
 
-    @pytest.mark.parametrize('trigger', TRIGGERS)
+    @pytest.mark.parametrize('trigger', FULL_TRIGGERS)
     def test_basic_platforms_get_a_full_install(self, trigger: str) -> None:
         configs = build_configs(trigger, force_all=False, has_aws_credentials=False)
         full_install = {cfg.os for cfg in configs if cfg.test_category == 'py' and cfg.uv_options == ''}
@@ -35,7 +44,7 @@ class TestBuildConfigs:
 
     def test_every_declared_platform_is_used(self) -> None:
         configs = build_configs('workflow_dispatch', force_all=True, has_aws_credentials=True)
-        assert {MAIN_PLATFORM, *BASIC_PLATFORMS, *EXPENSIVE_PLATFORMS, *ALTERNATIVE_PLATFORMS} <= {
+        assert {MAIN_PLATFORM, *BASIC_PLATFORMS, *EXPENSIVE_PLATFORMS, *ALTERNATIVE_PLATFORMS, LARGE_PLATFORM} <= {
             cfg.os for cfg in configs
         }
 
@@ -44,20 +53,66 @@ class TestBuildConfigs:
         names = [cfg.display_name for cfg in build_configs(trigger, force_all=True, has_aws_credentials=True)]
         assert len(names) == len(set(names)), sorted(names)
 
-    def test_schedule_matches_forced_dispatch(self) -> None:
-        assert build_configs('schedule', force_all=False, has_aws_credentials=False) == build_configs(
-            'workflow_dispatch', force_all=True, has_aws_credentials=False
+    @pytest.mark.parametrize('force_all', [False, True])
+    def test_dispatch_matches_schedule(self, force_all: bool) -> None:
+        assert build_configs('schedule', force_all=force_all, has_aws_credentials=False) == build_configs(
+            'workflow_dispatch', force_all=force_all, has_aws_credentials=False
         )
 
-    @pytest.mark.parametrize('trigger', FULL_TRIGGERS)
-    def test_expensive_tests_run_exactly_once(self, trigger: str) -> None:
-        for force_all in (False, True):
-            configs = build_configs(trigger, force_all=force_all, has_aws_credentials=False)
-            expensive = [cfg for cfg in configs if cfg.pytest_options in (EXPENSIVE_PYTEST, VERY_EXPENSIVE_PYTEST)]
-            assert len(expensive) == 1, [cfg.display_name for cfg in expensive]
-            if force_all or trigger == 'schedule':
-                assert expensive[0].pytest_options == VERY_EXPENSIVE_PYTEST
+    @pytest.mark.parametrize(
+        ('trigger', 'force_all', 'tiered'),
+        [
+            ('pull_request', False, ()),
+            ('merge_group', False, (EXPENSIVE_MARKERS,)),
+            ('schedule', False, (EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS)),
+            ('schedule', True, (VERY_EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS)),
+        ],
+    )
+    def test_markers_by_trigger(self, trigger: str, force_all: bool, tiered: tuple[str, ...]) -> None:
+        suffix = ' and not skip_merge_queue' if trigger in ('pull_request', 'merge_group') else ''
+        configs = build_configs(trigger, force_all=force_all, has_aws_credentials=True)
+        markers = [cfg.pytest_markers for cfg in configs if cfg.test_category == 'py']
+        assert sorted(m for m in markers if m != DEFAULT_MARKERS + suffix) == sorted(m + suffix for m in tiered)
+        assert DEFAULT_MARKERS + suffix in markers
+
+    @pytest.mark.parametrize(('trigger', 'force_all'), SCHEDULES)
+    def test_notebooks_follow_unit_tests(self, trigger: str, force_all: bool) -> None:
+        configs = build_configs(trigger, force_all=force_all, has_aws_credentials=True)
+        markers = {cfg.display_name_prefix: cfg.pytest_markers for cfg in configs}
+        counterparts = {
+            'notebooks+': 'standard+',
+            'notebooks++': 'standard++',
+            'resource-intensive-notebooks': 'resource-intensive',
+        }
+        assert {cfg.display_name_prefix for cfg in configs if cfg.test_category == 'ipynb'} <= counterparts.keys()
+        for notebooks, unit_tests in counterparts.items():
+            assert markers.get(notebooks) == markers.get(unit_tests), notebooks
+
+    @pytest.mark.parametrize('trigger', ['pull_request', 'merge_group'])
+    def test_merge_queue_excludes_scheduled_only_tiers(self, trigger: str) -> None:
+        excluded = {'not skip_merge_queue', 'not very_expensive', 'not resource_intensive'}
+        for cfg in build_configs(trigger, force_all=False, has_aws_credentials=True):
+            assert excluded <= set(cfg.pytest_markers.split(' and ')), cfg.display_name
+
+    @pytest.mark.parametrize(('trigger', 'force_all'), SCHEDULES)
+    def test_large_runner_runs_only_resource_intensive(self, trigger: str, force_all: bool) -> None:
+        for cfg in build_configs(trigger, force_all=force_all, has_aws_credentials=True):
+            assert (cfg.os == LARGE_PLATFORM) == (cfg.pytest_markers == RESOURCE_INTENSIVE_MARKERS), cfg.display_name
 
     def test_unknown_trigger_is_rejected(self) -> None:
         with pytest.raises(AssertionError):
             build_configs('push', force_all=False, has_aws_credentials=False)
+
+
+class TestNotebookMarkers:
+    """Checks of NOTEBOOK_MARKERS that run on PRs, which collect no notebooks"""
+
+    def test_notebooks_exist(self) -> None:
+        notebooks = {p.stem for p in (pathlib.Path(__file__).parents[2] / 'docs' / 'release').rglob('*.ipynb')}
+        unknown = NOTEBOOK_MARKERS.keys() - notebooks
+        assert not unknown, f'tests/notebook_markers.py has notebooks not under docs/release: {sorted(unknown)}'
+
+    def test_markers_exist(self) -> None:
+        markers = {name for names, _ in NOTEBOOK_MARKERS.values() for name in names}
+        unknown = markers - {'skip_merge_queue', 'expensive', 'very_expensive', 'resource_intensive', 'skip'}
+        assert not unknown, f'tests/notebook_markers.py has unknown markers: {sorted(unknown)}'

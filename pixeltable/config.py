@@ -19,7 +19,8 @@ import toml
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
-from pixeltable.service.resources import DatabaseCapacity, ServiceResources
+from pixeltable.service.resources import DatabaseCapacity, ServiceResources, UdfResources
+from pixeltable.utils.file_io import atomic_write
 
 if TYPE_CHECKING:
     from pixeltable import catalog
@@ -130,6 +131,16 @@ class DatabaseConfig(DatabaseCapacity):
             other = paths.setdefault(path.lower(), path)
             if other != path:
                 raise ValueError(f'`services` has both {other!r} and {path!r}, which differ only in case')
+        return self
+
+    @pydantic.model_validator(mode='after')
+    def _check_capacity(self) -> Self:
+        declared = list(self.capacity().model_dump(exclude_none=True))
+        if self.name == LOCAL_DATABASE and len(declared) > 0:
+            fields = ', '.join(f'`{field}`' for field in declared)
+            raise ValueError(
+                f'the compute settings ({fields}) apply to a hosted database; a local database has no pods'
+            )
         return self
 
 
@@ -593,11 +604,18 @@ class Config:
                         f'Cannot configure {db.name!r} in {self.__config_file}: a hosted database is configured in '
                         f"its project. Move the [[pixeltable.database]] entry to the project's {PROJECT_CONFIG_FILE}.",
                     )
+            if 'udf' in config_dict.get('pixeltable', {}):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f"Cannot set 'pixeltable.udf' in {self.__config_file}: UDF servers belong to a project. Move it "
+                    f"to the project's {PROJECT_CONFIG_FILE}.",
+                )
             return self.__add_path(config_dict, self.__config_file)
 
         else:
             config_dict = self.__create_default_config(self.__config_file)
-            with open(self.__config_file, 'w', encoding='utf-8') as stream:
+            # a process starting at the same time must never read a partial file
+            with atomic_write(self.__config_file, mode='w', encoding='utf-8') as stream:
                 try:
                     toml.dump(config_dict, stream)
                 except Exception as exc:
@@ -647,7 +665,7 @@ class Config:
         """
         Validate a config value against its declared type.
 
-        A scalar is returned as is; the dicts of a list[Pydantic model] option become model instances.
+        The dicts of a list[Pydantic model] option become model instances; any other value is returned as is.
         """
         origin_t = typing.get_origin(expected_type) or expected_type
         # isinstance() accepts a bool for int, so a TOML true would pass the check
@@ -691,8 +709,11 @@ class Config:
         if section == 'pixeltable' and key in _FILE_ONLY_KEYS:
             if env_var not in self.__reported_env_vars:
                 self.__reported_env_vars.add(env_var)
+                config_file = self.__config_file
+                if key not in _INSTALLATION_KEYS and self.__project_config_file is not None:
+                    config_file = self.__project_config_file
                 warnings.warn(
-                    f'Ignoring {env_var}: {section}.{key} can only be set via the config file ({self.__config_file}).',
+                    f'Ignoring {env_var}: {section}.{key} can only be set via the config file ({config_file}).',
                     category=excs.PixeltableWarning,
                     stacklevel=2,
                 )
@@ -721,23 +742,20 @@ class Config:
         - in place of the file's [[pixeltable.database]] list: a list with one entry for db_config (its name, vars
           and db_* settings), or no list if db_config is None
 
-        A secret in the project config file is an error for a hosted database.
+        A secret in the project config file is an error for a hosted database and for a project with a
+        pixeltable.udf setting.
         """
         is_hosted = db_config is not None and db_config.name != LOCAL_DATABASE
+        # the UDF servers of the pixeltable.udf setting get this config
+        has_udf_setting = self.get_value('udf', dict) is not None
         result: ConfigSections = {}
         for section, options in self.__project_config.items():
             for key, (value, _) in options.items():
                 if section == 'pixeltable' and key == 'database':
                     continue  # replaced by the entry for db_config
-                if key in _SECRET_KEYS:
-                    if is_hosted:
-                        assert db_config is not None
-                        raise excs.RequestError(
-                            excs.ErrorCode.INVALID_CONFIGURATION,
-                            f"'{section}.{key}' in {self.__project_config_file} is a secret, and a hosted "
-                            f'database receives its secrets through `pxt secret`. Remove it and run:\n'
-                            f'  pxt secret set {db_config.name} {env_var_name(section, key)}=<value>',
-                        )
+                if key in SECRET_KEYS:
+                    if is_hosted or has_udf_setting:
+                        raise self.__project_secret_error(section, key, db_config if is_hosted else None)
                     # an edit to a local secret still changes the config, and so restarts a local service
                     result.setdefault(section, {})[key] = hashlib.sha256(str(value).encode()).hexdigest()
                     continue
@@ -751,6 +769,38 @@ class Config:
             result.setdefault('pixeltable', {})['database'] = [entry]
 
         return result
+
+    def __project_secret_error(self, section: str, key: str, hosted_db: DatabaseConfig | None) -> excs.RequestError:
+        """Return the error for the secret section.key in the project config file.
+
+        hosted_db: the hosted database of the config, or None for the local database
+        """
+        env_var = env_var_name(section, key)
+        if hosted_db is not None:
+            advice = (
+                'and a hosted database receives its secrets through `pxt secret`. Remove it and run:\n'
+                f'  pxt secret set {hosted_db.name} {env_var}=<value>'
+            )
+        else:
+            # the control plane accepts a database-scoped secret only once the first update has registered the database
+            advice = (
+                'and `pxt db update` uploads the settings of that file to Pixeltable Cloud for the UDF servers of the '
+                f'`pixeltable.udf` setting. Move it to {self.__config_file} or to the environment variable {env_var}. '
+                f'Then set {env_var} for the UDF servers with `pxt secret set`, at one of two scopes:\n'
+                f'- the organization, with <org> from `pxt org list`; every database in it without its own {env_var} '
+                'receives the value as well:\n'
+                f'    pxt secret set pxt://<org> {env_var}=<value>\n'
+                '    pxt db update\n'
+                '- the local database alone, with pxt://<org>:<db> from the output of the first `pxt db update`, which '
+                'registers the database in Pixeltable Cloud:\n'
+                '    pxt db update\n'
+                f'    pxt secret set pxt://<org>:<db> {env_var}=<value>\n'
+                '    pxt db update'
+            )
+        return excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f"'{section}.{key}' in {self.__project_config_file} is a secret, {advice}",
+        )
 
     def __own_database_values(self, field: Literal['vars', 'settings']) -> dict[str, tuple[str, Path | None]]:
         """Return the `vars` or `settings` of the database we are connected to, each with the file that supplied it.
@@ -941,6 +991,8 @@ class Config:
     def describe_setting(self, section: str, key: str) -> str:
         """A printable description of a setting, incl. its source."""
         source = self.get_value_source(key, section)
+        if source == 'env' and self.is_overridden(key, section):
+            return f'{section}.{key} in the config_overrides of pxt.init()'
         if source == 'env':
             return f'{env_var_name(section, key)} in the environment'
         if source == 'unset':
@@ -984,12 +1036,17 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             "its runtime image and its services' resources",
             list[DatabaseConfig],
         ),
+        'udf': (
+            "Resources of the Modal containers that run a UDF's calls, keyed by the UDF's path, eg "
+            "'pixeltable.functions.huggingface.clip'",
+            dict[str, UdfResources],
+        ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
         'db_pool_max_overflow': (
             'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
             int,
         ),
-        'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
+        'db_uri': 'No longer supported: remove it, and pass the pxt://org:db URI to the `pxt db` command instead',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},
@@ -1025,6 +1082,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'api_key': 'Nebius Token Factory API key',
         'rate_limit': 'Rate limit for Nebius Token Factory API requests',
     },
+    'ollama': {'host': 'Ollama server URL'},
     'openai': {
         'api_key': 'OpenAI API key',
         'base_url': 'OpenAI API base URL',
@@ -1057,22 +1115,36 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
         'logs': 'Export pixeltable logs via OTLP (default: false)',
     },
+    'parallel': {'api_key': 'Parallel API key', 'rate_limit': 'Rate limit for Parallel API requests'},
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},
     'together': {
         'api_key': 'Together API key',
         'rate_limits': 'Per-model category rate limits for Together API requests',
     },
-    'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
+    'twelvelabs': {
+        'api_key': 'TwelveLabs API key',
+        'rate_limit': 'Rate limit for TwelveLabs API requests',
+        'timeout': 'Seconds to wait for asynchronous TwelveLabs operations to complete (default: 600)',
+    },
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
+    'vlmrun': {
+        'api_key': 'VLM Run API key',
+        'rate_limit': 'Rate limit for VLM Run API requests',
+        'timeout': 'Maximum seconds for one VLM Run call, including its uploads, polling and download (default: 1800)',
+    },
+    'vlmrun_gateway': {
+        'base_url': 'VLM Run Gateway base URL (default: https://gateway.vlm.run/v1/openai)',
+        'rate_limit': 'Rate limit for VLM Run Gateway requests',
+    },
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
 
 
-# settings that govern the file cache the whole instance shares, and so can only be set in the config file
-# settings only a config file may set; an environment variable or a pxt.init() override is ignored
-_FILE_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s'})
+# settings that must have the same value in every process of the instance or project: only a config file can set
+# them, not an environment variable or pxt.init()
+_FILE_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s', 'udf'})
 
 # settings that configure the installation rather than one project, so a project config file may not set them
 _INSTALLATION_KEYS = frozenset(
@@ -1089,9 +1161,7 @@ _INSTALLATION_KEYS = frozenset(
 )
 
 # settings that contain credentials
-_SECRET_KEYS = frozenset(
-    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'}
-)
+SECRET_KEYS = frozenset({'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'})
 
 # whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db
 # section's own fields such as name and cpu

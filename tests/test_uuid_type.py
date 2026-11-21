@@ -9,7 +9,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
-from .utils import DatabaseRoot, ReloadTester, pxt_raises, validate_update_status
+from .utils import DatabaseRoot, ReloadTester, pxt_raises, reload_catalog, validate_update_status
 
 
 class TestUUIDType:
@@ -130,3 +130,36 @@ class TestUUIDType:
         assert res['data'] == ['test1', 'test2', 'test3']
 
         reload_tester.run_reload_test()
+
+    def test_compare_with_str(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_uuid_str_cmp'), {'id': pxt.UUID, 'v': pxt.Int, 'ids': pxt.Json}, primary_key='id')
+        u1, u2 = uuid.uuid4(), uuid.uuid4()
+        validate_update_status(
+            t.insert([{'id': u1, 'v': 1, 'ids': [str(u1)]}, {'id': u2, 'v': 2, 'ids': [str(u1)]}]), expected_rows=2
+        )
+
+        # a str that parses as a UUID is converted, in either operand order
+        assert t.where(t.id == str(u1)).select(t.v).collect()['v'] == [1]
+        assert t.where(str(u1) == t.id).select(t.v).collect()['v'] == [1]  # type: ignore[arg-type]
+        assert t.where(t.id != str(u1)).select(t.v).collect()['v'] == [2]
+        assert t.where(t.id == str(u1).upper()).select(t.v).collect()['v'] == [1]
+        assert sorted(t.where(t.id.isin([str(u1), u2, 'not-a-uuid'])).select(t.v).collect()['v']) == [1, 2]
+        # isin() over a Json expr evaluates in Python and converts the same way
+        assert t.where(t.id.isin(t.ids)).select(t.v).collect()['v'] == [1]
+
+        # an isin() with UUID values is stored and reloaded as part of a computed column and a view
+        t.add_computed_column(is_u2=t.id.isin([str(u2)]))
+        pxt.create_view(p('test_uuid_str_cmp_view'), t.where(t.id.isin([str(u1)])))
+        reload_catalog()
+        t = pxt.get_table(p('test_uuid_str_cmp'))
+        assert t.order_by(t.v).select(t.is_u2).collect()['is_u2'] == [False, True]
+        v = pxt.get_table(p('test_uuid_str_cmp_view'))
+        assert v.select(v.v).collect()['v'] == [1]
+
+        # the filter is SQL-expressible, so update() accepts it
+        validate_update_status(t.update({'v': 10}, where=t.id == str(u1)), expected_rows=1)
+        assert t.where(t.id == u1).select(t.v).collect()['v'] == [10]
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="Cannot compare UUID id with 'not-a-uuid'"):
+            _ = t.id == 'not-a-uuid'

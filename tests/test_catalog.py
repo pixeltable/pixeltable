@@ -1,5 +1,6 @@
 import enum
 import logging
+import pathlib
 from typing import Any, Callable
 
 import psycopg
@@ -18,7 +19,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
-from .utils import DatabaseRoot, RecordingSubscriber, pxt_raises, reload_catalog
+from .utils import DatabaseRoot, RecordingSubscriber, no_local_db_env, pxt_raises, reload_catalog, run_in_new_process
 
 _logger = logging.getLogger('pixeltable_test')
 
@@ -50,7 +51,7 @@ class TestCatalog:
         with pytest.raises(excs.Error, match='same catalog'):
             pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
 
-    def test_ls(self, db_root: DatabaseRoot) -> None:
+    def test_ls(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('test_dir'))
         pxt.create_dir(p('test_dir/subdir'))
@@ -85,6 +86,13 @@ class TestCatalog:
         # or base) are dropped to match the expected tokens.
         actual = [list(df.columns), *([v for v in row if v != ''] for row in df.itertuples(index=False))]
         assert actual == tokens(expected)
+
+        if db_root.id != 'local':
+            # a new process lists a hosted directory without starting or reaching a local database
+            code = f"""
+                print(json.dumps(pxt.ls({p('test_dir')!r}).to_dict('list')))
+            """
+            assert run_in_new_process(code, no_local_db_env('embedded', tmp_path)) == df.to_dict('list')
 
     def test_cross_type_replacement(self, db_root: DatabaseRoot) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
@@ -539,6 +547,31 @@ class TestLocking:
         t2 = pxt.get_table('tbl')
         res = t2.select(t2.a, t2.b, t2.c).collect()
         assert len(res) == 1 and res[0]['b'] == 2 and res[0]['c'] == 101, res
+
+    def test_concurrent_add_same_column(self, is_data_versioned: bool, uses_db: None, fault_injection: None) -> None:
+        """add_column(if_exists='ignore') must ignore a column of the same name added by a concurrent schema change."""
+        t = self.make_tbl(is_data_versioned=is_data_versioned)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
+
+        def add_b() -> None:
+            t.add_column(b=pxt.String | None, if_exists='ignore')
+
+        (
+            MultiThreadedScenario()
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_AFTER_TBL_LOCK, fault=fault)
+            .then_run_until(thread_id=0, name='add column b', event=fault.reached, fn=add_b)
+            .then_run_until(
+                thread_id=1,
+                name='add column b again, which waits',
+                poll_condition=lambda: self.is_blocked_on_tbl_lock(t),
+                fn=add_b,
+            )
+            .then_unblock(thread_id=2, fault=fault)
+            .execute()
+        )
+
+        # Re-fetch: this thread's handle predates the schema change.
+        assert pxt.get_table('tbl').columns() == ['a', 'b']
 
     def test_concurrent_insert_schema_change(self, uses_db: None, fault_injection: None) -> None:
         """An insert waiting for a schema change must populate the newly added computed column."""

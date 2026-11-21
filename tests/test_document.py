@@ -3,6 +3,7 @@ import itertools
 import json
 import os
 import re
+import zipfile
 from typing import Any
 
 import PIL.Image
@@ -70,7 +71,57 @@ class TestDocument:
         assert status.num_rows == len(file_paths)
         assert status.num_excs >= len(file_paths)
 
-    def test_get_document_handle(self) -> None:
+    def test_insert_invalid_docs(self, uses_db: None, tmp_path: Any) -> None:
+        skip_test_if_not_installed('markitdown', 'mistune')
+
+        expected: dict[str, str] = {}
+        for ext, format_name in (('html', 'HTML'), ('md', 'Markdown'), ('xml', 'XML'), ('txt', 'Text')):
+            path = str(tmp_path / f'bad.{ext}')
+            with open(path, 'wb') as fp:
+                fp.write(b'\xff\xfe\x00not utf-8')
+            expected[path] = format_name
+        pdf_path = str(tmp_path / 'bad.pdf')
+        with open(pdf_path, 'wb') as fp:
+            fp.write(b'not a pdf')
+        expected[pdf_path] = 'PDF'
+        for ext in ('docx', 'pptx', 'xlsx'):
+            path = str(tmp_path / f'bad.{ext}')
+            with zipfile.ZipFile(path, 'w') as zf:
+                zf.writestr('[Content_Types].xml', '<not valid')
+            expected[path] = 'Office'
+        for ext in ('doc', 'ppt'):
+            path = str(tmp_path / f'bad.{ext}')
+            with open(path, 'wb') as fp:
+                fp.write(bytes.fromhex('d0cf11e0a1b11ae1') + bytes(range(256)) * 4)
+            expected[path] = 'Office'
+
+        t = pxt.create_table('docs', {'doc': pxt.Document})
+        for path in expected:
+            status = t.insert([{'doc': path}], on_error='ignore')
+            assert status.num_excs == 1, path
+        rows = t.select(t.doc.errortype, t.doc.errormsg).collect()
+        assert rows['doc_errortype'] == ['RequestError'] * len(expected)
+        assert sorted(rows['doc_errormsg']) == sorted(
+            f'Not a valid {format_name} document: {path}' for path, format_name in expected.items()
+        )
+
+        xls_path = str(tmp_path / 'sheet.xls')
+        with open(xls_path, 'wb') as fp:
+            fp.write(bytes.fromhex('d0cf11e0a1b11ae1') + bytes(range(256)) * 4)
+        xls_t = pxt.create_table('xls_docs', {'doc': pxt.Document})
+        status = xls_t.insert([{'doc': xls_path}], on_error='ignore')
+        assert status.num_excs == 1
+        row = xls_t.select(xls_t.doc.errortype, xls_t.doc.errormsg).collect()[0]
+        assert row['doc_errortype'] == 'RequestError'
+        assert row['doc_errormsg'].startswith(f'Cannot read {xls_path}: ')
+        assert 'markitdown[xls]' in row['doc_errormsg']
+
+        dir_path = tmp_path / 'folder.txt'
+        dir_path.mkdir()
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=f'Cannot read document {re.escape(str(dir_path))}: '):
+            get_document_handle(str(dir_path))
+
+    def test_get_document_handle(self, init_env: None) -> None:
         skip_test_if_not_installed('markitdown', 'mistune')
 
         file_paths = self.valid_doc_paths()
@@ -114,6 +165,11 @@ class TestDocument:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='both'):
             _ = pxt.create_view(
                 'chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit, token_limit', limit=10)
+            )
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'image_dpi' must be a positive integer"):
+            _ = pxt.create_view(
+                'chunks', t, iterator=document_splitter(t.doc, separators='page', elements=['image'], image_dpi=-1)
             )
 
         # test that limit is required for char_limit and token_limit
@@ -172,7 +228,7 @@ class TestDocument:
     def test_doc_splitter(self, pdf: bool, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy', 'tiktoken')
 
-        # DocumentSplitter does not support XML
+        # document_splitter() does not support XML
         file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
         file_paths = [p for p in file_paths if pdf == p.endswith('.pdf')]
         extensions = {os.path.splitext(p)[1] for p in file_paths}
@@ -181,8 +237,13 @@ class TestDocument:
         else:
             assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
 
-        def open_doc_files() -> set[str]:
-            return {f.path for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions}
+        def open_doc_files() -> set[str] | None:
+            try:
+                return {f.path for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions}
+            except psutil.AccessDenied:
+                # On Windows, open_files() stats every open path, and the stat is refused for a file deleted while
+                # still open (under \$Extend\$Deleted), whatever its extension
+                return None
 
         open_doc_files_before = open_doc_files()
 
@@ -276,8 +337,10 @@ class TestDocument:
             pxt.drop_table('chunks')
 
         # Verify that document splitter does not leave open files behind
-        leaked_doc_files = open_doc_files() - open_doc_files_before
-        assert not leaked_doc_files, leaked_doc_files
+        open_doc_files_after = open_doc_files()
+        if open_doc_files_before is not None and open_doc_files_after is not None:
+            leaked_doc_files = open_doc_files_after - open_doc_files_before
+            assert not leaked_doc_files, leaked_doc_files
 
     def test_doc_splitter_headings(self, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy')
@@ -489,3 +552,26 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+    def test_doc_splitter_image_dpi(self, uses_db: None) -> None:
+        pdf_file = next(p for p in get_documents() if p.endswith('1706.03762.pdf'))
+        t = pxt.create_table('docs', {'doc': pxt.Document | None})
+        dpi_kwargs: dict[str, dict[str, Any]] = {
+            'default': {},
+            'dpi72': {'image_dpi': 72},
+            'dpi144': {'image_dpi': 144},
+        }
+        views = {
+            name: pxt.create_view(
+                f'pages_{name}', t, iterator=document_splitter(t.doc, separators='page', elements=['image'], **kwargs)
+            )
+            for name, kwargs in dpi_kwargs.items()
+        }
+        status = t.insert(doc=pdf_file)
+        assert status.num_excs == 0
+
+        sizes = {name: [img.size for img in v.order_by(v.pos).collect()['image']] for name, v in views.items()}
+        assert len(sizes['dpi72']) == 15
+        assert sizes['dpi72'][0] == (612, 792)
+        assert sizes['default'] == sizes['dpi72']
+        assert sizes['dpi144'] == [(2 * w, 2 * h) for w, h in sizes['dpi72']]

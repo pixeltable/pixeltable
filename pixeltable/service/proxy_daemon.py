@@ -35,7 +35,7 @@ from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env, validate_db_name
 from pixeltable.runtime import get_runtime, reset_runtime
-from pixeltable.utils.process import is_pid, pid_alive
+from pixeltable_cli.process import find_process, is_pid, process_timestamp, terminate_and_wait
 
 from . import proxy_dispatch
 from .proxy_protocol import KEEP_ALIVE_S, decode_body, iter_body_chunks
@@ -64,7 +64,7 @@ def _port_lock(db: str) -> Path:
 
 
 def read_port_lock(db: str) -> dict[str, Any] | None:
-    """Return {'port', 'pid'} for a live daemon, or None if the lock is absent or stale."""
+    """Return {'port', 'pid', 'process_started_at'} for a live daemon, or None if the lock is absent or stale."""
     lock = _port_lock(db)
     if not lock.exists():
         return None
@@ -72,8 +72,11 @@ def read_port_lock(db: str) -> dict[str, Any] | None:
         info = json.loads(lock.read_text())
     except (ValueError, OSError):
         return None
-    # the pid is whatever the file holds, so it is validated before it reaches a platform call
-    return info if is_pid(info.get('pid')) and pid_alive(info['pid']) else None
+    # the pid is whatever the file holds, so it is validated before it reaches a platform call; a lock outlives a
+    # daemon that dies, and the OS may have reused its pid
+    if not is_pid(info.get('pid')) or find_process(info['pid'], info.get('process_started_at')) is None:
+        return None
+    return info
 
 
 def endpoint(db: str) -> str | None:
@@ -151,6 +154,7 @@ def start(db: str, test_mode: bool = False) -> str:
         'PIXELTABLE_DB': db,  # own database
         'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
     }
+    Env.get().ensure_connected()
     pgdata_dir = Env.get().pgdata_dir
     if pgdata_dir is not None:
         env['PIXELTABLE_PGDATA'] = str(pgdata_dir)  # shared postmaster
@@ -195,38 +199,9 @@ def start(db: str, test_mode: bool = False) -> str:
 def stop(db: str) -> None:
     """Stop the daemon for db (if running) and remove its port.lock."""
     info = read_port_lock(db)
-    if info is not None:
-        pid = info['pid']
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            # POSIX raises ProcessLookupError once the process is gone. Windows os.kill() maps to
-            # TerminateProcess via OpenProcess(PROCESS_ALL_ACCESS) and raises PermissionError (WinError 5) or
-            # OSError (WinError 87) for an already-exited process. In every case there is nothing left to wait on.
-            pid = None
-        if pid is not None:
-            deadline = time.monotonic() + _STOP_TIMEOUT
-            while time.monotonic() < deadline and pid_alive(pid):
-                # Reap promptly if the daemon is our own child, so its zombie isn't mistaken for a live
-                # process and we don't wait out the full timeout; a no-op when it was launched by a
-                # different process (e.g. a prior `pxt localproxy start`), in which case init reaps it.
-                # os.WNOHANG is POSIX-only (Windows defines os.waitpid but not WNOHANG); Windows has no
-                # zombies, so there is nothing to reap.
-                if hasattr(os, 'WNOHANG'):
-                    try:
-                        os.waitpid(pid, os.WNOHANG)
-                    except (ChildProcessError, OSError):
-                        pass
-                time.sleep(0.05)
-            if pid_alive(pid):
-                # Graceful shutdown overran the timeout; force termination so we never leak the daemon.
-                # SIGKILL is absent on Windows, where os.kill() already terminates unconditionally.
-                try:
-                    os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
-                except (ProcessLookupError, PermissionError, OSError):
-                    # The process exited between the liveness check and here; on Windows os.kill() raises
-                    # PermissionError/OSError rather than ProcessLookupError once the target is gone.
-                    pass
+    proc = None if info is None else find_process(info['pid'], info.get('process_started_at'))
+    if proc is not None:
+        terminate_and_wait(proc, _STOP_TIMEOUT)
     _port_lock(db).unlink(missing_ok=True)
 
 
@@ -261,6 +236,7 @@ def _reinitialize() -> None:
 
 def _drop_database(db_name: str) -> None:
     env = Env.get()
+    env.ensure_connected()
     if env._db_server is None:
         return  # not running against the embedded postmaster (e.g. external DB); nothing to drop
     engine = sql.create_engine(env._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
@@ -418,7 +394,9 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     port = sock.getsockname()[1]
 
     lock = config.home / _LOCK_NAME  # this process's home is proxy_<db>
-    lock.write_text(json.dumps({'port': port, 'pid': os.getpid()}))
+    lock.write_text(
+        json.dumps({'port': port, 'pid': os.getpid(), 'process_started_at': process_timestamp(os.getpid())})
+    )
 
     def _cleanup(*_: Any) -> None:
         lock.unlink(missing_ok=True)

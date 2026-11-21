@@ -77,9 +77,15 @@ def service_update(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri:
     cli('service', 'update', app_file, db_uri, '-f', *flags, cwd=project)
 
 
-def service_diff(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri: str) -> dict[str, Any]:
+def service_diff(
+    cli: PxtRunner,
+    project: pathlib.Path,
+    app_file: str,
+    db_uri: str,
+    env_overrides: dict[str, str | None] | None = None,
+) -> dict[str, Any]:
     """What `pxt service diff` reports for app_file at db_uri, its exit status under 'returncode'."""
-    r = cli('service', 'diff', app_file, db_uri, '--json', cwd=project, check=False)
+    r = cli('service', 'diff', app_file, db_uri, '--json', cwd=project, check=False, env_overrides=env_overrides)
     assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
     return {**r.json, 'returncode': r.returncode}
 

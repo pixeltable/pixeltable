@@ -19,7 +19,6 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf
@@ -41,6 +40,25 @@ def dumps(obj: pxt.Json) -> str:
 @dumps.to_sql
 def _(obj: sql.ColumnElement) -> sql.ColumnElement:
     return obj.cast(sql.Text)
+
+
+@pxt.udf
+def loads(s: str) -> pxt.Json | None:
+    """
+    Parse a JSON string. The string `'null'` gives `None`.
+
+    Equivalent to [`json.loads()`](https://docs.python.org/3/library/json.html#json.loads).
+
+    Args:
+        s: A JSON-formatted string.
+
+    Returns:
+        The parsed JSON value.
+
+    Examples:
+        >>> t.add_computed_column(boxes=pxtf.json.loads(t.boxes_text))
+    """
+    return json.loads(s)
 
 
 def _jsonb_object_length(obj: sql.ColumnElement) -> sql.ColumnElement:
@@ -194,7 +212,8 @@ def _number_array_agg(self: sql.ColumnElement, agg_fn: Any, empty_value: int | N
     an empty array yields empty_value rather than null.
     """
     elem = sql.func.jsonb_array_elements(self).column_valued('e')
-    agg: sql.ColumnElement = sql.select(agg_fn(elem.cast(sql.Numeric))).scalar_subquery()
+    # without type_, SQLAlchemy leaves the type of avg() as NullType
+    agg: sql.ColumnElement = sql.select(agg_fn(elem.cast(sql.Numeric), type_=sql.Numeric)).scalar_subquery()
     if empty_value is not None:
         agg = sql.func.coalesce(agg, empty_value)
     return sql.case((sql.func.jsonb_typeof(self) == 'array', agg), else_=sql.func.jsonb_array_length(self))
@@ -516,6 +535,8 @@ def list_iterator(
     All of the inputs must be *typed* `Json` expressions. Untyped Json will be rejected (the type schema is
     necessary in order for Pixeltable to determine the types of the output columns).
 
+    If any input list is null for a row, that row produces no output rows.
+
     Args:
         elements: A list of dictionaries to iterate over. The dictionary keys will be used as column names in the
             output. Cannot be specified together with keyword arguments.
@@ -529,15 +550,19 @@ def list_iterator(
         **kwargs: One or more lists to iterate over. The kwarg names will be used as column names in the output.
             Cannot be specified together with `elements`.
     """
-    assert (elements is None) != (builtins.len(kwargs) == 0)
-
-    if elements is not None:
-        yield from elements
+    if builtins.len(kwargs) == 0:
+        # Positional form is used, e.g. list_iterator(t.col)
+        # elements is None if the argument is null for this base row
+        if elements is not None:
+            yield from elements
 
     else:
+        # kwargs form is used, e.g. list_iterator(a=t.col_1, b=t.col_2)
         # TODO: Clean up the way kwargs are passed to the iterator (this works, but it's a bit clunk with
         #     unnecessary indirection)
-        kwargs_: dict[str, list] = kwargs['kwargs']  # type: ignore[assignment]
+        kwargs_: dict[str, list | None] = kwargs['kwargs']  # type: ignore[assignment]
+        if any(val is None for val in kwargs_.values()):
+            return
         zipped: Iterator[tuple]
         match mode:
             case 'strict':
@@ -548,6 +573,40 @@ def list_iterator(
                 zipped = itertools.zip_longest(*kwargs_.values(), fillvalue=None)
         for el in zipped:
             yield dict(zip(kwargs_.keys(), el, strict=True))
+
+
+def _list_iterator_elements_schema(elements: exprs.Expr) -> dict[str, ts.ColumnType]:
+    el_col_type = elements.col_type
+    json_schema = el_col_type.type_schema if isinstance(el_col_type, ts.JsonType) else None
+    variadic_element_type = json_schema.variadic_type if json_schema is not None else None
+    if (
+        json_schema is not None
+        and isinstance(json_schema.type_spec, list)
+        and builtins.len(json_schema.type_spec) == 0
+        and isinstance(variadic_element_type, ts.JsonType)
+        and variadic_element_type.type_schema is not None
+        and isinstance(variadic_element_type.type_schema.type_spec, dict)
+    ):
+        return variadic_element_type.type_schema.type_spec
+
+    if not isinstance(el_col_type, ts.JsonType):
+        hint = '`elements` needs a Json list of dicts'
+    elif (
+        json_schema is not None
+        and isinstance(json_schema.type_spec, list)
+        and not any(isinstance(el_type, ts.JsonType) for el_type in [*json_schema.type_spec, json_schema.variadic_type])
+    ):
+        hint = (
+            'a list of values that are not dicts needs the keyword form, which names the output column: '
+            f'`list_iterator(value={elements!s})`'
+        )
+    else:
+        hint = (
+            '`elements` needs a list-of-dicts type with known keys, such as `pxt.Json[list[Item]]` for a '
+            'TypedDict `Item`; cast an untyped value with `.astype(pxt.Json[list[Item]] | None)`, or use the '
+            'keyword form for a list of values that are not dicts'
+        )
+    raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'list_iterator(): {hint}. Got `{el_col_type}`')
 
 
 @list_iterator.conditional_output_schema
@@ -562,31 +621,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'list_iterator(): Cannot specify both `elements` and keyword arguments',
             )
-        elements = bound_args['elements']
-
-        el_col_type = elements.col_type
-        if (
-            not isinstance(el_col_type, ts.JsonType)
-            or el_col_type.type_schema is None
-            or not isinstance(el_col_type.type_schema.type_spec, list)
-            or builtins.len(el_col_type.type_schema.type_spec) != 0
-        ):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`',
-            )
-        dict_type = el_col_type.type_schema.variadic_type
-        if (
-            not isinstance(dict_type, ts.JsonType)
-            or dict_type.type_schema is None
-            or not isinstance(dict_type.type_schema.type_spec, dict)
-        ):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`',
-            )
-
-        return dict_type.type_schema.type_spec  # type: ignore[return-value]
+        return _list_iterator_elements_schema(bound_args['elements'])  # type: ignore[return-value]
 
     else:  # bound_args.get('element') is None
         mode = bound_args.get('mode')
@@ -604,7 +639,8 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             ):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'list_iterator(): Expected a type for `{name}` matching `list`; got `{expr.col_type}`',
+                    f'list_iterator(): `{name}` needs a typed Json list, such as `pxt.Json[list[str]]`; cast an '
+                    f'untyped value with `.astype(pxt.Json[list[str]] | None)`. Got `{expr.col_type}`',
                 )
             type_schema = expr.col_type.type_schema
             relevant_types = type_schema.type_spec
@@ -622,7 +658,27 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         return output_schema  # type: ignore[return-value]
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'concat',
+    'contains',
+    'count',
+    'dumps',
+    'flatten',
+    'get',
+    'is_empty',
+    'items',
+    'keys',
+    'len',
+    'list_iterator',
+    'loads',
+    'make_list',
+    'max',
+    'mean',
+    'merge',
+    'min',
+    'sum',
+    'values',
+]
 
 
 def __dir__() -> list[str]:
