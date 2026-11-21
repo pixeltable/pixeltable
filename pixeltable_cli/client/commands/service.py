@@ -102,6 +102,7 @@ Your own application:
 
 _APP_FILE = """
 Project:
+  For a local target, APP may be a TypeScript file exporting a model and a JSON insertRoute().
   APP has to sit under a project root: the directory holding the project configuration, which is a
   pixeltable.toml or a pyproject.toml with a [tool.pixeltable] section. 'pxt init' writes one.
   Every local module path is relative to that root, so a udf this file defines is recorded as
@@ -687,7 +688,7 @@ def _list(target: str | None, *, as_json: bool) -> None:
     width = max(len(f'{d.catalog_path}/{d.name}'.lstrip('/')) for d in running)
     for d in running:
         pid_or_state = f'pid {d.pid}' if d.pid is not None else d.state
-        app_file = d.app_module.replace('.', '/') + '.py'
+        app_file = d.app_module.replace('.', '/') + d.app_suffix
         where = f'{d.catalog_path}/{d.name}'.lstrip('/')
         size = (
             ''

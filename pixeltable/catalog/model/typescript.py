@@ -110,7 +110,7 @@ def model_bases(app_file: str) -> list[TableModelMeta]:
     """The model base holding every model app_file exports."""
     path = Path(app_file).resolve()
     root = Config.get().project_root or path.parent
-    return [models_from_export(_export_models(path, root), module=path.stem)]
+    return [models_from_export(export_models(path, root), module=path.stem)]
 
 
 def models_from_export(exported: Any, module: str) -> TableModelMeta:
@@ -123,7 +123,7 @@ def models_from_export(exported: Any, module: str) -> TableModelMeta:
     return base
 
 
-def _export_models(app_file: Path, cwd: Path) -> Any:
+def export_models(app_file: Path, cwd: Path) -> Any:
     node = shutil.which('node')
     if node is None:
         raise excs.RequestError(

@@ -101,3 +101,9 @@ async function byPath(): Promise<void> {
 }
 
 export { newFilm, withBudget, missingYear, computed, budget, boundModel, byPath };
+
+pxt.insertRoute(Films, { service: 'films', path: '/films', inputs: ['title', 'year'], outputs: ['title_upper'] });
+// @ts-expect-error: a computed column cannot be an insert route input
+pxt.insertRoute(Films, { service: 'films', path: '/films', inputs: ['title_upper'], outputs: ['title'] });
+// @ts-expect-error: a route cannot return a column the model does not define
+pxt.insertRoute(Films, { service: 'films', path: '/films', inputs: ['title'], outputs: ['missing'] });

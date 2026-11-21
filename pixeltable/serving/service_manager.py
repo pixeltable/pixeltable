@@ -194,7 +194,7 @@ class ServiceManager(ServiceManagerBase):
         record = self._local_record(instance.record)
         project_root = Config.get().project_root
         assert project_root is not None  # a service was started from a file inside a project
-        app_file = project_root.joinpath(*record.app_module.split('.')).with_suffix('.py')
+        app_file = project_root.joinpath(*record.app_module.split('.')).with_suffix(record.app_suffix)
         if not app_file.is_file():
             raise excs.NotFoundError(
                 excs.ErrorCode.PATH_NOT_FOUND,
@@ -266,6 +266,7 @@ class ServiceManager(ServiceManagerBase):
             pid=os.getpid(),
             process_started_at=process_timestamp(os.getpid()),
             app_module=module_name(app_file, subject='application file'),
+            app_suffix=Path(app_file).suffix,
             spec=spec,
             otel=otel,
             created_at=time.time(),

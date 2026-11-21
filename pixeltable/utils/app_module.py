@@ -65,6 +65,15 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     path = Path(file).resolve()
     name = module_name(file, subject=subject)
 
+    from pixeltable.catalog.model.typescript import is_typescript_file
+
+    if is_typescript_file(file):
+        from pixeltable.serving._typescript import load_module
+
+        root = Config.get().project_root
+        assert root is not None  # module_name() refuses a file outside a project root
+        return load_module(path, root, name)
+
     try:
         registry = FunctionRegistry.get()
         with _lock, Catalog.freeze():

@@ -818,6 +818,7 @@ class ServiceInstance(pydantic.BaseModel):
     state: str
     error: str | None  # why it failed or kept serving its previous version after a failed roll
     app_module: str  # dotted module path, relative to the project root
+    app_suffix: str = '.py'
     spec: ServiceSpec  # what it serves
 
     pid: int | None  # the process serving the instance; set only for an instance running on this machine

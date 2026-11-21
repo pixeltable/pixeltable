@@ -1,5 +1,7 @@
 # @pixeltable/sdk (prototype)
 
+For a local TypeScript service called from Next.js, see [Notes](examples/notes/README.md).
+
 Define Pixeltable tables in TypeScript. As in Python, models extend a model base; a table is a class, each field is a
 column, and a computed column is an expression over the fields above it:
 

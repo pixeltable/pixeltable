@@ -84,6 +84,7 @@ class LocalServiceInstanceRecord(ServiceInstanceRecord):
     """A service instance served by a process on this machine."""
 
     project_root: str
+    app_suffix: str = '.py'  # old local records only store the dotted module path
 
     # the loopback port, kept across a restart so callers keep their address
     port: int | None = None
@@ -99,6 +100,7 @@ class LocalServiceInstanceRecord(ServiceInstanceRecord):
         return instance.model_copy(
             update={
                 'port': self.port,
+                'app_suffix': self.app_suffix,
                 'pid': self.pid,
                 'process_started_at': self.process_started_at,
                 'cpu': None,

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal, Sequence
 
 from pixeltable import catalog, exceptions as excs
+from pixeltable.catalog.model.typescript import is_typescript_file
 from pixeltable.config import Config
 from pixeltable.service.db import db_fingerprint
 from pixeltable.service.management_protocol import LogRecord, SpanRecord
@@ -346,6 +347,11 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
     """Load app_file and report what it holds, resolved against target."""
     from pixeltable.serving import FastAPIRouter
 
+    catalog_path = catalog.Path.parse(target, allow_empty_path=True)
+    if is_typescript_file(app_file) and not catalog_path.is_local:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'TypeScript services require a local catalog target'
+        )
     module = load_app_module(app_file, subject='application file')
     routers = module_routers(module)
     # serving binds every model the file reaches, so the same set has to describe the tables at the target,
@@ -355,7 +361,6 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
         needed.update(router.route_models())
     project_root = Config.get().project_root
     assert project_root is not None  # load_app_module() refuses a file outside a project root
-    catalog_path = catalog.Path.parse(target, allow_empty_path=True)
     db_config = Config.get().get_database_config(catalog_path)
     return _AppInfo(
         app_file=app_file,

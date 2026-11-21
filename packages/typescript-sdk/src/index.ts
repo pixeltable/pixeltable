@@ -49,3 +49,4 @@ export {
   type Row,
 } from './model.ts';
 export { getTable, Query, Table, type Column, type Columns, type UpdateStatus } from './table.ts';
+export { insertRoute } from './service.ts';
