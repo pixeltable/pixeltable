@@ -84,7 +84,7 @@ jobs:
           mkdir "$RUNNER_TEMP/pr"
           gh pr view "$PR_NUMBER" --repo "$REPO" --json title,body,baseRefName,baseRefOid,headRefOid,files,commits \
             > "$RUNNER_TEMP/pr/pr.json"
-          jq -r '"head=" + .headRefOid, "base=" + .baseRefName' "$RUNNER_TEMP/pr/pr.json" >> "$GITHUB_OUTPUT"
+          jq -r '"head=" + .headRefOid, "base=" + .baseRefOid' "$RUNNER_TEMP/pr/pr.json" >> "$GITHUB_OUTPUT"
           # GitHub refuses the diff of a PR over its size limit (300 files or 20,000 lines) with HTTP 406.
           if ! err=$(gh pr diff "$PR_NUMBER" --repo "$REPO" 2>&1 > "$RUNNER_TEMP/pr/pr.diff"); then
             echo "$err" >&2
