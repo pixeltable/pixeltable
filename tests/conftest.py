@@ -93,6 +93,25 @@ def pytest_configure(config: PytestConfig) -> None:
                 os.environ.pop('DYLD_INSERT_LIBRARIES', None)
     if sys.platform == 'linux':
         config.pluginmanager.register(_ExpRssPlugin(), 'exp-rss')
+    if os.environ.get('EXP_DESELECT_GROUP'):
+        config.pluginmanager.register(_ExpDeselectGroup(os.environ['EXP_DESELECT_GROUP']), 'exp-deselect-group')
+
+
+class _ExpDeselectGroup:
+    def __init__(self, group: str) -> None:
+        self.group = group
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_modifyitems(self, config: PytestConfig, items: list[pytest.Item]) -> None:
+        def in_group(item: pytest.Item) -> bool:
+            return any(
+                (m.args[0] if m.args else m.kwargs.get('name')) == self.group for m in item.iter_markers('xdist_group')
+            )
+
+        deselected = [item for item in items if in_group(item)]
+        if deselected:
+            items[:] = [item for item in items if not in_group(item)]
+            config.hook.pytest_deselected(items=deselected)
 
 
 @pytest.hookimpl(optionalhook=True)
