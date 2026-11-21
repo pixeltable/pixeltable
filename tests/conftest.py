@@ -916,3 +916,29 @@ def all_mpnet_embed() -> pxt.Function:
         return sentence_transformer.using(model_id='all-mpnet-base-v2')
     except ImportError:
         return None
+
+
+_EXP_RSS_STATE: dict = {'out': None, 'count': 0}
+
+
+def _exp_rss_mb() -> int:
+    with open('/proc/self/statm', encoding='ascii') as f:
+        return int(f.read().split()[1]) * os.sysconf('SC_PAGE_SIZE') // (1024 * 1024)
+
+
+@pytest.fixture(autouse=True)
+def _exp_rss_per_test(request: pytest.FixtureRequest) -> Iterator[None]:
+    if sys.platform != 'linux':
+        yield
+        return
+    if _EXP_RSS_STATE['out'] is None:
+        from _pytest.faulthandler import fault_handler_stderr_fd_key
+
+        _EXP_RSS_STATE['out'] = os.fdopen(os.dup(request.config.stash[fault_handler_stderr_fd_key]), 'w', buffering=1)
+    before = _exp_rss_mb()
+    yield
+    after = _exp_rss_mb()
+    _EXP_RSS_STATE['count'] += 1
+    worker = os.environ.get('PYTEST_XDIST_WORKER', 'main')
+    if after - before >= 100 or _EXP_RSS_STATE['count'] % 100 == 0:
+        print(f'EXP-RSS {worker} {before}->{after}MB ({after - before:+d}) {request.node.nodeid}', file=_EXP_RSS_STATE['out'])

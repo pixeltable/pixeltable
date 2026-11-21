@@ -137,8 +137,7 @@ jobs:
       - name: Generate test matrix
         id: set-matrix
         run: |
-          ARGS=${{ github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms && '--force-all' || '' }}
-          python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS
+          echo "matrix=$(python -c 'import json; print(json.dumps(json.load(open(".github/experiment-matrix.json"))))')" >> "$GITHUB_OUTPUT"
 
   tests:
     name: ${{ matrix.display-name }}
@@ -258,6 +257,8 @@ jobs:
         # -n comes from the matrix
         run: |
           if [[ "$RUNNER_OS" != 'Windows' ]]; then
+            ./scripts/ci-experiment-watch.sh &
+            exp_watch_pid=$!
             # 5 minutes before the 90-minute timeout above, a stack dump from each pytest process: the controller and
             # its xdist workers (`python -c import sys;exec(eval(sys.stdin.readline()))`), with the SIGUSR1 handler in
             # tests/conftest.py. One process at a time, since they share stderr. Then the Postgres server's state, for
@@ -273,7 +274,7 @@ jobs:
               done
               ./scripts/dump-pg-state.sh || true
             ) &
-            trap "kill $! 2> /dev/null || true" EXIT
+            trap "kill $! $exp_watch_pid 2> /dev/null || true" EXIT
           fi
           echo 'Running tests with options: ${{ matrix.pytest-options }}'
           echo 'xdist workers             : ${{ matrix.xdist-workers }}'
