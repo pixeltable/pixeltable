@@ -1,0 +1,7 @@
+{
+  "include": ["pixeltable", "pixeltable_cli", "packages", "tests", "tool"],
+  "exclude": ["**/node_modules", "**/__pycache__", "**/.*"],
+  "extraPaths": ["packages/opentelemetry-instrumentation-pixeltable/src"],
+  "typeCheckingMode": "off",
+  "enableTypeIgnoreComments": true
+}

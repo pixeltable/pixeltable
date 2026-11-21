@@ -1,0 +1,11 @@
+{
+  "name": "pxt-risk-pyright",
+  "description": "Pinned pyright for the risk-assessment check's LSP tool",
+  "lspServers": {
+    "pyright": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/pyright-langserver",
+      "args": ["--stdio"],
+      "extensionToLanguage": {".py": "python"}
+    }
+  }
+}
