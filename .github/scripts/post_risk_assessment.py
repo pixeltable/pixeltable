@@ -155,6 +155,8 @@ def result_subtype(execution_file: str) -> str | None:
             messages = json.load(f)
     except (OSError, ValueError):
         return None
+    if not isinstance(messages, list):
+        return None
     results = [m for m in messages if isinstance(m, dict) and m.get('type') == 'result']
     return results[-1].get('subtype') if results else None
 
@@ -254,8 +256,11 @@ def main() -> int:
     elif not execution_file or not os.path.isfile(execution_file):
         problems = ['the Claude step left no execution file']
     else:
-        data = review_json(final_message(execution_file))
-        problems = validate(data)
+        try:
+            data = review_json(final_message(execution_file))
+            problems = validate(data)
+        except (OSError, ValueError, TypeError, AttributeError) as e:
+            data, problems = None, [f'the execution file is malformed ({type(e).__name__}: {e})']
 
     body = ''
     if not problems and data is not None:
