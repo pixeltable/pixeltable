@@ -5,6 +5,7 @@ pgdata="${PIXELTABLE_PGDATA:-${PIXELTABLE_HOME:-$HOME/.pixeltable}/pgdata}"
 handled=' '
 iteration=0
 prev_pswpout=0
+prev_pageouts=0
 prev_oom_count=0
 
 pg_query() {
@@ -53,8 +54,25 @@ check_hangs() {
     done <<< "$rows"
 }
 
+sample_memory_darwin() {
+    local vm page_size pageouts compressed swap_used
+    vm=$(vm_stat)
+    page_size=$(printf '%s\n' "$vm" | sed -nE 's/.*page size of ([0-9]+) bytes.*/\1/p')
+    pageouts=$(printf '%s\n' "$vm" | awk -F: '/^Pageouts/ {gsub(/[ .]/, "", $2); print $2}')
+    compressed=$(printf '%s\n' "$vm" | awk -F: '/occupied by compressor/ {gsub(/[ .]/, "", $2); print $2}')
+    swap_used=$(sysctl -n vm.swapusage | sed -nE 's/.*used = ([0-9.]+)M.*/\1/p')
+    echo "EXP-MEM $(date -u +%H:%M:%S) free_level=$(sysctl -n kern.memorystatus_level)% swap_used=${swap_used}MB compressed=$((compressed * page_size / 1048576))MB pageouts_delta=$((pageouts - prev_pageouts)) load=$(sysctl -n vm.loadavg | tr -d '{}')"
+    prev_pageouts=$pageouts
+    if ((iteration % 4 == 0)); then
+        ps -axo pid=,rss=,command= -m | head -6 | awk '{printf "EXP-MEM   top pid=%s rss=%dMB ", $1, $2/1024; $1=""; $2=""; print substr($0, 3, 110)}'
+    fi
+}
+
 sample_memory() {
-    [[ "$(uname)" == 'Linux' ]] || return
+    if [[ "$(uname)" == 'Darwin' ]]; then
+        sample_memory_darwin
+        return
+    fi
     local avail swap_total swap_free pswpout
     avail=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo)
     swap_total=$(awk '/^SwapTotal:/ {print int($2/1024)}' /proc/meminfo)

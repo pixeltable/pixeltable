@@ -1,50 +1,51 @@
 {
   "include": [
     {
+      "display-name": "exp-peak-a, ubuntu-24.04, 3.12",
       "test-category": "py",
-      "os": "macos-26",
-      "python-version": "3.11",
+      "os": "ubuntu-24.04",
+      "python-version": "3.12",
       "uv-options": "",
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800",
-      "display-name": "exp-hang-sendlog-1, macos-26, 3.11"
+      "random-ops-seconds": "1800"
     },
     {
+      "display-name": "exp-peak-b, ubuntu-24.04, 3.12",
       "test-category": "py",
-      "os": "macos-26",
-      "python-version": "3.11",
+      "os": "ubuntu-24.04",
+      "python-version": "3.12",
       "uv-options": "",
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800",
-      "display-name": "exp-hang-sendlog-2, macos-26, 3.11"
+      "random-ops-seconds": "1800"
     },
     {
+      "display-name": "exp-peak-a, ubuntu-24.04, 3.15",
       "test-category": "py",
-      "os": "macos-26",
-      "python-version": "3.11",
+      "os": "ubuntu-24.04",
+      "python-version": "3.15",
       "uv-options": "",
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800",
-      "display-name": "exp-hang-sendlog-3, macos-26, 3.11"
+      "random-ops-seconds": "1800"
     },
     {
+      "display-name": "exp-peak-b, ubuntu-24.04, 3.15",
       "test-category": "py",
-      "os": "macos-26",
-      "python-version": "3.11",
+      "os": "ubuntu-24.04",
+      "python-version": "3.15",
       "uv-options": "",
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800",
-      "display-name": "exp-hang-sendlog-4, macos-26, 3.11"
+      "random-ops-seconds": "1800"
     },
     {
+      "display-name": "exp-peak-sendlog-1, macos-26, 3.11",
       "test-category": "py",
       "os": "macos-26",
       "python-version": "3.11",
@@ -52,10 +53,10 @@
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800",
-      "display-name": "exp-hang-sendlog-5, macos-26, 3.11"
+      "random-ops-seconds": "1800"
     },
     {
+      "display-name": "exp-peak-sendlog-2, macos-26, 3.11",
       "test-category": "py",
       "os": "macos-26",
       "python-version": "3.11",
@@ -63,8 +64,51 @@
       "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
       "xdist-workers": "logical",
       "pre-test-cmd": "",
-      "random-ops-seconds": "1800",
-      "display-name": "exp-hang-sendlog-6, macos-26, 3.11"
+      "random-ops-seconds": "1800"
+    },
+    {
+      "display-name": "exp-peak-sendlog-3, macos-26, 3.11",
+      "test-category": "py",
+      "os": "macos-26",
+      "python-version": "3.11",
+      "uv-options": "",
+      "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
+      "xdist-workers": "logical",
+      "pre-test-cmd": "",
+      "random-ops-seconds": "1800"
+    },
+    {
+      "display-name": "exp-peak-sendlog-4, macos-26, 3.11",
+      "test-category": "py",
+      "os": "macos-26",
+      "python-version": "3.11",
+      "uv-options": "",
+      "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
+      "xdist-workers": "logical",
+      "pre-test-cmd": "",
+      "random-ops-seconds": "1800"
+    },
+    {
+      "display-name": "exp-peak-sendlog-5, macos-26, 3.11",
+      "test-category": "py",
+      "os": "macos-26",
+      "python-version": "3.11",
+      "uv-options": "",
+      "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
+      "xdist-workers": "logical",
+      "pre-test-cmd": "",
+      "random-ops-seconds": "1800"
+    },
+    {
+      "display-name": "exp-peak-sendlog-6, macos-26, 3.11",
+      "test-category": "py",
+      "os": "macos-26",
+      "python-version": "3.11",
+      "uv-options": "",
+      "pytest-markers": "not resource_intensive and not benchmark and not very_expensive and not expensive",
+      "xdist-workers": "logical",
+      "pre-test-cmd": "",
+      "random-ops-seconds": "1800"
     }
   ]
 }
