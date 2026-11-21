@@ -12,6 +12,7 @@ from . import (
     audio,
     bedrock,
     bfl,
+    cohere,
     date,
     deepseek,
     document,
