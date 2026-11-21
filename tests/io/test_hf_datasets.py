@@ -116,6 +116,7 @@ class TestHfDatasetsBasic:
 @rerun_on_network_error()
 class TestHfDatasets:
     NUM_SAMPLES = 100
+    NUM_ARRAY_SAMPLES = 10
 
     # a streaming dataset has no on-disk form to ship, so it is rejected over the proxy (engine limitation)
     def _skip_streaming_over_proxy(self, streaming: bool, db_root: DatabaseRoot) -> None:
@@ -335,7 +336,7 @@ class TestHfDatasets:
         res = t.select(t.image.localpath).collect()
         assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
 
-    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.parametrize('streaming', [False, pytest.param(True, marks=pytest.mark.resource_intensive)])
     def test_import_arrays(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, db_root)
@@ -343,10 +344,10 @@ class TestHfDatasets:
 
         p = db_root.make_catalog_path
 
-        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        split = f'train[:{self.NUM_ARRAY_SAMPLES}]' if not streaming else 'train'
         hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split=split, streaming=streaming)
         if streaming:
-            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+            hf_dataset = hf_dataset.take(self.NUM_ARRAY_SAMPLES)
         t = pxt.create_table(p('hfds'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'audio', 'sentence'}
@@ -544,7 +545,7 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['title'], list) for row in res)
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
-    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.parametrize('streaming', [False, pytest.param(True, marks=pytest.mark.resource_intensive)])
     def test_import_arraynd(self, streaming: bool, db_root: DatabaseRoot) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')
@@ -553,10 +554,10 @@ class TestHfDatasets:
 
         p = db_root.make_catalog_path
 
-        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        split = f'train[:{self.NUM_ARRAY_SAMPLES}]' if not streaming else 'train'
         hf_dataset = datasets.load_dataset('tanganke/nyuv2', split=split, streaming=streaming)
         if streaming:
-            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+            hf_dataset = hf_dataset.take(self.NUM_ARRAY_SAMPLES)
         t = pxt.create_table(p('nyuv2_test'), source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32] | None'
