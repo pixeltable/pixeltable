@@ -1232,6 +1232,16 @@ class TestTableModel:
         assert res['lower_code'] == ['a', 'b', 'c']
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
 
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r"'count' is reserved and cannot be the name of an iterator output.",
+        ):
+
+            class TripCounts(
+                TableModel, name='trip_counts', base=Trips, iterator=pxtf.json.list_iterator(count=Trips.codes)
+            ):
+                pass
+
     def test_view_model_on_iterator_view(self, db_root: DatabaseRoot) -> None:
         """A view model stacks on an iterator view model whose iterator argument is a compound expression."""
         p = db_root.make_catalog_path

@@ -126,6 +126,8 @@ def evict_modules(root: Path) -> None:
         if resolved.is_relative_to(root):
             registry.deregister_module(name)
             sys.modules.pop(name, None)
+    # the next import can bring code that differs from the version of the UDF servers' project
+    Env.drop_udf_endpoints()
 
 
 def _prohibited_write_msg(file: str, subject: str, exc: ProhibitedWriteError) -> str:

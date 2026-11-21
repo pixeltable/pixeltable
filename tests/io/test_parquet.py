@@ -156,7 +156,7 @@ class TestParquet:
         parquet_dir.mkdir()
         _ = make_test_arrow_table(parquet_dir)
 
-        tab = pxt.io.import_parquet(p('test_parquet'), parquet_path=str(parquet_dir))
+        tab = pxt.io.import_parquet(p('test_parquet'), parquet_path=parquet_dir)
         assert p('test_parquet') in pxt.list_tables(p(''))
         assert tab is not None
         num_elts = tab.count()
@@ -191,7 +191,7 @@ class TestParquet:
         # This test passes only a directory to the parquet reader. The source_format must be explicit in this case.
         tab = pxt.io.import_parquet(p('test_parquet'), parquet_path=str(parquet_dir), source_format='parquet')
         len1 = tab.count()
-        tab.insert(str(parquet_dir), source_format='parquet')
+        tab.insert(parquet_dir, source_format='parquet')
         assert tab.count() == len1 * 2
 
     def test_insert_parquet_nested(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:

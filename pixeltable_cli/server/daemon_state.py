@@ -12,7 +12,7 @@ from typing import Mapping
 
 import pydantic
 
-from pixeltable.config import VAR_ENV_PREFIX, Config, env_var_name
+from pixeltable.config import VAR_ENV_PREFIX, Config, ConfigKey, env_var_name
 from pixeltable_cli.client.utils import session_is_live
 from pixeltable_cli.models import InFlightRequest, Method
 from pixeltable_cli.utils import value_fingerprint
@@ -20,11 +20,26 @@ from pixeltable_cli.utils import value_fingerprint
 _logger = logging.getLogger(__name__)
 
 
+# the name of pixeltable.udf in config_fingerprint(); no environment variable sets it
+_UDF_SETTING_NAME = 'pixeltable.udf'
+
+
+def fingerprinted_settings() -> dict[str, ConfigKey]:
+    """Return the settings of config_fingerprint(), keyed by name: the environment variable's name, or
+    _UDF_SETTING_NAME for pixeltable.udf."""
+    config = Config.get()
+    settings = {env_var_name(ck.section, ck.key): ck for ck in config.env_keys()}
+    settings[_UDF_SETTING_NAME] = next(
+        ck for ck in config.config_keys() if (ck.section, ck.key) == ('pixeltable', 'udf')
+    )
+    return settings
+
+
 def config_fingerprint() -> dict[str, str]:
-    """Fingerprints of the config values relevant to the daemon, as {env var name: hash}."""
+    """Fingerprints of the config values relevant to the daemon, as {name in fingerprinted_settings(): hash}."""
     config = Config.get()
     out: dict[str, str] = {}
-    for ck in config.env_keys():
+    for name, ck in fingerprinted_settings().items():
         value: str | None
         # settings from [[pixeltable.database]] are read per command
         if (ck.section, ck.key) == ('pixeltable', 'database'):
@@ -32,7 +47,7 @@ def config_fingerprint() -> dict[str, str]:
         else:
             value = config.get_value(ck.key, str, section=ck.section)
         if value is not None and value != '':
-            out[env_var_name(ck.section, ck.key)] = value_fingerprint(value)
+            out[name] = value_fingerprint(value)
     return out
 
 

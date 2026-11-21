@@ -71,9 +71,15 @@ database only. A `[[pixeltable.database]]` entry with no `name` corresponds to t
 `[[pixeltable.database]]` entry named `pxt://org:db` is a hosted database, and must be in `pixeltable.toml`, not
 `config.toml`. Its pods read the entry and the sections of
 `pixeltable.toml` after `pxt db update`, and `pxt service update` restarts running services with them. For a hosted
-database, `pxt db update` refuses a secret in `pixeltable.toml` (a key named `api_key`, `api_secret`, `api_token`,
-`token`, `storage_account_key`, or `exporter_otlp_headers`); set it with
-`pxt secret set pxt://org:db OPENAI_API_KEY=...` instead.
+database, and for a project with a `pixeltable.udf` setting, `pxt` refuses a secret in `pixeltable.toml` (a key named
+`api_key`, `api_secret`, `api_token`, `token`, `storage_account_key`, or `exporter_otlp_headers`), and `pxt db update`
+refuses one under `[tool.pixeltable]` in `pyproject.toml`, which Pixeltable Cloud receives with the project. Keep such
+keys in `config.toml` or in the environment, and set them for Pixeltable Cloud with `pxt secret set`: for example
+`pxt secret set pxt://org:db OPENAI_API_KEY=...` for a hosted database. The UDF servers of the local database read a
+key at either scope: `pxt secret set pxt://org OPENAI_API_KEY=...` sets it for every database in the organization
+without its own `OPENAI_API_KEY`, and `pxt secret set pxt://org:db OPENAI_API_KEY=...` with the local database's uri
+sets it for them alone. The local database's uri appears in the output of `pxt db update`, which registers the database
+in Pixeltable Cloud. Run `pxt db update` after `pxt secret set` to deploy the UDF servers with the key.
 
 ```toml
 # pixeltable.toml
@@ -134,13 +140,15 @@ The pods read these settings at startup. The endpoint and protocol in the entry 
 | GOOGLE_API_KEY | | (string) Alternative API key for Google AI Studio (not used for Vertex AI) |
 | GOOGLE_CLOUD_LOCATION | | (string) Google Cloud region for Vertex AI |
 | GOOGLE_CLOUD_PROJECT | | (string) Google Cloud project ID for Vertex AI |
-| GOOGLE_GENAI_USE_VERTEXAI | | (bool) Set to `true` to use Vertex AI instead of Google AI Studio |
+| GOOGLE_GENAI_USE_VERTEXAI | | (bool) Set to `true` to use Vertex AI instead of Google AI Studio; ignored when `GEMINI_API_KEY` or `[gemini] api_key` is set |
 | GROQ_API_KEY | [groq]<br/>api_key | (string) API key to use for Groq AI services |
 | HF_TOKEN | [hf]<br/>token | (string) Hugging Face token for use with Hugging Face services |
 | MISTRAL_API_KEY | [mistral]<br/>api_key | (string) API key to use for Mistral AI services |
 | OPENAI_API_KEY | [openai]<br/>api_key | (string) API key to use for OpenAI services |
 | OPENAI_BASE_URL | [openai]<br/>base_url | (string, optional) Base URL to use for OpenAI services |
 | OPENAI_API_VERSION | [openai]<br/>api_version | (string) API version for use with Azure OpenAI; must be `'latest'` or `'preview'` |
+| OPENLLM_API_KEY | [openllm]<br/>api_key | (string, optional) API key to use for OpenLLM services; not needed for the local daemon |
+| OPENLLM_BASE_URL | [openllm]<br/>base_url | (string, optional) Base URL to use for OpenLLM services; defaults to the local daemon at `http://127.0.0.1:8787/v1` |
 | OPENROUTER_API_KEY | [openrouter]<br/>api_key | (string) API key to use for OpenRouter services |
 | OPENROUTER_SITE_URL | [openrouter]<br/>site_url | (string) Application URL (optional, for OpenRouter analytics) |
 | OPENROUTER_APP_NAME | [openrouter]<br/>app_name | (string) Application name (optional, for OpenRouter analytics) |
