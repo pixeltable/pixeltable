@@ -298,13 +298,18 @@ class TableVersion:
 
         return TableVersionHandle(self.key)
 
-    @telemetry.spanned('pixeltable.media.delete', level=telemetry.DEBUG)
-    def delete_media(self, tbl_version: int | None = None) -> None:
-        # Assemble a set of column destinations and delete objects from all of them
+    @classmethod
+    def media_destinations(cls, cols: Iterable[Column]) -> set[str | None]:
+        """The destinations that hold the files of a table with the columns cols."""
         # None is a valid column destination which refers to the default object location
-        destinations = {col.destination for col in self.cols_by_id.values() if col.is_stored}
+        destinations = {col.destination for col in cols if col.is_stored}
         # the files that CellMaterializationNode wrote for this table's array, binary and json cells
         destinations.add(Env.get().cell_materialization_dest)
+        return destinations
+
+    @telemetry.spanned('pixeltable.media.delete', level=telemetry.DEBUG)
+    def delete_media(self, tbl_version: int | None = None) -> None:
+        destinations = self.media_destinations(self.cols_by_id.values())
         counts = [ObjectOps.delete(dest, self.id, tbl_version=tbl_version) for dest in destinations]
         reported_counts = [c for c in counts if c is not None]
         telemetry.add_attrs(

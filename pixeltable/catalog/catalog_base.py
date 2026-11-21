@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 from .model import TableSchemaChangeSet
 
@@ -18,8 +18,10 @@ if TYPE_CHECKING:
     from .model import IndexDefinition
     from .path import Path
     from .table import Table
+    from .table_copy import CopyChunk
     from .table_metadata import TableMetadata
     from .table_path import TableMdPath, TablePath
+    from .types import TableVersionMd
 
 
 class CatalogBase(abc.ABC):
@@ -72,6 +74,11 @@ class CatalogBase(abc.ABC):
         base: 'Query | None',
         idxs: list['IndexDefinition'],
         is_data_versioned: bool,
+    ) -> tuple[Table, bool]: ...
+
+    @abc.abstractmethod
+    def import_table(
+        self, path: Path, tbl_id: UUID, md: TableVersionMd, chunks: Iterable[CopyChunk], if_exists: IfExistsParam
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod

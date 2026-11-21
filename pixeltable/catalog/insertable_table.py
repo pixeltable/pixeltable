@@ -10,8 +10,9 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
 
+from . import table_copy
 from .column import Column
-from .globals import IndexSpec, MediaValidation, OnErrorParam
+from .globals import IfExistsParam, IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
@@ -265,6 +266,11 @@ class InsertableTable(LocalTable):
 
     def _get_base_table(self) -> 'Table' | None:
         return None
+
+    def _copy(self, dest_path: 'pxt.catalog.Path', with_rows: bool, if_exists: IfExistsParam) -> tuple['Table', bool]:
+        """Create a table at dest_path from the current version of this table: a copy with its rows if with_rows,
+        otherwise an empty table with its schema."""
+        return table_copy.copy_table(self, get_runtime().get_catalog(dest_path), dest_path, with_rows, if_exists)
 
     @property
     def _effective_base_versions(self) -> list[int | None]:

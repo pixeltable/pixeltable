@@ -73,6 +73,7 @@ def create_table(
     schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     *,
     source: TableDataSource | None = None,
+    schema_source: catalog.Table | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
     schema_overrides: dict[str, Any] | None = None,
     has_default_idxs: bool = False,
@@ -85,7 +86,7 @@ def create_table(
     extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
     _is_data_versioned: bool = True,
 ) -> catalog.Table:
-    """Create a new base table. Exactly one of `schema` or `source` must be provided.
+    """Create a new base table. Exactly one of `schema`, `source` or `schema_source` must be provided.
 
     If a `schema` is provided, then an empty table will be created with the specified schema.
 
@@ -93,11 +94,28 @@ def create_table(
     contents of the specified data, and the data will be imported from the specified source into the new table. The
     source format and/or schema can be specified directly via the `source_format` and `schema_overrides` parameters.
 
+    If `source` is a table, then the new table is a copy of the current version of that table with its columns,
+    computed columns, indexes and rows. The copy has no version history: it starts at version 0 and cannot be
+    reverted. A local table can be copied to the same database or to a hosted one. A hosted table can be
+    copied only within its own database. The copy keeps the stored values, so
+    that computed columns and embedding indexes are not computed again. The copy stores its own media files: the
+    local media files of the table and the media files that it stored in a bucket are copied. Any other media URL
+    stays as it is. To copy only the rows of a table, pass a query such as `tbl.select()` as `source`.
+
+    If `schema_source` is provided, then an empty table will be created with the columns, computed columns, primary
+    key, indexes and settings of that table, as `CREATE TABLE ... LIKE` does in SQL.
+
+    A copy and a table created from `schema_source` take their comment, custom metadata, media validation and default
+    indexes from the source table. The database must be able to load every UDF that the source table uses. Deploy
+    your own UDFs with `pxt db update` first.
+
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types. A bare type such as
             `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls.
-        source: A data source (file, URL, Table, Query, or list of rows) to import from.
+        source: A data source (file, URL, Table, Query, or list of rows) to import from. A Table must be a base
+            table that is local or in the database of `path`. A Query of another database is not supported.
+        schema_source: A base table whose schema the new table takes. It must be local or in the database of `path`.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
             Pixeltable will attempt to infer the format from the source data.)
@@ -144,7 +162,9 @@ def create_table(
             - the path already exists and `if_exists='error'`, or
             - the path already exists and is not a table, or
             - an error occurs while attempting to create the table, or
-            - an error occurs while attempting to import data from the source.
+            - an error occurs while attempting to import data from the source, or
+            - a copied table references local media files that no longer exist, or
+            - the database cannot load a UDF that a copied table uses.
 
     Examples:
         Create a table with an int and a string column:
@@ -177,6 +197,26 @@ def create_table(
         ...     if_exists='replace',
         ... )
 
+        Copy a table, with its computed columns, indexes and rows:
+
+        >>> t = pxt.create_table('films_copy', source=pxt.get_table('films'))
+
+        Copy a local table into a hosted database:
+
+        >>> t = pxt.create_table(
+        ...     'pxt://my-org:my-db/films', source=pxt.get_table('films')
+        ... )
+
+        Create a table from only the rows of another table:
+
+        >>> t = pxt.create_table('films_rows', source=pxt.get_table('films').select())
+
+        Create an empty table in a hosted database with the schema of a local table:
+
+        >>> t = pxt.create_table(
+        ...     'pxt://my-org:my-db/films', schema_source=pxt.get_table('films')
+        ... )
+
         Create a table from a CSV file:
 
         >>> tbl = pxt.create_table('my_table', source='data.csv')
@@ -191,9 +231,9 @@ def create_table(
     """
     from pixeltable.io.schema import normalize_primary_key_parameter
 
-    if (schema is None) == (source is None):
+    if sum(arg is not None for arg in (schema, source, schema_source)) != 1:
         raise excs.RequestError(
-            excs.ErrorCode.MISSING_REQUIRED, 'Either a `schema` or a `source` must be provided (but not both)'
+            excs.ErrorCode.MISSING_REQUIRED, 'Exactly one of `schema`, `source` or `schema_source` must be provided'
         )
 
     if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
@@ -205,8 +245,54 @@ def create_table(
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
     telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
+
+    # refuse queries from tables that aren't in our database
+    if isinstance(source, Query) and source._from_clause.catalog_uri != path_obj.catalog_uri:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Cannot create {path!r} from a query of another database. Pass a base table as `source` to copy it.',
+        )
+    is_copy = isinstance(source, catalog.Table)
+    # the table that gives the new table its columns, indexes and settings
+    src_tbl = source if is_copy else schema_source
+    if src_tbl is not None:
+        assert isinstance(src_tbl, catalog.Table)
+        src_tbl_arg = 'source' if is_copy else 'schema_source'
+        if not isinstance(src_tbl, (catalog.InsertableTable, catalog.InsertableTableProxy)):
+            error_msg = f'`{src_tbl_arg}` must be a base table, not {src_tbl._display_str()}'
+            if is_copy:
+                error_msg += '. To copy only its rows, pass a query such as `tbl.select()` as `source`.'
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, error_msg)
+        # the database of a hosted table runs the copy, and it can create the new table only in itself
+        src_catalog_uri = src_tbl._tbl_path.catalog_uri
+        if not src_catalog_uri.is_local and src_catalog_uri != path_obj.catalog_uri:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'`{src_tbl_arg}` must be a local table or a table of the database of {path!r}, not '
+                f'{src_tbl._display_str()}',
+            )
+        # the new table takes these settings from src_tbl, so that passing one is an error
+        is_arg_given = {
+            'source_format': source_format is not None,
+            'schema_overrides': schema_overrides is not None,
+            'comment': comment is not None,
+            'custom_metadata': custom_metadata is not None,
+            'extra_args': extra_args is not None,
+            'primary_key': bool(primary_key),
+            'media_validation': media_validation_ != catalog.MediaValidation.ON_WRITE,
+            'has_default_idxs': has_default_idxs,
+            '_is_data_versioned': not _is_data_versioned,
+        }
+        given_args_str = ', '.join(f'`{name}`' for name, is_given in is_arg_given.items() if is_given)
+        if given_args_str != '':
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'`{src_tbl_arg}` cannot be combined with {given_args_str}: the new table takes them from '
+                f'{src_tbl._display_str()}',
+            )
+
     data_source: TableDataConduit | None = None
-    if source is not None:
+    if source is not None and not is_copy:
         data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
@@ -226,7 +312,7 @@ def create_table(
     else:
         is_direct_query = False
 
-    if len(schema) == 0 or not isinstance(schema, dict):
+    if src_tbl is None and (len(schema) == 0 or not isinstance(schema, dict)):
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.',
@@ -242,33 +328,37 @@ def create_table(
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
-    # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
-    # mapping and report the same errors
-    schema = catalog.normalize_schema(schema)
+    if src_tbl is not None:
+        assert isinstance(src_tbl, (catalog.InsertableTable, catalog.InsertableTableProxy))
+        tbl, was_created = src_tbl._copy(path_obj, with_rows=is_copy, if_exists=if_exists_)
+    else:
+        # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
+        # mapping and report the same errors
+        schema = catalog.normalize_schema(schema)
 
-    # apply the primary_key parameter to the schema
-    for pk_col in primary_key or []:
-        folded_pk_col = fold_identifier(pk_col)
-        if folded_pk_col not in schema:
-            raise excs.NotFoundError(
-                excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
+        # apply the primary_key parameter to the schema
+        for pk_col in primary_key or []:
+            folded_pk_col = fold_identifier(pk_col)
+            if folded_pk_col not in schema:
+                raise excs.NotFoundError(
+                    excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
+                )
+            schema[folded_pk_col] = {**schema[folded_pk_col], 'primary_key': True}
+
+        tbl, was_created = (
+            get_runtime()
+            .get_catalog(path_obj)
+            .create_table(
+                path_obj,
+                schema,
+                if_exists=if_exists_,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation_,
+                has_default_idxs=has_default_idxs,
+                is_data_versioned=_is_data_versioned,
             )
-        schema[folded_pk_col] = {**schema[folded_pk_col], 'primary_key': True}
-
-    tbl, was_created = (
-        get_runtime()
-        .get_catalog(path_obj)
-        .create_table(
-            path_obj,
-            schema,
-            if_exists=if_exists_,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation_,
-            has_default_idxs=has_default_idxs,
-            is_data_versioned=_is_data_versioned,
         )
-    )
 
     telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(tbl._id)))
     if was_created:

@@ -15,25 +15,29 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 from uuid import UUID, uuid4
 
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable._query import Query
+from pixeltable._version import __version__
 from pixeltable.catalog import (
     Catalog,
     InsertableTable,
+    LocalTable,
     Path,
     ProhibitedWriteError,
     TablePathKey,
     TableVersionKey,
     retry_md_read_loop,
+    table_copy,
 )
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
+from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.local_store import TempStore
@@ -45,7 +49,6 @@ from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, protocol_mismatch_me
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from pixeltable.catalog import LocalTable
     from pixeltable.catalog.types import TableVersionMd
     from pixeltable.catalog.update_status import UpdateStatus
 
@@ -175,7 +178,10 @@ def _dispatch(request: ProxyRequest, key: tuple[str, str], path_label: Any, t0: 
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
         )
-    _prefetch_remote_parts(request)
+    # import_table() localizes the uploaded files of one chunk at a time, so that temp disk holds the media files of
+    # one chunk
+    if key != ('CatalogBase', 'import_table'):
+        _prefetch_remote_parts(request)
     result = handler(request)
     body: bytes
     if key in _BODY_METHODS:
@@ -193,7 +199,12 @@ _archive_download_slots = threading.BoundedSemaphore(_MAX_ARCHIVE_DOWNLOADS)
 
 
 def _prefetch_remote_parts(request: ProxyRequest) -> None:
-    """Localize the request's out-of-band binary parts (object store keys) into TempStore before dispatch.
+    """Localize the request's out-of-band binary parts (object store keys) into TempStore before dispatch."""
+    _localize_remote_parts(request, request.args)
+
+
+def _localize_remote_parts(request: ProxyRequest, args: Any) -> None:
+    """Localize the out-of-band binary parts (object store keys) of args, a part of request.args, into TempStore.
     Updates request._remote_parts with the temp paths of the localized files.
 
     A part is either an object of its own or a member of an archive (see PxtArchivePartSink). Each archive is
@@ -201,7 +212,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
 
     Should be called outside of a db transaction so that object-store I/O never holds a db connection.
     """
-    parts = proxy_protocol.collect_remote_keys(request.args)
+    parts = proxy_protocol.collect_remote_keys(args)
     if len(parts) == 0:
         return
     objects: list[str] = []
@@ -367,6 +378,38 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
         return None if tbl is None else cat.read_md_for_export(tbl)
 
     return load()
+
+
+def _import_table(request: ProxyRequest) -> tuple[list, bool]:
+    # the metadata of the copy is made from md, so md must be of this database's metadata version
+    if request.schema_version != MD_SCHEMA_VERSION:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Cannot create a table from metadata of version {request.schema_version} in a database of metadata '
+            f'version {MD_SCHEMA_VERSION}; use the Pixeltable version that the database runs ({__version__}).',
+        )
+    kwargs = proxy_protocol.deserialize_args(
+        request, {name: arg for name, arg in request.args.items() if name != 'chunks'}
+    )
+
+    def localize_chunks() -> Iterator[table_copy.CopyChunk]:
+        for chunk_args in request.args['chunks']:
+            _localize_remote_parts(request, chunk_args)
+            chunk = proxy_protocol.deserialize_args(request, chunk_args)
+            # A request can also give a file as a plain path string. Only an uploaded file is accepted, so that a
+            # caller cannot have the daemon read one of its own files.
+            uploaded = request._uploaded_names.keys()
+            if chunk['rows_file'] not in uploaded or not uploaded >= set(chunk['media'].values()):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, 'import_table(): the rows and media files must be uploaded files'
+                )
+            yield table_copy.CopyChunk(chunk['rows_file'], chunk['media'])
+
+    cat = get_runtime().catalog
+    tbl, was_created = cat.import_table(**kwargs, chunks=localize_chunks())
+    with cat.begin_md_read_xact():
+        md = cat.read_md_for_export(tbl)
+    return md, was_created
 
 
 def _get_table_paths_md(request: ProxyRequest) -> list:
@@ -634,6 +677,17 @@ def _get_path(request: ProxyRequest, tbl: LocalTable) -> Any:
     return tbl._path()
 
 
+def _copy(request: ProxyRequest, tbl: LocalTable) -> tuple[list, bool]:
+    # only an InsertableTableProxy dispatches '_copy', so a non-InsertableTable here is an internal error
+    assert isinstance(tbl, InsertableTable), tbl
+    new_tbl, was_created = tbl._copy(**proxy_protocol.deserialize_request(request))
+    assert isinstance(new_tbl, LocalTable), new_tbl
+    cat = get_runtime().catalog
+    with cat.begin_md_read_xact():
+        md = cat.read_md_for_export(new_tbl)
+    return md, was_created
+
+
 def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     # rebase the title onto the client's catalog so it shows the table's full pxt:// path
     args = proxy_protocol.deserialize_request(request)
@@ -703,6 +757,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'get_dir_contents'): _catalog_method,
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
+    ('CatalogBase', 'import_table'): _import_table,
     ('Query', 'collect'): _query_collect,
     ('Query', 'count'): _query_count,
 }
@@ -743,6 +798,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'alter_column'): _alter_column,
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
+    ('Table', '_copy'): _copy,
     ('Table', 'describe'): _describe,
     ('Table', '_column_description'): _column_description,
     ('Table', 'list_views'): _list_views,

@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import warnings
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 from uuid import UUID
 
@@ -172,6 +172,13 @@ class ObjectPath:
         prefix = f'{table_prefix}/{id_hex[:2]}/{id_hex[:4]}'
         filename = f'{table_prefix}_{col_id}_{tbl_version}_{id_hex}{ext or ""}'
         return prefix, filename
+
+    @classmethod
+    def is_table_object(cls, url: str, tbl_id: UUID) -> bool:
+        """Whether url has a prefix and filename that create_prefix_raw() constructs for tbl_id."""
+        table_prefix = cls.table_prefix(tbl_id)
+        url_path = PurePosixPath(urllib.parse.urlparse(url).path)
+        return table_prefix in url_path.parent.parts and url_path.name.startswith(f'{table_prefix}_')
 
     @classmethod
     def separate_prefix_object(cls, path_and_object: str, may_contain_object_name: bool) -> tuple[str, str]:

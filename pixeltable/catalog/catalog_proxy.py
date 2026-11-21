@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 from uuid import UUID
 
 from pixeltable.env import Env
+from pixeltable.service.proxy_protocol import LocalFile
 
 from .catalog_base import CatalogBase
 from .insertable_table_proxy import InsertableTableProxy
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
     from .model import IndexDefinition
     from .table import Table
+    from .table_copy import CopyChunk
     from .table_metadata import TableMetadata
     from .table_path import TablePath
     from .types import TableVersionMd
@@ -219,3 +221,23 @@ class CatalogProxy(CatalogBase):
         self.client.send_request(
             'CatalogBase', 'drop_dir', {'path': path, 'if_not_exists': if_not_exists, 'force': force}
         )
+
+    def import_table(
+        self, path: Path, tbl_id: UUID, md: TableVersionMd, chunks: Iterable[CopyChunk], if_exists: IfExistsParam
+    ) -> tuple[Table, bool]:
+        # a LocalFile is uploaded with the request
+        args = {
+            'path': path,
+            'tbl_id': tbl_id,
+            'md': md,
+            'chunks': [
+                {
+                    'rows_file': LocalFile(chunk.rows_file),
+                    'media': {url: LocalFile(media_path) for url, media_path in chunk.media.items()},
+                }
+                for chunk in chunks
+            ],
+            'if_exists': if_exists,
+        }
+        new_md, was_created = self.client.send_request('CatalogBase', 'import_table', args)
+        return self._make_table(new_md, is_anon_snapshot=False), was_created
