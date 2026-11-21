@@ -9,8 +9,9 @@ name: Risk assessment
 # - pull_request_target runs this file, .claude/commands/pxt-risk.md, the register, and every script from the base
 #   branch, so a PR cannot change its own assessment. It also gives fork PRs the API key. Nothing from the PR runs.
 # - The working directory holds the PR head, because pyright must analyze the code after the change. Every agent
-#   instruction file and every symlink in it is removed, and the base branch's instructions and register are copied
-#   in. The base branch itself is in $RUNNER_TEMP/base, which also holds the scripts and pyright that run.
+#   instruction file and every symlink in it is removed, and only the base branch's pxt-risk command and register are
+#   copied in. No CLAUDE.md or AGENTS.md is loaded, because they point to guides that the PR can edit. The base branch
+#   itself is in $RUNNER_TEMP/base, which also holds the scripts and pyright that run.
 # - Claude gets read-only tools and no shell: Read, Grep, Glob, and the LSP tool, backed by the pinned pyright that
 #   .github/risk-assessment/.claude-plugin/plugin.json starts. Pyright analyzes code statically. The file tools cannot
 #   read outside the working directory, the base checkout and $RUNNER_TEMP/pr, where an earlier step saves the PR's
@@ -106,17 +107,15 @@ jobs:
           persist-credentials: false
       - run: mv base-checkout "$BASE"
       # Claude loads CLAUDE.md, AGENTS.md, .claude/ and .mcp.json from its working directory, and Read follows symlinks.
-      # Remove the PR's copies and every symlink, then copy in the base branch's instructions, the register, and the
-      # pyright config, so that the PR can neither instruct Claude nor change what pyright analyzes.
+      # Remove the PR's copies and every symlink, then copy in the base branch's pxt-risk command, the register, and the
+      # pyright config, so that the PR can neither instruct Claude nor change what pyright analyzes. CLAUDE.md and
+      # AGENTS.md stay out: they send the agent to guides in the working directory, which the PR can edit.
       - run: |
           find . -path ./.git -prune -o -type l -print -exec rm -f {} +
           find . -path ./.git -prune -o \
             \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .mcp.json \
                -o -name pyrightconfig.json \) -prune -exec rm -rf {} +
-          rm -rf .github/instructions
           mkdir -p .claude/commands "$(dirname "$REGISTER")"
-          cp "$BASE/CLAUDE.md" "$BASE/AGENTS.md" .
-          cp -r "$BASE/.github/instructions" .github/
           cp "$BASE/.claude/commands/pxt-risk.md" .claude/commands/
           cp "$BASE/$REGISTER" "$REGISTER"
           cp "$BASE/.github/risk-assessment/pyrightconfig.json" .
