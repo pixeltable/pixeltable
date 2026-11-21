@@ -47,9 +47,7 @@ docs_table.add_computed_column(transcription_text=docs_table.transcription.text,
 chunks_view = pxt.create_view(
     f'{ns}.chunks',
     docs_table,
-    iterator=document_splitter(
-        document=docs_table.document, separators='sentence', metadata='title,heading,sourceline'
-    ),
+    iterator=document_splitter(document=docs_table.document, separators='sentence', metadata='title,heading'),
     if_exists='ignore',
 )
 

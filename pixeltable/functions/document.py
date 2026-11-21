@@ -30,9 +30,7 @@ class Element(Enum):
 class ChunkMetadata(Enum):
     TITLE = 1
     HEADING = 2
-    SOURCELINE = 3
     PAGE = 4
-    BOUNDING_BOX = 5
 
 
 class Separator(Enum):
@@ -55,28 +53,17 @@ class Heading(TypedDict, total=False):
     h6: str
 
 
-class BoundingBox(TypedDict):
-    """A bounding box on a document page, in page coordinates."""
-
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-
-
 @dataclass
 class DocumentSectionMetadata:
     """Metadata for a subsection of a document (ie, a structural element like a heading or paragraph)"""
 
     # html and markdown metadata
-    sourceline: int | None = None
     # the stack of headings up to the most recently observed one;
     # eg, if the most recent one was an h2, 'headings' would contain keys 1 and 2, but nothing below that
     heading: Heading | None = None
 
     # pdf-specific metadata
     page: int | None = None
-    bounding_box: BoundingBox | None = None
 
 
 @dataclass
@@ -147,17 +134,13 @@ class DocumentChunk(TypedDict, total=False):
     image: PIL.Image.Image
     title: str | None
     heading: Heading | None
-    sourceline: int | None
     page: int | None
-    bounding_box: BoundingBox | None
 
 
 _METADATA_COLUMN_TYPES = {
     ChunkMetadata.TITLE: ts.String | None,
     ChunkMetadata.HEADING: Heading | None,
-    ChunkMetadata.SOURCELINE: ts.Int | None,
     ChunkMetadata.PAGE: ts.Int | None,
-    ChunkMetadata.BOUNDING_BOX: BoundingBox | None,
 }
 
 
@@ -167,37 +150,55 @@ class document_splitter(pxt.PxtIterator):
 
     Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
 
+    __Separators by document format__:
+
+    A separator marked "No effect" is ignored for that format without an error. For example, with
+    `separators='page'`, an HTML document in the same table produces a single chunk.
+
+    | Separator | HTML, Markdown, Office | PDF | TXT |
+    |---|---|---|---|
+    | `'heading'` | Splits at headings | No effect | No effect |
+    | `'paragraph'` | Splits at headings and paragraphs | Not supported: the whole `insert()` fails | No effect |
+    | `'page'` | No effect | Splits at pages | No effect |
+    | `'sentence'` | Splits at headings, paragraphs and sentences | Splits into sentences | Splits into sentences |
+    | `'token_limit'`, `'char_limit'` | Splits long chunks | Splits long chunks | Splits long chunks |
+
+    Office documents are PPTX, DOCX and XLSX files. `'token_limit'` and `'char_limit'` split each chunk that is longer
+    than `limit` tokens or characters.
+
     __Outputs__:
 
         One row per chunk, with the following columns, depending on the specified `elements` and `metadata`:
 
         - `text` (`pxt.String`): The text of the chunk. Present if `'text'` is specified in `elements`.
         - `image` (`pxt.Image`): The image extracted from the chunk. Present if `'image'` is specified in `elements`.
-        - `title` (`pxt.String | None`): The document title. Present if `'title'` is specified in `metadata`.
+        - `title` (`pxt.String | None`): The content of the `<title>` element of an HTML document; `''` for other
+            formats and for HTML documents without one. Present if `'title'` is specified in `metadata`.
         - `heading` (`Heading | None`): The heading hierarchy at the start of the chunk, with the text of each
-            currently open heading level under the keys `h1` through `h6` (HTML and Markdown only).
-            Present if `'heading'` is specified in `metadata`.
-        - `sourceline` (`pxt.Int | None`): The source line number of the start of the chunk (HTML only).
-            Present if `'sourceline'` is specified in `metadata`.
-        - `page` (`pxt.Int | None`): The page number of the chunk (PDF only). Present if `'page'` is specified in
-            `metadata`.
-        - `bounding_box` (`BoundingBox | None`): The bounding box of the chunk on the page, with float entries
-            `x1`, `y1`, `x2`, `y2` (PDF only). Present if `'bounding_box'` is specified in `metadata`.
+            currently open heading level under the keys `h1` through `h6` (HTML, Markdown and Office documents
+            only). Present if `'heading'` is specified in `metadata`.
+        - `page` (`pxt.Int | None`): The 0-based page number of the chunk. Set only for PDF documents, and only if
+            `separators` includes `'page'`; otherwise `None`. Present if `'page'` is specified in `metadata`.
 
     Args:
         separators: separators to use to chunk the document. Options are:
              `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
-             This may be a comma-separated string, e.g., `'heading,token_limit'`.
+             This may be a comma-separated string, e.g., `'heading,token_limit'`. Which separators apply depends on
+             the document format; see the table above. If `separators` includes `'paragraph'`, processing a PDF
+             document raises an error that fails the whole `insert()`, or `create_view()` if the base table already
+             contains a PDF document.
         elements: list of elements to extract from the document. Options are:
             `'text'`, `'image'`. Defaults to `['text']` if not specified. The `'image'` element is only supported
-            for the `'page'` separator on PDF documents.
+            for PDF documents, and requires `separators='page'` with no other separators. Any other document format
+            fails with an `Expected non-None value` error: the whole `insert()` fails, or `create_view()` if the
+            base table already contains such a document.
         limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
              or `'char_limit'` is specified.
         overlap: the number of tokens or characters shared by consecutive chunks. Can only be specified
              together with `limit`, and must be smaller than it. Defaults to 0.
         metadata: additional metadata fields to include in the output. Options are:
-             `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
-             (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
+             `'title'` (HTML), `'heading'` (HTML, Markdown and Office), `'page'` (PDF). The input may be a
+             comma-separated string, e.g., `'title,heading'`.
         skip_tags: list of HTML tags to skip when processing HTML documents.
         spacy_model: Name of the spaCy model to use for sentence segmentation. This parameter is ignored unless
             the `'sentence'` separator is specified.
@@ -333,12 +334,8 @@ class document_splitter(pxt.PxtIterator):
                     result['title'] = self._doc_title
                 elif md_field == ChunkMetadata.HEADING:
                     result['heading'] = section.metadata.heading
-                elif md_field == ChunkMetadata.SOURCELINE:
-                    result['sourceline'] = section.metadata.sourceline
                 elif md_field == ChunkMetadata.PAGE:
                     result['page'] = section.metadata.page
-                elif md_field == ChunkMetadata.BOUNDING_BOX:
-                    result['bounding_box'] = section.metadata.bounding_box
 
             return result
 
@@ -353,12 +350,10 @@ class document_splitter(pxt.PxtIterator):
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
 
         headings: dict[str, str] = {}  # current state of observed headings (level -> text)
-        sourceline = 0  # most recently seen sourceline
 
         def update_metadata(el: bs4.Tag) -> None:
             # update current state
-            nonlocal headings, sourceline
-            sourceline = el.sourceline
+            nonlocal headings
             if el.name in _HTML_HEADINGS:
                 # remove the previously seen lower levels
                 lower_levels = [lv for lv in headings if lv > el.name]
@@ -367,9 +362,9 @@ class document_splitter(pxt.PxtIterator):
                 headings[el.name] = el.get_text().strip()
 
         def emit() -> Iterator[DocumentSection]:
-            nonlocal accumulated_text, headings, sourceline
+            nonlocal accumulated_text, headings
             if len(accumulated_text) > 0:
-                md = DocumentSectionMetadata(sourceline=sourceline, heading=cast(Heading, headings.copy()))
+                md = DocumentSectionMetadata(heading=cast(Heading, headings.copy()))
                 full_text = ' '.join(accumulated_text)
                 full_text = ftfy.fix_text(full_text)
                 yield DocumentSection(text=full_text, metadata=md)
@@ -377,7 +372,7 @@ class document_splitter(pxt.PxtIterator):
 
         def process_element(el: Tag | NavigableString) -> Iterator[DocumentSection]:
             # process the element and emit sections as necessary
-            nonlocal accumulated_text, headings, sourceline, emit_on_heading, emit_on_paragraph
+            nonlocal accumulated_text, headings, emit_on_heading, emit_on_paragraph
 
             if el.name in self._skip_tags:
                 return
@@ -396,7 +391,6 @@ class document_splitter(pxt.PxtIterator):
             elif el.name == 'p':
                 if emit_on_paragraph:
                     yield from emit()
-                update_metadata(el)
             for child in el.children:
                 assert isinstance(child, (bs4.element.Tag, bs4.NavigableString)), type(el)
                 yield from process_element(child)
@@ -429,7 +423,7 @@ class document_splitter(pxt.PxtIterator):
         def emit() -> Iterator[DocumentSection]:
             nonlocal accumulated_text, headings
             if len(accumulated_text) > 0:
-                metadata = DocumentSectionMetadata(sourceline=0, heading=cast(Heading, headings.copy()))
+                metadata = DocumentSectionMetadata(heading=cast(Heading, headings.copy()))
                 yield DocumentSection(text=ftfy.fix_text(' '.join(accumulated_text)), metadata=metadata)
                 accumulated_text = []
 
@@ -465,8 +459,8 @@ class document_splitter(pxt.PxtIterator):
         if Separator.PARAGRAPH in self._separators:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Paragraph splitting is not currently supported for PDF documents. Please contact'
-                ' us at https://github.com/pixeltable/pixeltable/issues if you need this feature.',
+                "Separator 'paragraph' is not supported for PDF documents; "
+                "use 'page', 'sentence', 'token_limit' or 'char_limit'",
             )
 
         doc: PdfDocument = self._doc_handle.pdf_doc
@@ -494,7 +488,7 @@ class document_splitter(pxt.PxtIterator):
                 with closing(page.get_textpage()) as textpage:
                     text = textpage.get_text_bounded()
             _add_cleaned(text)
-            if accumulated_text and emit_on_page:
+            if emit_on_page and (accumulated_text or img is not None):
                 md = DocumentSectionMetadata(page=page_idx)
                 yield DocumentSection(text=_emit_text(), image=img, metadata=md)
 
@@ -592,7 +586,7 @@ class document_splitter(pxt.PxtIterator):
         if Element.IMAGE in elements and separators != [Separator.PAGE]:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                "Image elements are only supported for the 'page' separator on PDF documents",
+                "elements=['image'] requires separators='page' with no other separators",
             )
         if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
             if Separator.TOKEN_LIMIT in separators and Separator.CHAR_LIMIT in separators:
