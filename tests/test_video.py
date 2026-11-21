@@ -1139,17 +1139,27 @@ class TestVideo:
 
     # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
-    @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
+    @pytest.mark.parametrize(
+        'segment_times,mode',
+        [
+            ([6.0, 11.0, 16.0], 'fast'),
+            ([6.0, 11.0, 16.0], 'accurate'),
+            ([16.0, 6.0, 11.0], 'fast'),
+            ([16.0, 6.0, 11.0], 'accurate'),
+        ],
+    )
     def test_video_splitter_segment_times(
         self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
     ) -> None:
         eps = 0.1 if mode == 'fast' else 0.0
         video_filepaths = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
-        t = pxt.create_table('videos', {'video': pxt.Video | None})
-        t.insert({'video': p} for p in video_filepaths)
-        s = pxt.create_view('segments', t, iterator=video_splitter(t.video, segment_times=segment_times, mode=mode))
-        start_times = [0.0, *segment_times]
+        t = pxt.create_table('videos', {'video': pxt.Video | None, 'cuts': pxt.Json})
+        t.insert({'video': p, 'cuts': segment_times} for p in video_filepaths)
+        start_times = [0.0, *sorted(segment_times)]
         durations = [start_times[i + 1] - start_times[i] for i in range(len(start_times) - 1)]
+        s = pxt.create_view('segments', t, iterator=video_splitter(t.video, segment_times=segment_times, mode=mode))
+        self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
+        s = pxt.create_view('row_segments', t, iterator=video_splitter(t.video, segment_times=t.cuts, mode=mode))
         self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
 
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
@@ -1193,6 +1203,24 @@ class TestVideo:
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, mode='accurate', duration=3, overlap=1))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="mode must be 'fast' or 'accurate': 'quick'"):
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=2.0, mode='quick'))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be non-negative: -1.0'):
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[3.0, -1.0]))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must not contain duplicates'):
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[6.0, 3.0, 6.0]))
+
+        video = get_video_files(include_mpgs=False)[0]
+        rows = pxt.create_table('row_cuts', {'video': pxt.Video, 'cuts': pxt.Json})
+        v = pxt.create_view('row_segments', rows, iterator=video_splitter(rows.video, segment_times=rows.cuts))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be non-negative: -1.0'):
+            rows.insert([{'video': video, 'cuts': [3.0, -1.0]}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must be a list of numbers'):
+            rows.insert([{'video': video, 'cuts': {'a': 1.0}}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='segment_times must not contain duplicates'):
+            rows.insert([{'video': video, 'cuts': [6.0, 3.0, 6.0]}])
+        assert rows.count() == 0
+        assert v.count() == 0
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
