@@ -1,6 +1,7 @@
 import logging
 import random
 import time
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -387,18 +388,25 @@ class TestGemini:
         assert video_stream['duration_seconds'] > 0
         assert any(s['type'] == 'audio' for s in streams)
 
-    def test_generate_speech(self, uses_db: None) -> None:
+    @pytest.mark.parametrize(
+        'model',
+        [pytest.param('gemini-3.1-flash-tts-preview', id='pcm'), pytest.param('gemini-3.8-flash-tts', id='wav')],
+    )
+    def test_generate_speech(self, model: str, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_speech
 
         t = pxt.create_table('test_tbl', {'text': pxt.String | None})
-        t.add_computed_column(audio=generate_speech(t.text, model='gemini-3.1-flash-tts-preview', voice='Kore'))
+        t.add_computed_column(audio=generate_speech(t.text, model=model, voice='Kore'))
         validate_update_status(t.insert(text='Hello, this is a test of Gemini text to speech.'), expected_rows=1)
         results = t.collect()
         audio_path = results['audio'][0]
         assert Path(audio_path).exists()
         assert audio_path.endswith('.wav')
+        with wave.open(audio_path, 'rb') as wf:
+            assert wf.getnframes() > 0
+            assert wf.readframes(2) != b'RIFF'
 
     def test_generate_speech_multispeaker(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
