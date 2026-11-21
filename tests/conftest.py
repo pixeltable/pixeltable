@@ -89,10 +89,20 @@ def pytest_configure(config: PytestConfig) -> None:
 _HF_FIXTURES = frozenset({'clip_embed', 'e5_embed', 'all_mpnet_embed'})
 
 
+def _xdist_group(item: pytest.Item) -> str | None:
+    """The group --dist loadgroup schedules the item in: its xdist_group names, sorted and joined, as xdist does."""
+    names = {str(m.args[0] if m.args else m.kwargs.get('name', 'default')) for m in item.iter_markers('xdist_group')}
+    return '_'.join(sorted(names)) if names else None
+
+
+# the workers that ran each xdist group's tests, as the xdist controller sees them
+_GROUP_WORKERS: dict[str, set[str]] = {}
+
+
 # tryfirst: xdist's worker reads the xdist_group marks in its own pytest_collection_modifyitems, which is registered
 # after this conftest and so otherwise runs first
 @pytest.hookimpl(tryfirst=True)
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: PytestConfig, items: list[pytest.Item]) -> None:
     for item in items:
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
             item.add_marker(pytest.mark.skip_merge_queue)
@@ -103,6 +113,14 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             marker_names, reason = NOTEBOOK_MARKERS.get(item.path.stem, ((), None))
             for marker_name in marker_names:
                 item.add_marker(marker_name if reason is None else getattr(pytest.mark, marker_name)(reason=reason))
+
+    # an xdist worker gets dist='no', with loadgroup set to whether the controller runs --dist loadgroup
+    if getattr(config.option, 'loadgroup', False):
+        # each report carries its item's group to the controller, which checks that the group stayed on one worker
+        for item in items:
+            group = _xdist_group(item)
+            if group is not None:
+                item.user_properties.append(('xdist_group', group))
 
     offenders: list[str] = []
     for item in items:
@@ -115,6 +133,30 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             "tests using the 'uses_db' fixture must be marked @pytest.mark.db_roots('local', reason='...'):\n  "
             + '\n  '.join(offenders)
         )
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    # the xdist controller sets report.node to the worker that sent the report
+    node = getattr(report, 'node', None)
+    if node is None:
+        return
+    for name, value in report.user_properties:
+        if name == 'xdist_group':
+            _GROUP_WORKERS.setdefault(str(value), set()).add(node.gateway.id)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    split = {group: sorted(workers) for group, workers in _GROUP_WORKERS.items() if len(workers) > 1}
+    if len(split) == 0:
+        return
+    # pytest-xdist 3.8.0 marks a group through Node._nodeid, gone in pytest 9.2
+    lines = [f'  {group}: {", ".join(workers)}' for group, workers in sorted(split.items())]
+    reporter = session.config.pluginmanager.get_plugin('terminalreporter')
+    if reporter is not None:
+        reporter.write_sep('=', 'xdist groups split across workers', red=True)
+        reporter.write_line('--dist loadgroup ran these groups on more than one worker:\n' + '\n'.join(lines))
+    if session.exitstatus == pytest.ExitCode.OK:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @contextlib.contextmanager
