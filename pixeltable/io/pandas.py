@@ -215,16 +215,21 @@ def _df_prepare_column(data: pd.Series, col_type: ts.ColumnType) -> Iterable[Any
             # Preserve scalar conversion for datetime cases a pandas column operation cannot handle.
             pass
 
-    return [_df_convert_value(val, col_type) for val in data]
+    return [_df_convert_value(val, col_type, str(data.name)) for val in data]
 
 
-def _df_convert_value(val: Any, col_type: ts.ColumnType) -> Any:
+def _df_convert_value(val: Any, col_type: ts.ColumnType, col_name: str) -> Any:
     if col_type.is_float_type():
         return float(val)
     if isinstance(val, float) and np.isnan(val):
         # Float NaN remains a float value; in other column types it represents a missing cell.
         return None
     if col_type.is_int_type():
+        if isinstance(val, (float, np.floating)) and not float(val).is_integer():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE,
+                f'Value {val!r} in column `{col_name}` cannot be converted to int without loss of precision',
+            )
         return int(val)
     if col_type.is_bool_type():
         return bool(val)
