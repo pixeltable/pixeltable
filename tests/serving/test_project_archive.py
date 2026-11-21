@@ -195,6 +195,26 @@ class TestProjectArchive:
 
         assert package_project_archive(tmp_path).files == project_fingerprint(tmp_path, None).files
 
+    def test_pyproject_secret(self, init_env: None, tmp_path: Path) -> None:
+        """A secret in [tool.pixeltable] of pyproject.toml is refused, whichever file is the project config file."""
+        (tmp_path / 'pixeltable.toml').write_text('')
+        pyproject = tmp_path / 'pyproject.toml'
+        pyproject.write_text('[project]\nname = "app"\n\n[tool.pixeltable.openai]\nrate_limits = { gpt-4o = 100 }\n')
+        package_project_archive(tmp_path)
+        package_image_context(tmp_path)
+
+        pyproject.write_text('[project]\nname = "app"\n\n[tool.pixeltable.openai]\napi_key = "sk-pyproject"\n')
+        for package in (package_project_archive, package_image_context):
+            with pxt_raises(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                match=r"'openai.api_key' in \[tool.pixeltable\] of .*pyproject\.toml is a secret",
+            ):
+                package(tmp_path)
+        # pyproject.toml as the project config file
+        (tmp_path / 'pixeltable.toml').unlink()
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"'openai.api_key' in \[tool.pixeltable\]"):
+            package_project_archive(tmp_path)
+
     def test_archive_rewrite(self, init_env: None, tmp_path: Path) -> None:
         """This is what a concurrent writer looks like: same path, different bytes in the archive."""
         (tmp_path / 'app.py').write_text('x = 1\n')
@@ -474,7 +494,7 @@ class TestProjectArchive:
         with tarfile.open(create_project_archive(tmp_path, local_entry()), 'r:bz2') as tar:
             assert 'project/dist/dep.whl' in tar.getnames()
 
-    def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_manifest_drift(self, init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A file rewritten or removed while it is packaged is caught before anything is uploaded or submitted."""
         # a released pxt: a development build of an unpinned project is refused before packaging
         monkeypatch.setattr(pixeltable, '__version__', '0.7.15')

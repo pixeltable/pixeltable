@@ -1,4 +1,5 @@
 import datetime
+import pathlib
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -350,7 +351,7 @@ class TestPandas:
         entry = t4.limit(1).collect()[0]
         assert entry['date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
-        t5 = import_excel(p('sale_data'), 'tests/data/datasets/SaleData.xlsx')
+        t5 = import_excel(p('sale_data'), pathlib.Path('tests/data/datasets/SaleData.xlsx'))
         assert t5.count() == 45
         assert t5._get_schema()['orderdate'] == ts.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
@@ -412,6 +413,20 @@ class TestPandas:
                 primary_key='ts_n',
             )
         assert 'Primary key column `ts_n` cannot contain null values.' in str(exc_info.value)
+
+    def test_import_pandas_lossy_float_to_int(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+
+        # a non-integral float must not be silently truncated when the column is declared as an int
+        df = pd.DataFrame({'pk': [1.9, 2.1], 'v': ['a', 'b']})
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
+            _ = pxt.io.import_pandas(p('lossy'), df, schema_overrides={'pk': ts.IntType()}, primary_key='pk')
+        assert 'cannot be converted to int without loss' in str(exc_info.value)
+
+        # integral floats are still converted losslessly
+        df = pd.DataFrame({'pk': [1.0, 2.0], 'v': ['a', 'b']})
+        t = pxt.io.import_pandas(p('lossless'), df, schema_overrides={'pk': ts.IntType()}, primary_key='pk')
+        assert sorted(r['pk'] for r in t.collect()) == [1, 2]
 
 
 def _assert_equals_with_nans(a: list[float], b: list[float]) -> bool:

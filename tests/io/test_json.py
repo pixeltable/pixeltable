@@ -143,7 +143,7 @@ class TestJson:
         json_path = tmp_path / 'round_trip.jsonl'
         pxt.io.export_json(t, json_path)
 
-        t2 = pxt.io.import_json(p('test_json_rt2'), str(json_path))
+        t2 = pxt.io.import_json(p('test_json_rt2'), json_path)
 
         original = t.order_by(t.c_int).collect()
         reimported = t2.order_by(t2.c_int).collect()

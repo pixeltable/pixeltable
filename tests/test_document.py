@@ -167,6 +167,11 @@ class TestDocument:
                 'chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit, token_limit', limit=10)
             )
 
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'image_dpi' must be a positive integer"):
+            _ = pxt.create_view(
+                'chunks', t, iterator=document_splitter(t.doc, separators='page', elements=['image'], image_dpi=-1)
+            )
+
         # test that limit is required for char_limit and token_limit
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='limit'):
             _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit'))
@@ -547,3 +552,26 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+    def test_doc_splitter_image_dpi(self, uses_db: None) -> None:
+        pdf_file = next(p for p in get_documents() if p.endswith('1706.03762.pdf'))
+        t = pxt.create_table('docs', {'doc': pxt.Document | None})
+        dpi_kwargs: dict[str, dict[str, Any]] = {
+            'default': {},
+            'dpi72': {'image_dpi': 72},
+            'dpi144': {'image_dpi': 144},
+        }
+        views = {
+            name: pxt.create_view(
+                f'pages_{name}', t, iterator=document_splitter(t.doc, separators='page', elements=['image'], **kwargs)
+            )
+            for name, kwargs in dpi_kwargs.items()
+        }
+        status = t.insert(doc=pdf_file)
+        assert status.num_excs == 0
+
+        sizes = {name: [img.size for img in v.order_by(v.pos).collect()['image']] for name, v in views.items()}
+        assert len(sizes['dpi72']) == 15
+        assert sizes['dpi72'][0] == (612, 792)
+        assert sizes['default'] == sizes['dpi72']
+        assert sizes['dpi144'] == [(2 * w, 2 * h) for w, h in sizes['dpi72']]
