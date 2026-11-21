@@ -30,6 +30,8 @@ def export_images_as_fo_dataset(
     [`frame_iterator`][pixeltable.functions.video.frame_iterator]) will first be written to disk in the specified
     `image_format`.
 
+    Rows whose image is null are skipped, since a Voxel51 sample requires an image.
+
     The label parameters accept one or more sets of labels of each type. If a single `Expr` is provided, then it will
     be exported as a single set of labels with a default name such as `classifications`.
     (The single set of labels may still containing multiple individual labels; see below.)
