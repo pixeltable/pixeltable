@@ -1563,6 +1563,39 @@ class TestView:
         assert sorted(r['own'] for r in v2.collect()) == [50, 90]
         assert sorted(r['own3'] for r in v3.collect()) == [51, 91]
 
+    def test_update_without_cascade_changes_view_membership(self, db_root: DatabaseRoot) -> None:
+        """A cascade=False update still moves rows in and out of filtered views, but doesn't recompute the stored
+        columns of view rows that stay."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'n': pxt.Int})
+        t.insert([{'id': 1, 'n': 1}, {'id': 2, 'n': 2}, {'id': 3, 'n': 3}])
+        v1 = pxt.create_view(p('view1'), t.where(t.n > 1), additional_columns={'exp': t.n * 10})
+        v2 = pxt.create_view(p('view2'), v1.where(v1.n > 2), additional_columns={'own': v1.exp + 1})
+
+        def v1_rows() -> dict[int, tuple[int, int]]:
+            return {r['id']: (r['n'], r['exp']) for r in v1.select(v1.id, v1.n, v1.exp).collect()}
+
+        def v2_rows() -> dict[int, tuple[int, int]]:
+            return {r['id']: (r['n'], r['own']) for r in v2.select(v2.id, v2.n, v2.own).collect()}
+
+        assert v1_rows() == {2: (2, 20), 3: (3, 30)}
+        assert v2_rows() == {3: (3, 31)}
+
+        # id 2 stays in view1 with its stored value and enters view2
+        t.update({'n': 5}, where=t.id == 2, cascade=False)
+        assert v1_rows() == {2: (5, 20), 3: (3, 30)}
+        assert v2_rows() == {2: (5, 21), 3: (3, 31)}
+
+        # id 3 leaves both views
+        t.update({'n': 0}, where=t.id == 3, cascade=False)
+        assert v1_rows() == {2: (5, 20)}
+        assert v2_rows() == {2: (5, 21)}
+
+        # id 1 enters both views; a new view row has nothing to carry over, so its columns are computed
+        t.update({'n': 4}, where=t.id == 1, cascade=False)
+        assert v1_rows() == {1: (4, 40), 2: (5, 20)}
+        assert v2_rows() == {1: (4, 41), 2: (5, 21)}
+
     def test_upsert_propagation(self, db_root: DatabaseRoot) -> None:
         """batch_update(if_not_exists='insert') propagates both its updates and its inserts to every kind of view."""
         p = db_root.make_catalog_path

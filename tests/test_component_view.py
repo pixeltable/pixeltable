@@ -826,6 +826,32 @@ class TestComponentView:
             (5, 1): None,
         }
 
+    def test_update_without_cascade_changes_membership(self, db_root: DatabaseRoot) -> None:
+        """A cascade=False update moves base rows in and out of a filtered component view, but doesn't rerun the
+        iterator for base rows that stay."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'flag': pxt.Bool, 'n': pxt.Int})
+        t.insert([{'id': 1, 'flag': True, 'n': 2}, {'id': 2, 'flag': False, 'n': 2}, {'id': 3, 'flag': True, 'n': 1}])
+        v = pxt.create_view(p('view'), t.where(t.flag == True), iterator=simple_iterator(t.n))
+        v.add_column(annotation=pxt.Int | None)
+        v.update({'annotation': 42})
+
+        def v_rows() -> dict[tuple[int, int], tuple[int, int | None]]:
+            rows = v.select(v.id, v.pos, v.icol, v.annotation).collect()
+            return {(r['id'], r['pos']): (r['icol'], r['annotation']) for r in rows}
+
+        assert v_rows() == {(1, 0): (0, 42), (1, 1): (1, 42), (3, 0): (0, 42)}
+
+        t.update({'flag': False}, where=t.id == 1, cascade=False)
+        assert v_rows() == {(3, 0): (0, 42)}
+
+        t.update({'flag': True}, where=t.id == 2, cascade=False)
+        assert v_rows() == {(2, 0): (0, None), (2, 1): (1, None), (3, 0): (0, 42)}
+
+        # the iterator input changes, but cascade=False keeps the existing components
+        t.update({'flag': True, 'n': 3}, where=t.id == 3, cascade=False)
+        assert v_rows() == {(2, 0): (0, None), (2, 1): (1, None), (3, 0): (0, 42)}
+
     def test_update_unstored_iterator_param(self, db_root: DatabaseRoot) -> None:
         """Updating the input of an iterator without stored columns re-evaluates the iterator."""
         p = db_root.make_catalog_path
