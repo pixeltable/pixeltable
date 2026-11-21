@@ -107,6 +107,10 @@ def pytest_collection_modifyitems(config: PytestConfig, items: list[pytest.Item]
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
             item.add_marker(pytest.mark.skip_merge_queue)
             item.add_marker(pytest.mark.xdist_group('large_model'))
+        if any(
+            (m.args[0] if m.args else m.kwargs.get('name')) == 'large_model' for m in item.iter_markers('xdist_group')
+        ):
+            item.add_marker(pytest.mark.resource_intensive)
 
     for item in items:
         if item.path.suffix == '.ipynb':
