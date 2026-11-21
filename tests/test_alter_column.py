@@ -364,13 +364,11 @@ class TestAlterColumn:
             assert t.select(t.c, t.d).collect()[0] == {'c': 100, 'd': 3}
             if is_data_versioned:
                 assert v.select(v.e).collect()['e'] == [30]
-                # the views aren't revisited at all, so the filter's membership is stale as well
-                assert filtered_v.count() == 0
+                # the row satisfies the filter now, so it joins the view even without cascading
+                assert filtered_v.count() == 1
             # recomputing them explicitly brings them in sync
             validate_update_status(t.recompute_columns('d'), 2 if is_data_versioned else 1)
             validate_update_status(t.recompute_columns('c'), 3 if is_data_versioned else 1)
-            if is_data_versioned:
-                assert filtered_v.count() == 1
 
         # verify that the computed columns of t and of both views are now up to date with their deps
         assert t.select(t.c, t.d).collect()[0] == {'c': 100, 'd': 101}
