@@ -2550,10 +2550,11 @@ class Catalog(CatalogBase):
             assert tv.is_initialized, f'{key} not initialized\n{tv.__dict__}\n{self._debug_str()}'
         return tv
 
-    def remove_tbl_version(self, key: TableVersionKey) -> None:
-        assert isinstance(key, TableVersionKey)
-        assert key in self._tbl_versions
-        del self._tbl_versions[key]
+    def invalidate_version(self, tbl_id: UUID, version: int) -> None:
+        """Remove the cached TableVersion and Table for the given version of tbl_id, and the live TableVersion."""
+        self._clear_tv_cache(TableVersionKey(tbl_id, None))
+        self._clear_tv_cache(TableVersionKey(tbl_id, version))
+        self._tbls.pop(TableVersionKey(tbl_id, version), None)
 
     def get_dir(self, dir_id: UUID) -> Dir | None:
         """Return the Dir with the given id, or None if it doesn't exist"""
@@ -2908,6 +2909,11 @@ class Catalog(CatalogBase):
 
         row = conn.execute(q).one_or_none()
         if row is None:
+            if key.effective_version is not None:
+                raise excs.NotFoundError(
+                    excs.ErrorCode.TABLE_NOT_FOUND,
+                    f'Version {key.effective_version} of table {key.tbl_id} does not exist',
+                )
             raise excs.table_was_dropped(key.tbl_id)
         tbl_record, version_record, schema_version_record = _unpack_row(
             row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]

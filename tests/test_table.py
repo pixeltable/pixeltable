@@ -4272,6 +4272,28 @@ class TestTable:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
+    def test_revert_pinned_version(self, db_root: DatabaseRoot) -> None:
+        """A handle pinned to a version must not keep serving rows after that version is reverted."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_revert_pinned'), {'a': pxt.Int})
+        pxt.create_view(p('test_revert_pinned_view'), t)
+        t.insert([{'a': 1}])
+        t.insert([{'a': 2}])
+        pinned = pxt.get_table(p('test_revert_pinned:2'))
+        pinned_view = pxt.get_table(p('test_revert_pinned_view:2'))
+        assert sorted(r['a'] for r in pinned.collect()) == [1, 2]
+        assert sorted(r['a'] for r in pinned_view.collect()) == [1, 2]
+
+        t.revert()
+        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match='Version 2 of table'):
+            pinned.collect()
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
+            pxt.get_table(p('test_revert_pinned:2'))
+        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match='Version 2 of table'):
+            pinned_view.collect()
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
+            pxt.get_table(p('test_revert_pinned_view:2'))
+
     def test_add_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
         orig_cols = set(t.columns())
