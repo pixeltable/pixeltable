@@ -116,6 +116,7 @@ class TestHfDatasetsBasic:
 @rerun_on_network_error()
 class TestHfDatasets:
     NUM_SAMPLES = 100
+    NUM_ARRAY_SAMPLES = 10
 
     # a streaming dataset has no on-disk form to ship, so it is rejected over the proxy (engine limitation)
     def _skip_streaming_over_proxy(self, streaming: bool, db_root: DatabaseRoot) -> None:
@@ -343,10 +344,11 @@ class TestHfDatasets:
 
         p = db_root.make_catalog_path
 
-        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
-        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split=split, streaming=streaming)
+        hf_dataset = datasets.load_dataset(
+            'Hani89/medical_asr_recording_dataset', split=f'train[:{self.NUM_ARRAY_SAMPLES}]'
+        )
         if streaming:
-            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+            hf_dataset = hf_dataset.to_iterable_dataset()
         t = pxt.create_table(p('hfds'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'audio', 'sentence'}
@@ -553,10 +555,9 @@ class TestHfDatasets:
 
         p = db_root.make_catalog_path
 
-        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
-        hf_dataset = datasets.load_dataset('tanganke/nyuv2', split=split, streaming=streaming)
+        hf_dataset = datasets.load_dataset('tanganke/nyuv2', split=f'train[:{self.NUM_ARRAY_SAMPLES}]')
         if streaming:
-            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+            hf_dataset = hf_dataset.to_iterable_dataset()
         t = pxt.create_table(p('nyuv2_test'), source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32] | None'
