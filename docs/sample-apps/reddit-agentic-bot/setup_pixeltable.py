@@ -78,7 +78,7 @@ doc_chunks = pxt.create_view(
     documents,  # Base table for the view.
     # Use an Iterator to generate multiple output rows (chunks).
     iterator=document_splitter(
-        document=documents.doc, separators='token_limit', limit=250, overlap=0, metadata='title,heading,sourceline'
+        document=documents.doc, separators='token_limit', limit=250, overlap=0, metadata='title,heading'
     ),
     # Schema is automatically inferred (+ heading, + source_uri).
     if_exists='ignore',
@@ -106,7 +106,6 @@ def search_document_chunks(query_text: str):
             text=doc_chunks.text,
             # title=doc_chunks.title, # Removing potentially unreliable metadata
             # heading=doc_chunks.heading,
-            # sourceline=doc_chunks.sourceline,
             source_uri=doc_chunks.source_uri,
             related_url=doc_chunks.related_url,  # Select the new column
             similarity=sim,

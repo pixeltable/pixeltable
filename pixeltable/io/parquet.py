@@ -4,7 +4,7 @@ import json
 import os
 import typing
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -20,6 +20,7 @@ def export_parquet(
     parquet_path: str | os.PathLike,
     partition_size_bytes: int = 100_000_000,
     inline_images: bool = False,
+    if_exists: Literal['error', 'replace'] = 'error',
     _write_md: bool = False,
 ) -> None:
     """
@@ -47,17 +48,40 @@ def export_parquet(
 
     Args:
         table_or_query : Table or Query to export.
-        parquet_path : Path to directory to write the parquet files to.
+        parquet_path : Path to directory to write the parquet files to. Must not be a symbolic link.
         partition_size_bytes : The maximum target size for each chunk. Default 100_000_000 bytes.
         inline_images : If True, images are stored inline in the parquet file. This is useful
                         for small images, to be imported as pytorch dataset. But can be inefficient
                         for large images, and cannot be imported into pixeltable.
                         If False, will raise an error if the Query has any image column.
                         Default False.
+        if_exists: Determines the behavior if `parquet_path` already exists. Must be one of the following:
+
+            - `'error'`: raise an error
+            - `'replace'`: delete the existing directory and all of its contents and write the new export in its
+              place. The existing directory is removed only after the new export has been written successfully.
+              Raises an error if `parquet_path` is a file rather than a directory.
     """
     import pyarrow as pa
 
     from pixeltable.utils.arrow import to_record_batches
+
+    if if_exists not in ('error', 'replace'):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, "export_parquet(): `if_exists` must be one of: ['error', 'replace']"
+        )
+
+    path = Path(parquet_path)
+    if path.is_symlink():
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f"export_parquet(): '{path!s}' is a symbolic link; pass the directory it points to instead",
+        )
+    if if_exists == 'replace' and path.exists() and not path.is_dir():
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f"export_parquet(): '{path!s}' is a file, not a directory; `if_exists='replace'` only replaces directories",
+        )
 
     query: pxt.Query
     if isinstance(table_or_query, pxt.catalog.Table):
@@ -82,7 +106,7 @@ def export_parquet(
             )
 
     # store the changes atomically
-    with transactional_directory(Path(parquet_path)) as temp_path:
+    with transactional_directory(path, replace=(if_exists == 'replace')) as temp_path:
         if _write_md:
             json.dump(query.as_dict(), (temp_path / '.pixeltable.json').open('w'))
             type_dict = {k: v.as_dict() for k, v in schema.items()}
@@ -97,7 +121,7 @@ def export_parquet(
 def import_parquet(
     table: str,
     *,
-    parquet_path: str,
+    parquet_path: str | os.PathLike,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     **kwargs: Any,

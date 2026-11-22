@@ -22,8 +22,8 @@ pip install -U 'pixeltable[serve]'
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml?query=branch%3Amain)
-[![pip-install-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pip-install-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pip-install-tests.yml)
-[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
+[![pip-install-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pip-install-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pip-install-tests.yml?query=branch%3Amain)
+[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml?query=branch%3Amain)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 

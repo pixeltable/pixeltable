@@ -16,7 +16,7 @@ if typing.TYPE_CHECKING:
 
 def import_json(
     tbl_path: str,
-    filepath_or_url: str,
+    filepath_or_url: str | os.PathLike,
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,

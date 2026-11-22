@@ -43,6 +43,12 @@ class ArithmeticExpr(Expr):
         self.components = [op1, op2]
 
         # do typechecking after initialization in order for __str__() to work
+        if operator == ArithmeticOperator.SUB and op1.col_type.is_timestamp_type() and op2.col_type.is_timestamp_type():
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{self!s}: - is not defined for two Timestamps; `end.seconds_since(start)` returns their difference '
+                'in seconds',
+            )
         if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,
