@@ -121,9 +121,9 @@ def get_max_volume_db(path: str) -> float | None:
     Env.get().require_binary('ffmpeg')
     # -vn/-sn/-dn: ignore non-audio streams; -f null -: discard the output, we only want stderr.
     # Explicit -loglevel info so volumedetect's report reaches us regardless of the build default.
-    cmd = ['ffmpeg', '-i', path, '-vn', '-sn', '-dn', '-af', 'volumedetect', '-f', 'null', '-loglevel', 'info', '-']
+    args = ['-i', path, '-vn', '-sn', '-dn', '-af', 'volumedetect', '-f', 'null', '-loglevel', 'info', '-']
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = run_ffmpeg(args)
     except subprocess.CalledProcessError as e:
         handle_ffmpeg_error(e)
     # Stderr lines look like: "[Parsed_volumedetect_0 @ 0x...] max_volume: -6.0 dB"
@@ -211,6 +211,20 @@ def estimate_segment_duration(path: str, approx_decoded_bytes: int) -> float | N
     return frames_per_segment / fps
 
 
+def run_ffmpeg(args: list[str], timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+    """
+    Run ffmpeg with args and capture its output; raises subprocess.CalledProcessError on a nonzero exit status.
+
+    By default ffmpeg polls stdin for keyboard commands and prompts there before overwriting an output file; with an
+    inherited stdin that is a terminal or an open pipe, it can consume another reader's input or block forever.
+    -nostdin turns both off (ffmpeg then refuses to overwrite and writes nothing), and DEVNULL keeps the caller's stdin
+    out of the child.
+    """
+    cmd = ['ffmpeg', '-nostdin', *args]
+    _logger.debug(f'running ffmpeg commandline: {" ".join(cmd)}')
+    return subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True, timeout=timeout)
+
+
 def handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
     error_msg = f'ffmpeg failed with return code {e.returncode}'
     if e.stderr is not None:
@@ -230,21 +244,20 @@ def run_ffmpeg_cmdline(
 
     If encode_video==True, command is expected to encode video and requires video encoder args
     """
-    cmd = ['ffmpeg', *ffmpeg_args]
+    args = list(ffmpeg_args)
     if encode_video:
-        append_video_encoder(cmd, video_encoder, video_encoder_args)
+        append_video_encoder(args, video_encoder, video_encoder_args)
     # loglevel=error: avoid excessive logging
-    cmd += ['-loglevel', 'error', output_path]
+    args += ['-loglevel', 'error', output_path]
 
     try:
-        _logger.debug(f'running ffmpeg commandline: {" ".join(cmd)}')
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = run_ffmpeg(args)
         output_file = Path(output_path)
         if not output_file.exists() or output_file.stat().st_size == 0:
             stderr_output = result.stderr.strip() if result.stderr is not None else ''
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_DATA_FORMAT,
-                f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}',
+                f'ffmpeg failed to create output file for commandline: {" ".join(result.args)}\n{stderr_output}',
             )
         return output_path
     except subprocess.CalledProcessError as e:
@@ -319,7 +332,7 @@ def ffmpeg_clip_args(
     return cmd
 
 
-def ffmpeg_clip_cmd(
+def ffmpeg_clip_output_args(
     input_path: str,
     output_path: str,
     start_time: float,
@@ -329,7 +342,6 @@ def ffmpeg_clip_cmd(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> list[str]:
     return [
-        'ffmpeg',
         *ffmpeg_clip_args(input_path, start_time, duration, fast, video_encoder, video_encoder_args),
         '-loglevel',
         'error',
@@ -337,7 +349,7 @@ def ffmpeg_clip_cmd(
     ]
 
 
-def ffmpeg_segment_cmd(
+def ffmpeg_segment_args(
     input_path: str,
     output_pattern: str,
     segment_duration: float | None = None,
@@ -345,13 +357,12 @@ def ffmpeg_segment_cmd(
     video_encoder: str | None = None,
     video_encoder_args: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Commandline for frame-accurate segmentation"""
+    """ffmpeg arguments for frame-accurate segmentation"""
     assert (segment_duration is None) != (segment_times is None)
     if video_encoder is None:
         video_encoder = Env.get().default_video_encoder
 
     cmd = [
-        'ffmpeg',
         '-i',
         input_path,
         '-map',

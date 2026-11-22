@@ -107,9 +107,12 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     return sql.sql.func.count(val)
 
 
+_MIN_MAX_TYPES = (str, int, float, bool, ts.Timestamp, ts.Date)
+
+
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: t | None} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
+    type_substitutions=tuple({T: t | None} for t in _MIN_MAX_TYPES),  # type: ignore[misc]
 )
 class min(func.Aggregator, typing.Generic[T]):
     """
@@ -161,7 +164,7 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
 
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: t | None} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
+    type_substitutions=tuple({T: t | None} for t in _MIN_MAX_TYPES),  # type: ignore[misc]
 )
 class max(func.Aggregator, typing.Generic[T]):
     """
@@ -319,6 +322,16 @@ def _relative_path_root(expr: exprs.Expr) -> exprs.Expr:
     return exprs.json_path.JsonPath.create_relative_path_root(element_type)
 
 
+def _validate_mapper_fn_expr(mapper_name: str, fn_expr: exprs.Expr) -> None:
+    """Raise an error if fn_expr applies an aggregate function to a relative path."""
+    for e in fn_expr.subexprs(expr_class=exprs.FunctionCall):
+        if e.is_std_agg_fn_call and e._has_relative_path():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'{mapper_name}(): aggregate function applied to the lambda parameter: {e!s}',
+            )
+
+
 def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     """
     Applies a function to each element of a JSON array, producing a new array.
@@ -363,6 +376,7 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
             'Failed to evaluate map function. '
             '(The `fn` argument to `map()` must produce a valid Pixeltable expression.)',
         ) from e
+    _validate_mapper_fn_expr('map', target_expr)
     return exprs.JsonMapper(expr, target_expr, exprs.JsonMapper.Operator.MAP)
 
 
@@ -411,6 +425,7 @@ def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Ex
             'Failed to evaluate filter predicate. '
             '(The `predicate` argument to `filter()` must produce a valid Pixeltable expression.)',
         ) from e
+    _validate_mapper_fn_expr('filter', filter_expr)
     return exprs.JsonMapper(expr, filter_expr, exprs.JsonMapper.Operator.FILTER)
 
 
@@ -467,6 +482,7 @@ def sort(expr: exprs.Expr, key: Callable[[exprs.Expr], Any] | None = None, *, as
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             'Failed to evaluate sort key. (The `key` argument to `sort()` must produce a valid Pixeltable expression.)',
         ) from e
+    _validate_mapper_fn_expr('sort', key_expr)
     return exprs.JsonMapper(expr, key_expr, exprs.JsonMapper.Operator.SORT, asc=asc)
 
 

@@ -14,15 +14,18 @@ import shutil
 import signal
 import sys
 import threading
+import time
 import urllib.parse
 import uuid
 from typing import Any, Callable, Generator, Iterator, get_args
 
+import psutil
 import pytest
 import requests
 import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
+from _pytest.faulthandler import fault_handler_stderr_fd_key
 from filelock import FileLock
 from sqlalchemy import text
 
@@ -40,6 +43,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
 
+from .notebook_markers import NOTEBOOK_MARKERS
 from .utils import (
     CLOUD_DB_ROOT_URIS,
     IN_CI,
@@ -81,14 +85,42 @@ def pytest_configure(config: PytestConfig) -> None:
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a
-# Hugging Face test and is marked 'very_expensive'.
+# Hugging Face test and is marked 'skip_merge_queue', in the 'large_model' xdist group.
 _HF_FIXTURES = frozenset({'clip_embed', 'e5_embed', 'all_mpnet_embed'})
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+def _xdist_group(item: pytest.Item) -> str | None:
+    """The group --dist loadgroup schedules the item in: its xdist_group names, sorted and joined, as xdist does."""
+    names = {str(m.args[0] if m.args else m.kwargs.get('name', 'default')) for m in item.iter_markers('xdist_group')}
+    return '_'.join(sorted(names)) if names else None
+
+
+# the workers that ran each xdist group's tests, as the xdist controller sees them
+_GROUP_WORKERS: dict[str, set[str]] = {}
+
+
+# tryfirst: xdist's worker reads the xdist_group marks in its own pytest_collection_modifyitems, which is registered
+# after this conftest and so otherwise runs first
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config: PytestConfig, items: list[pytest.Item]) -> None:
     for item in items:
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
-            item.add_marker(pytest.mark.very_expensive)
+            item.add_marker(pytest.mark.skip_merge_queue)
+            item.add_marker(pytest.mark.xdist_group('large_model'))
+
+    for item in items:
+        if item.path.suffix == '.ipynb':
+            marker_names, reason = NOTEBOOK_MARKERS.get(item.path.stem, ((), None))
+            for marker_name in marker_names:
+                item.add_marker(marker_name if reason is None else getattr(pytest.mark, marker_name)(reason=reason))
+
+    # an xdist worker gets dist='no', with loadgroup set to whether the controller runs --dist loadgroup
+    if getattr(config.option, 'loadgroup', False):
+        # each report carries its item's group to the controller, which checks that the group stayed on one worker
+        for item in items:
+            group = _xdist_group(item)
+            if group is not None:
+                item.user_properties.append(('xdist_group', group))
 
     offenders: list[str] = []
     for item in items:
@@ -101,6 +133,30 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             "tests using the 'uses_db' fixture must be marked @pytest.mark.db_roots('local', reason='...'):\n  "
             + '\n  '.join(offenders)
         )
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    # the xdist controller sets report.node to the worker that sent the report
+    node = getattr(report, 'node', None)
+    if node is None:
+        return
+    for name, value in report.user_properties:
+        if name == 'xdist_group':
+            _GROUP_WORKERS.setdefault(str(value), set()).add(node.gateway.id)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    split = {group: sorted(workers) for group, workers in _GROUP_WORKERS.items() if len(workers) > 1}
+    if len(split) == 0:
+        return
+    # pytest-xdist 3.8.0 marks a group through Node._nodeid, gone in pytest 9.2
+    lines = [f'  {group}: {", ".join(workers)}' for group, workers in sorted(split.items())]
+    reporter = session.config.pluginmanager.get_plugin('terminalreporter')
+    if reporter is not None:
+        reporter.write_sep('=', 'xdist groups split across workers', red=True)
+        reporter.write_line('--dist loadgroup ran these groups on more than one worker:\n' + '\n'.join(lines))
+    if session.exitstatus == pytest.ExitCode.OK:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @contextlib.contextmanager
@@ -164,6 +220,52 @@ def _clear_model_caches() -> None:
     if platform.libc_ver()[0] == 'glibc':
         # glibc keeps freed memory in the process's heap unless asked to return it
         ctypes.CDLL('libc.so.6').malloc_trim(0)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item: pytest.Item) -> Generator[None, object, object]:
+    """At faulthandler_timeout, after pytest's stack dump, a dump of this process's child processes.
+
+    A main thread blocked on a subprocess looks the same in the stack dump whether the child is spinning, blocked, or
+    gone while another process holds its pipes. The SIGUSR1 dump in CI also skips Windows.
+    """
+    timer: threading.Timer | None = None
+    timeout = float(item.config.getini('faulthandler_timeout') or 0)
+    if timeout > 0:
+        fd = item.config.stash[fault_handler_stderr_fd_key]
+        timer = threading.Timer(timeout, _dump_child_processes, args=(item, fd))
+        timer.daemon = True
+        timer.start()
+    try:
+        return (yield)  # noqa: B901
+    finally:
+        if timer is not None:
+            timer.cancel()
+
+
+def _dump_child_processes(item: pytest.Item, fd: int) -> None:
+    children = psutil.Process().children(recursive=True)
+    cpu_before: dict[int, float] = {}
+    for child in children:
+        with contextlib.suppress(psutil.Error):
+            cpu_before[child.pid] = sum(child.cpu_times()[:2])
+    # CPU time rising over the interval means a busy child; flat means a blocked one
+    time.sleep(10)
+    lines = [f'Child processes of pid {os.getpid()} in {item.nodeid}:']
+    for child in children:
+        try:
+            with child.oneshot():
+                cpu = f'{cpu_before.get(child.pid, float("nan")):.1f}s -> {sum(child.cpu_times()[:2]):.1f}s'
+                lines.append(
+                    f'  pid {child.pid} {child.status()}, cpu {cpu}, {child.num_threads()} threads: '
+                    + ' '.join(child.cmdline())
+                )
+        except psutil.Error as e:
+            lines.append(f'  pid {child.pid}: {e!r}')
+    if len(children) == 0:
+        lines.append('  none')
+    with contextlib.suppress(OSError):
+        os.write(fd, ('\n'.join(lines) + '\n').encode())
 
 
 def pytest_runtest_teardown(item: pytest.Item) -> None:
@@ -849,12 +951,14 @@ def local_embed() -> pxt.Function:
 
 # Parametrized embedding selectors for tests that assert real-model semantics:
 # - the 'local_embed' param runs the full test body against the download-free embedding
-# - the real-model param is marked 'very_expensive'
+# - the real-model param is marked 'skip_merge_queue', in the 'large_model' xdist group
 # Each fixture returns (embedding, is_dummy_model); skip model-dependent assertions when is_dummy_model.
 @pytest.fixture(
     params=[
         pytest.param(False, id='local_embed'),
-        pytest.param(True, id='clip_embed', marks=pytest.mark.very_expensive),
+        pytest.param(
+            True, id='clip_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+        ),
     ]
 )
 def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
@@ -866,7 +970,9 @@ def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
 @pytest.fixture(
     params=[
         pytest.param(False, id='local_embed'),
-        pytest.param(True, id='mpnet_embed', marks=pytest.mark.very_expensive),
+        pytest.param(
+            True, id='mpnet_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+        ),
     ]
 )
 def mpnet_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:

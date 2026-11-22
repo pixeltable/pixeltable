@@ -402,7 +402,9 @@ class TableProxy(Table):
         if not check_required:
             converter.reqd_col_names.clear()
         converter.prepare_for_insert_into_table()
-        return converter.pxt_rows
+        # TODO: this materializes all rows to send them in one request; streaming them to the daemon would bound the
+        # client's memory
+        return list(converter.rows())
 
     def update(
         self,
@@ -441,6 +443,12 @@ class TableProxy(Table):
         self._check_mutable('recompute columns of')
         bound_args['columns'] = list(columns)
         return self._dispatch('recompute_columns', bound_args)
+
+    def _check_recompute(self, *columns: str | ColumnRef, errors_only: bool = False) -> list[str]:
+        bound_args = self._dispatch_args(locals())
+        self._check_mutable('recompute columns of')
+        bound_args['columns'] = list(columns)
+        return self._dispatch('_check_recompute', bound_args)
 
     def revert(self) -> None:
         self._check_mutable('revert')

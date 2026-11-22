@@ -11,6 +11,13 @@ Supports two authentication methods:
 - Vertex AI: set `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_PROJECT` (and optionally
   `GOOGLE_CLOUD_LOCATION`), then authenticate via Application Default Credentials
   (e.g. `gcloud auth application-default login`).
+
+An API key in `GEMINI_API_KEY` or the `gemini` section of the config file selects Google AI Studio even when
+`GOOGLE_GENAI_USE_VERTEXAI` is set; to use Vertex AI, leave both unset.
+
+google-genai 3.x sends requests to the `v1` API by default, which doesn't serve some models, such as
+`gemini-3.1-pro-preview`, and lacks features such as speech generation and system instructions. To use them, set
+`GOOGLE_GENAI_API_VERSION=beta`.
 """
 
 import asyncio
@@ -22,7 +29,7 @@ import os
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Sequence, cast
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Coroutine, Sequence, TypeVar, cast
 
 import numpy as np
 import PIL.Image
@@ -39,6 +46,8 @@ if TYPE_CHECKING:
     from google import genai
 
 _logger = logging.getLogger(__name__)
+
+_T = TypeVar('_T')
 
 # Max raw file size (bytes) for inline data; larger files use the Files API.
 GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
@@ -65,7 +74,7 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
 
     try:
         if api_key is not None:
-            return _ClosableClient(api_key=api_key)
+            return _ClosableClient(vertexai=False, api_key=api_key)
         # Vertex AI fall-through: rely on genai.client.Client to read its own env vars
         # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
         return _ClosableClient()
@@ -82,6 +91,33 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
 
 def _genai_client() -> 'genai.client.Client':
     return get_runtime().get_client('gemini')
+
+
+def _api_version() -> str | None:
+    """The API version of the Gemini client, which google-genai exposes only through private attributes."""
+    http_options = getattr(getattr(_genai_client(), '_api_client', None), '_http_options', None)
+    return getattr(http_options, 'api_version', None)
+
+
+async def _with_api_version_hint(call: Awaitable[_T]) -> _T:
+    """Await a Gemini API call, naming `GOOGLE_GENAI_API_VERSION` in a 400 or 404 from the v1 API.
+
+    The v1 API, google-genai 3.x's default, doesn't serve some models and lacks features such as speech generation and
+    system instructions, and its errors don't mention v1beta.
+    """
+    from google.genai import errors
+
+    try:
+        return await call
+    except errors.ClientError as exc:
+        if exc.code not in (400, 404) or _api_version() != 'v1':
+            raise
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            f'{exc.message or exc} The Gemini client uses the v1 API, which lacks some models and features; '
+            'set GOOGLE_GENAI_API_VERSION=beta to use the v1beta API.',
+            provider='gemini',
+        ) from exc
 
 
 class GeminiRateLimitsInfo(env.RateLimitsInfo):
@@ -179,7 +215,9 @@ async def generate_content(
     contents = _process_media_contents(contents, large_video_paths)
     async with _gemini_file_uploads(large_video_paths) as uploaded:
         contents = _replace_upload_placeholders(contents, uploaded)
-        response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
+        response = await _with_api_version_hint(
+            client.aio.models.generate_content(model=model, contents=contents, config=config_)
+        )
         result = response.model_dump()
         # `model_dump()` (default mode) preserves `inline_data.data` as raw `bytes`; `mode='json'` would
         # url-safe-base64-encode which is suboptimal as we'd have to convert it back to binary to convert to PIL image.
@@ -326,7 +364,9 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
     config_ = GenerateImagesConfig(**config) if config else None
-    response = await _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config_)
+    response = await _with_api_version_hint(
+        _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config_)
+    )
     return response.generated_images[0].image._pil_image
 
 
@@ -429,8 +469,12 @@ async def generate_video(
             # create() also supports streams; this request returns a complete interaction.
             interaction = cast(
                 'genai.interactions.Interaction',
-                await client.aio.interactions.create(
-                    model=model, input=contents, response_format={'delivery': 'uri', **(config or {}), 'type': 'video'}
+                await _with_api_version_hint(
+                    client.aio.interactions.create(
+                        model=model,
+                        input=contents,
+                        response_format={'delivery': 'uri', **(config or {}), 'type': 'video'},
+                    )
                 ),
             )
             video = interaction.output_video
@@ -461,6 +505,42 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
+_WAV_MIME_TYPES = frozenset(('audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave'))
+
+
+def _save_speech_audio(data: bytes | str, mime_type: str | None, model: str) -> str:
+    """
+    Saves Gemini TTS audio as a WAV file: a WAV payload is stored as is, raw 16-bit PCM (`audio/L16` or no MIME type)
+    is wrapped in a WAV header, and any other format is rejected.
+    """
+    if isinstance(data, str):
+        data = base64.b64decode(data)
+    media_type, *params = (mime_type or '').lower().split(';')
+    media_type = media_type.strip()
+    output_path = str(TempStore.create_path(extension='.wav'))
+    if media_type in _WAV_MIME_TYPES or (data[:4] == b'RIFF' and data[8:12] == b'WAVE'):
+        Path(output_path).write_bytes(data)
+        return output_path
+    if media_type not in ('audio/l16', ''):
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'Gemini TTS returned audio in an unsupported format {mime_type!r} for model {model}.',
+            provider='gemini',
+        )
+    rate = 24000
+    for param in params:
+        key, _, value = param.partition('=')
+        value = value.strip().strip('"')
+        if key.strip() == 'rate' and value.isdigit():
+            rate = int(value)
+    with wave.open(output_path, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(data)
+    return output_path
+
+
 @pxt.udf(is_deterministic=False)
 async def generate_speech(text: str, *, model: str, voice: str, config: dict | None = None) -> pxt.Audio:
     """
@@ -489,7 +569,7 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
             are set automatically and should not be included.
 
     Returns:
-        An audio file (WAV, 24 kHz mono 16-bit) containing the synthesized speech.
+        A WAV audio file containing the synthesized speech.
 
     Examples:
         Add a computed column that generates speech from text:
@@ -512,25 +592,19 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))
     )
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    response = await _with_api_version_hint(
+        _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    )
     try:
-        data = response.candidates[0].content.parts[0].inline_data.data
+        blob = response.candidates[0].content.parts[0].inline_data
+        data, mime_type = blob.data, blob.mime_type
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Gemini TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
-    if isinstance(data, str):
-        data = base64.b64decode(data)
-
-    output_path = str(TempStore.create_path(extension='.wav'))
-    with wave.open(output_path, 'wb') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(24000)
-        wf.writeframes(data)
-    return output_path
+    return _save_speech_audio(data, mime_type, model)
 
 
 @generate_speech.overload
@@ -550,7 +624,7 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
             are set automatically and should not be included.
 
     Returns:
-        An audio file (WAV, 24 kHz mono 16-bit) containing the synthesized multi-speaker speech.
+        A WAV audio file containing the synthesized multi-speaker speech.
 
     Examples:
         >>> tbl.add_computed_column(
@@ -583,25 +657,19 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
         )
     )
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    response = await _with_api_version_hint(
+        _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    )
     try:
-        data = response.candidates[0].content.parts[0].inline_data.data
+        blob = response.candidates[0].content.parts[0].inline_data
+        data, mime_type = blob.data, blob.mime_type
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
-    if isinstance(data, str):
-        data = base64.b64decode(data)
-
-    output_path = str(TempStore.create_path(extension='.wav'))
-    with wave.open(output_path, 'wb') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(24000)
-        wf.writeframes(data)
-    return output_path
+    return _save_speech_audio(data, mime_type, model)
 
 
 @generate_speech.resource_pool
@@ -659,10 +727,12 @@ async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict 
     if size_bytes > GEMINI_INLINE_LIMIT_BYTES:
         async with _gemini_file_uploads([audio]) as uploaded:
             audio_part = types.Part.from_uri(file_uri=uploaded[0].uri, mime_type=uploaded[0].mime_type)
-            response = await client.aio.models.generate_content(
-                model=model,
-                contents=[audio_part, prompt],  # type: ignore[arg-type]
-                config=config_,
+            response = await _with_api_version_hint(
+                client.aio.models.generate_content(
+                    model=model,
+                    contents=[audio_part, prompt],  # type: ignore[arg-type]
+                    config=config_,
+                )
             )
     else:
         mime_type, _ = mimetypes.guess_type(audio, strict=False)
@@ -675,10 +745,12 @@ async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict 
         except (OSError, ValueError) as exc:
             raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Failed to read audio file: {audio}') from exc
         audio_part = types.Part.from_bytes(data=audio_data, mime_type=mime_type)
-        response = await client.aio.models.generate_content(
-            model=model,
-            contents=[audio_part, prompt],  # type: ignore[arg-type]
-            config=config_,
+        response = await _with_api_version_hint(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[audio_part, prompt],  # type: ignore[arg-type]
+                config=config_,
+            )
         )
 
     return response.text
@@ -808,7 +880,9 @@ async def _embed_content(
     # one Content per item: a flat list of parts is a single multimodal input to the newer embedding models,
     # which then return one embedding for the whole batch
     contents_: list[types.ContentUnion] = [types.UserContent(parts=item) for item in contents]
-    result = await client.aio.models.embed_content(model=model, contents=contents_, config=config_)
+    result = await _with_api_version_hint(
+        client.aio.models.embed_content(model=model, contents=contents_, config=config_)
+    )
     if len(result.embeddings) != len(contents):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,

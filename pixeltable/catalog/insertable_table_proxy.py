@@ -72,6 +72,9 @@ class InsertableTableProxy(TableProxy):
         if isinstance(source, Iterator):
             # materialize a generator/iterator of rows, matching the local insert path
             source = list(source)
+        # fsdecode, not fspath: a bytes __fspath__() must become a str
+        if isinstance(source, os.PathLike):
+            source = os.fsdecode(source)
 
         if isinstance(source, str):
             # A file/directory/URL source is sent to the daemon as-is. The exception is a source with media columns,
@@ -90,7 +93,9 @@ class InsertableTableProxy(TableProxy):
                 data_source.src_pk = []
                 data_source.infer_schema()
                 data_source.prepare_for_insert_into_table()
-                rows = self._convert_local_paths(row for batch in data_source.valid_row_batch() for row in batch)
+                # TODO: this materializes all rows of the source to send them in one request; streaming them to the
+                # daemon would bound the client's memory
+                rows = self._convert_local_paths(data_source.rows())
                 return self._dispatch(
                     'insert',
                     {
@@ -148,9 +153,10 @@ class InsertableTableProxy(TableProxy):
         elif isinstance(data_source, PandasTableDataConduit):
             data_source.src_pk = []
             data_source.infer_schema()
-            data_source.prepare_for_insert_into_table()  # populates valid_rows (df -> pxt-native dicts)
-            assert data_source.valid_rows is not None
-            rows = data_source.valid_rows
+            data_source.prepare_for_insert_into_table()
+            # TODO: this materializes all rows of the source to send them in one request; streaming them to the
+            # daemon would bound the client's memory
+            rows = list(data_source.rows())
         else:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import json
 import os
@@ -71,7 +72,7 @@ def _tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.expensive
-@pytest.mark.remote_api
+@pytest.mark.skip_merge_queue
 def test_free_tier(anonymous: None) -> None:
     from pixeltable.functions.openai import invoke_tools
 
@@ -131,7 +132,7 @@ def test_free_tier(anonymous: None) -> None:
 
 
 @pytest.mark.expensive
-@pytest.mark.remote_api
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestParallel:
     def test_search_with_key(self, authenticated: None) -> None:
@@ -376,3 +377,19 @@ def test_expired_session_is_reopened(failing_mcp_endpoint: _McpEndpoint) -> None
     assert failing_mcp_endpoint.tool_call_statuses == [404, 200]
     assert len(failing_mcp_endpoint.session_ids) == 2
     assert t.select(t.sources).collect()['sources'][0]['search_id'] == _SEARCH_RESPONSE['search_id']
+
+
+def test_close_after_cancelled_connection(init_env: None) -> None:
+    # close() succeeds when the connection task already ended in cancellation, as Runtime.close() can leave it
+    skip_test_if_not_installed('mcp')
+
+    async def cancelled_connection() -> None:
+        await asyncio.sleep(0)
+        raise asyncio.CancelledError
+
+    async def close_client() -> None:
+        client = parallel._ParallelMcpClient()
+        client._connection = asyncio.create_task(cancelled_connection())
+        await client.close()
+
+    asyncio.run(close_client())

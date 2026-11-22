@@ -1169,6 +1169,7 @@ file_cache_gb = 4.0   # each pod's local cache of media files
 ```
 
 An entry with no `name` configures the local database. A hosted database is configured by the entry whose `name` is its URI.
+The compute settings (`cpu`, `memory_mb`, `disk_gb`, `workers`) and `services` apply to a hosted database only.
 
 ### `pxt db`
 
@@ -1176,7 +1177,7 @@ Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable inst
 
 Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
 
-The URI argument is optional: when it is omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and the other `db` commands with no argument.
+The URI argument is optional for `diff`, `update`, `status`, `retry` and `delete`: when it is omitted, these commands act on the local database, whose UDF servers run in Pixeltable Cloud.
 
 A usage error, such as an unknown verb or a URI that is not `pxt://org:db`, exits `1`: in `pxt db`, `2` means changes pending (`diff`) or a change still under way when a wait ends. A failed update names `pxt db retry` on a `next:` line, and a wait that stops names `pxt db status`.
 

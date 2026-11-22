@@ -1,4 +1,5 @@
 import datetime
+import pathlib
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -12,7 +13,10 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.io import import_csv
 from pixeltable.io.pandas import import_excel
+from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation
 
+from ..fault_injection import ExceptionFault
 from ..utils import (
     DatabaseRoot,
     ensure_s3_pytest_resources_access,
@@ -24,10 +28,12 @@ from ..utils import (
 EXPECTED_SCHEMA = {
     'int_col': ts.IntType(nullable=True),
     'float_col': ts.FloatType(nullable=True),
+    'float32_col': ts.FloatType(nullable=True),
     'bool_col': ts.BoolType(nullable=True),
     'str_col': ts.StringType(nullable=True),
     'dt_col': ts.TimestampType(nullable=True),
     'aware_dt_col': ts.TimestampType(nullable=True),
+    'native_aware_dt_col': ts.TimestampType(nullable=True),
     'date_col': ts.DateType(nullable=True),
     'uuid_col': ts.UUIDType(nullable=True),
     'json_col_1': ts.JsonType(ts.JsonType.TypeSchema([ts.IntType(), ts.IntType()]), nullable=True),
@@ -44,16 +50,19 @@ EXPECTED_SCHEMA = {
 
 class TestPandas:
     def make_src_data(self) -> dict[str, object]:
+        aware_dates = [
+            datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=ZoneInfo('Europe/Moscow')),
+            datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
+        ]
         src_data = {
             'int_col': [1, 2],
             'float_col': [1.0, 2.0],
+            'float32_col': np.array([1.0, 2.0], dtype=np.float32),
             'bool_col': [True, False],
             'str_col': ['a', 'b'],
             'dt_col': [datetime.datetime(2024, 1, 1, 1, 1, 1), datetime.datetime(2024, 1, 2, 1, 1, 1)],
-            'aware_dt_col': [
-                datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=(ZoneInfo('Europe/Moscow'))),
-                datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
-            ],
+            'aware_dt_col': aware_dates,
+            'native_aware_dt_col': pd.to_datetime(aware_dates, utc=True),
             'date_col': [datetime.date(2024, 1, 1), datetime.date(2024, 1, 2)],
             'uuid_col': [uuid.uuid4(), uuid.uuid4()],
             'json_col_1': [[1, 2], [3, 4]],
@@ -71,27 +80,42 @@ class TestPandas:
 
         src_data = self.make_src_data()
         df = pd.DataFrame(src_data)
+        df = pd.concat([df, df.iloc[[-1]], df.iloc[[-1]]], ignore_index=True)
+        df.loc[2:, 'int_col'] = [3, 4]
+        df.loc[2:, 'float_col'] = [np.nan, np.inf]
+        df.loc[2:, 'float32_col'] = [np.nan, np.inf]
+        df.loc[2, 'dt_col'] = pd.NaT
+        df.loc[2, 'aware_dt_col'] = pd.NaT
+        df.loc[2, 'native_aware_dt_col'] = pd.NaT
+        original = df.copy(deep=True)
 
         t = pxt.io.import_pandas(p('test_types'), df)
         assert t._get_schema() == EXPECTED_SCHEMA
         res = t.select().order_by(t.int_col).collect()
-        assert res['int_col'] == src_data['int_col']
-        assert res['float_col'] == src_data['float_col']
-        assert res['bool_col'] == src_data['bool_col']
-        assert res['str_col'] == src_data['str_col']
+        assert res['int_col'] == df.int_col.tolist()
+        assert _assert_equals_with_nans(res['float_col'], df.float_col.tolist())
+        assert _assert_equals_with_nans(res['float32_col'], df.float32_col.tolist())
+        assert res['bool_col'] == df.bool_col.tolist()
+        assert res['str_col'] == df.str_col.tolist()
         assert res['dt_col'] == [
             datetime.datetime(2024, 1, 1, 1, 1, 1).astimezone(default_tz),
+            datetime.datetime(2024, 1, 2, 1, 1, 1).astimezone(default_tz),
+            None,
             datetime.datetime(2024, 1, 2, 1, 1, 1).astimezone(default_tz),
         ]
         assert res['aware_dt_col'] == [
             datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=ZoneInfo('Europe/Moscow')).astimezone(default_tz),
             datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
+            None,
+            datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
         ]
-        assert res['date_col'] == src_data['date_col']
-        assert res['uuid_col'] == src_data['uuid_col']
-        assert res['json_col_1'] == src_data['json_col_1']
-        assert res['json_col_2'] == src_data['json_col_2']
+        assert res['native_aware_dt_col'] == res['aware_dt_col']
+        assert res['date_col'] == df.date_col.tolist()
+        assert res['uuid_col'] == df.uuid_col.tolist()
+        assert res['json_col_1'] == df.json_col_1.tolist()
+        assert res['json_col_2'] == df.json_col_2.tolist()
         assert t.count() == len(df)
+        pd.testing.assert_frame_equal(df, original)
 
     def test_insert_pandas_types(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -103,6 +127,40 @@ class TestPandas:
         assert t.count() == len(df)
         t.insert(df)
         assert t.count() == 2 * len(df)
+
+    def test_pandas_schema_overrides(self, db_root: DatabaseRoot) -> None:
+        """Schema overrides convert timestamp columns to dates and UUID strings to UUIDs."""
+        uid = uuid.uuid4()
+        df = pd.DataFrame({'n': [1, 2], 'd': pd.to_datetime(['2024-01-01', None]), 'u': [str(uid), None]})
+        original = df.copy(deep=True)
+        t = pxt.create_table(
+            db_root.make_catalog_path('overrides'), {'n': pxt.Int, 'd': pxt.Date | None, 'u': pxt.UUID | None}
+        )
+        t.insert(df, schema_overrides={'d': ts.DateType(nullable=True), 'u': ts.UUIDType(nullable=True)})
+        result = t.order_by(t.n).collect()
+        assert result['d'] == [datetime.date(2024, 1, 1), None]
+        assert result['u'] == [uid, None]
+        pd.testing.assert_frame_equal(df, original)
+
+    def test_insert_pandas_empty_columns(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('empty_columns'), {'n': pxt.Int | None})
+        t.insert(pd.DataFrame(index=['a', 'b', 'c']))
+        assert t.collect()['n'] == [None, None, None]
+
+    @pytest.mark.db_roots('local', reason='fault injection instruments execution in this process')
+    def test_insert_pandas_conversion_error(self, db_root: DatabaseRoot, fault_injection: None) -> None:
+        """A late conversion error is raised before the insert plan executes."""
+        df = pd.DataFrame({'n': ['1'] * 2500, 'f': ['1.5'] * 2500})
+        df.loc[1500, 'f'] = 'bad float'
+        t = pxt.create_table(db_root.make_catalog_path('invalid'), {'n': pxt.Int, 'f': pxt.Float})
+        fault = ExceptionFault(RuntimeError('Insert plan ran before source validation'))
+        fault_manager = get_runtime().fault_manager
+        fault_manager.inject_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ, fault)
+        with pytest.raises(ValueError, match="could not convert string to float: 'bad float'"):
+            t.insert(df, schema_overrides={'n': ts.IntType(), 'f': ts.FloatType()})
+        fault.assert_count(0)
+        fault_manager.remove_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ)
+        assert t.count() == 0
 
     @pytest.mark.db_roots(
         'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
@@ -262,7 +320,7 @@ class TestPandas:
         entry = t4.limit(1).collect()[0]
         assert entry['date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
-        t5 = import_excel(p('sale_data'), 'tests/data/datasets/SaleData.xlsx')
+        t5 = import_excel(p('sale_data'), pathlib.Path('tests/data/datasets/SaleData.xlsx'))
         assert t5.count() == 45
         assert t5._get_schema()['orderdate'] == ts.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
@@ -324,6 +382,20 @@ class TestPandas:
                 primary_key='ts_n',
             )
         assert 'Primary key column `ts_n` cannot contain null values.' in str(exc_info.value)
+
+    def test_import_pandas_lossy_float_to_int(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+
+        # a non-integral float must not be silently truncated when the column is declared as an int
+        df = pd.DataFrame({'pk': [1.9, 2.1], 'v': ['a', 'b']})
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
+            _ = pxt.io.import_pandas(p('lossy'), df, schema_overrides={'pk': ts.IntType()}, primary_key='pk')
+        assert 'cannot be converted to int without loss' in str(exc_info.value)
+
+        # integral floats are still converted losslessly
+        df = pd.DataFrame({'pk': [1.0, 2.0], 'v': ['a', 'b']})
+        t = pxt.io.import_pandas(p('lossless'), df, schema_overrides={'pk': ts.IntType()}, primary_key='pk')
+        assert sorted(r['pk'] for r in t.collect()) == [1, 2]
 
 
 def _assert_equals_with_nans(a: list[float], b: list[float]) -> bool:

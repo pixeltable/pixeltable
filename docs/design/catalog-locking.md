@@ -28,8 +28,8 @@ That class and the table's versioning, data-versioned or operational, determine 
 | Operation class | Operational table | Data-versioned table | Wait policy |
 | --- | --- | --- | --- |
 | `MD_READ`: catalog metadata | No lock | No lock | N/A |
-| `DATA_READ`: query rows | `ACCESS SHARE` | `ACCESS SHARE` | Wait if any locked table is data-versioned |
-| `DATA_WRITE`: insert/update/delete | `ROW EXCLUSIVE` | `EXCLUSIVE` | Wait if any locked table is data-versioned |
+| `DATA_READ`: query rows | `ACCESS SHARE` | `ACCESS SHARE` | Fail fast unless any locked table is data-versioned |
+| `DATA_WRITE`: insert/update/delete | `ROW EXCLUSIVE` | `EXCLUSIVE` | Fail fast unless any locked table is data-versioned |
 | `MD_WRITE`: metadata changes and DDL | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | Always wait |
 | `FINALIZE`: complete pending operations | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | Always wait |
 
@@ -45,9 +45,14 @@ Lock modes apply per table. For example, a schema change can lock its target wit
 its bases with `ACCESS SHARE`.
 
 The wait policy applies to the whole transaction. If a data read or write locks only operational tables,
-it uses `NOWAIT` for every table lock. A conflict reports `SCHEMA_CHANGE_IN_PROGRESS`. If any locked table
-is data-versioned, the transaction waits for every required table lock. Schema changes and finalization
-always wait, regardless of versioning.
+it fails fast: it waits at most 100 ms (`lock_timeout`) for each table lock, and a timeout reports
+`SCHEMA_CHANGE_IN_PROGRESS`. If any locked table is data-versioned, the transaction waits for every required table
+lock. Schema changes and finalization always wait, regardless of versioning.
+
+The short wait, rather than failing immediately with `NOWAIT`, puts the request in the lock queue, so VACUUM can see
+it and yield. VACUUM, including autovacuum, takes `ACCESS EXCLUSIVE` to truncate empty pages at the end of a table,
+for example after all rows were deleted. While it holds that lock, it checks for queued lock requests every 20 ms and
+releases the lock if it finds one. A `NOWAIT` request never enters the queue, so it would fail instead.
 
 ### A waiting schema change blocks later operations
 
@@ -55,7 +60,7 @@ Postgres grants a table lock only if it conflicts with neither the locks already
 waiting for that table. A schema change or finalization waiting for `ACCESS EXCLUSIVE` therefore blocks every later
 lock request on the table, although it does not hold the lock yet:
 
-- Operational data reads and writes fail with `SCHEMA_CHANGE_IN_PROGRESS`.
+- Operational data reads and writes fail with `SCHEMA_CHANGE_IN_PROGRESS` after the short wait.
 - Data-versioned data reads and writes wait until the schema change completes.
 
 Pixeltable treats a waiting schema change as in progress, so its effect on other operations starts when it is
@@ -184,7 +189,7 @@ A schema change can span several transactions. Locks are released between them, 
 operations out of an unfinished change.
 
 **A table with pending operations is not usable.** A transaction that finds them aborts its attempt, finalizes
-them, and retries. Finalization waits for its locks, even when the operation itself would use `NOWAIT`.
+them, and retries. Finalization waits for its locks, even when the operation itself would fail fast.
 
 Pending operations run in one of two ways:
 

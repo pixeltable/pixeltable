@@ -625,6 +625,11 @@ def _recompute_columns(request: ProxyRequest, tbl: LocalTable) -> Any:
     )
 
 
+def _check_recompute(request: ProxyRequest, tbl: LocalTable) -> Any:
+    kwargs = _deserialize_args(request)
+    return tbl._check_recompute(*kwargs['columns'], errors_only=kwargs['errors_only'])
+
+
 def _get_path(request: ProxyRequest, tbl: LocalTable) -> Any:
     return tbl._path()
 
@@ -763,6 +768,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'drop_embedding_index'): _drop_embedding_index,
     ('Table', 'drop_index'): _drop_index,
     ('Table', 'recompute_columns'): _recompute_columns,
+    ('Table', '_check_recompute'): _check_recompute,
 }
 
 # (class, method) -> output converter, for the methods whose result can carry media. handle() applies the

@@ -279,7 +279,7 @@ class ColumnRef(Expr):
                 'similarity(): `item` is deprecated and cannot be used together with modality arguments',
             )
 
-        if arg_count > 1:
+        if arg_count != 1 and item is None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., document=...,'

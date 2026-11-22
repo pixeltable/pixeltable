@@ -917,7 +917,7 @@ def vit_for_image_classification(
     Args:
         image: The image to classify.
         model_id: The pretrained model to use for the classification.
-        top_k: The number of classes to return.
+        top_k: The number of classes to return; if it exceeds the number of classes, all classes are returned.
 
     Returns:
         A dictionary containing the output of the image classification model, in the following format:
@@ -962,7 +962,7 @@ def vit_for_image_classification(
         logits = outputs.logits
 
     probs = torch.softmax(logits, dim=-1)
-    top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, min(top_k, probs.shape[-1]), dim=-1)
 
     # There is no official post_process method for ViT models; for consistency, we structure the output
     # the same way as the output of the DETR model given by `post_process_object_detection`.
@@ -1186,7 +1186,7 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
     Args:
         text: The text to classify.
         model_id: The pretrained model to use for classification.
-        top_k: The number of top predictions to return.
+        top_k: The number of top predictions to return; if it exceeds the number of labels, all labels are returned.
 
     Returns:
         A dictionary containing classification results with scores, labels, and label text.
@@ -1215,7 +1215,7 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
         logits = outputs.logits
 
     probs = torch.softmax(logits, dim=-1)
-    top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, min(top_k, probs.shape[-1]), dim=-1)
 
     results: list[list[TextClassificationResponse]] = []
     for i in range(len(text)):

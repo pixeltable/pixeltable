@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Any
 
-from pixeltable_cli.utils import split_pxt_uri
+from pixeltable_cli.utils import LOCAL_DB_CLOUD_NAME_PREFIX, split_pxt_uri
 
 from ..parser import Parser
 from ..utils import EXIT_ERROR, RequestFailedError, get_request, post_request, print_aligned, print_next
@@ -194,7 +194,9 @@ def _print_restarts(org: str, db: str | None) -> None:
         )
         return
     for d in dbs:
-        if d in running:
+        if d in running and d.startswith(LOCAL_DB_CLOUD_NAME_PREFIX):
+            print_next(f'pxt db update pxt://{org}:{d}', 'deploys its UDF servers again, with the new values')
+        elif d in running:
             print_next(f'pxt db restart pxt://{org}:{d}', 'restarts its tables, so they read the new values')
         for service in services[d]:
             if service['state'] in _SERVICE_RUNNING:

@@ -1,7 +1,9 @@
 import logging
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Iterable, Iterator
 
 from pixeltable import catalog, exprs
+from pixeltable.utils import fault_injection
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.local_store import TempStore
 
 from .data_row_batch import DataRowBatch
@@ -10,9 +12,10 @@ from .exec_node import ExecNode
 _logger = logging.getLogger(__name__)
 
 
-class InMemoryDataNode(ExecNode):
+class RowDataNode(ExecNode):
     """
-    Outputs in-memory data as a DataRowBatch of a particular table.
+    Outputs a stream of row dicts as DataRowBatches of a particular table, ctx.batch_size rows at a time (or all in one
+    batch if ctx.batch_size is 0).
 
     Populates slots of all non-computed columns (ie, output ColumnRefs)
     - with the values provided in the input rows
@@ -21,10 +24,9 @@ class InMemoryDataNode(ExecNode):
 
     tbl: catalog.TableVersionHandle
 
-    input_rows: list[dict[str, Any]]
+    input_rows: Iterator[dict[str, Any]]
     set_pk: bool  # if True, assign synthetic pks (input row position); needed for iterator expansion
-    output_batch: DataRowBatch | None
-    _is_closed: bool
+    _is_consumed: bool
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
@@ -32,7 +34,7 @@ class InMemoryDataNode(ExecNode):
     def __init__(
         self,
         tbl: catalog.TableVersionHandle,
-        rows: list[dict[str, Any]],
+        rows: Iterable[dict[str, Any]],
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
     ):
@@ -41,15 +43,22 @@ class InMemoryDataNode(ExecNode):
         super().__init__(row_builder, output_exprs, [], None)
         assert tbl.get().is_insertable
         self.tbl = tbl
-        self.input_rows = rows
+        self.input_rows = iter(rows)
         self.set_pk = set_pk
-        self.output_batch = None
-        self._is_closed = False
+        self._is_consumed = False
 
     def _open(self) -> None:
-        """Create row batch and populate with self.input_rows"""
-        assert not self._is_closed, 'InMemoryDataNode is not reusable'
+        assert not self._is_consumed, 'RowDataNode is not reusable'
 
+    def _close(self) -> None:
+        # Release references to input rows. When images are present, this may free up a significant amount of memory.
+        self.input_rows = iter(())
+        self._is_consumed = True
+
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        assert not self._is_consumed, 'RowDataNode can only be iterated once'
+        self._is_consumed = True
+        fault_injection.process_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ)
         # input rows can only provide values for this table's columns
         user_cols_by_name = {
             col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
@@ -61,7 +70,7 @@ class InMemoryDataNode(ExecNode):
         }
         output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
-        self.output_batch = DataRowBatch(self.row_builder)
+        output_batch = DataRowBatch(self.row_builder)
         for row_idx, input_row in enumerate(self.input_rows):
             output_row = self.row_builder.make_row()
             if self.set_pk:
@@ -90,15 +99,12 @@ class InMemoryDataNode(ExecNode):
                 col_info = output_cols_by_idx.get(slot_idx)
                 assert col_info is not None
                 output_row[col_info.slot_idx] = None
-            self.output_batch.add_row(output_row)
+            output_batch.add_row(output_row)
+            if self.ctx.batch_size > 0 and len(output_batch) >= self.ctx.batch_size:
+                _logger.debug(f'RowDataNode: yielding batch of {len(output_batch)} rows')
+                yield output_batch
+                output_batch = DataRowBatch(self.row_builder)
 
-    def _close(self) -> None:
-        # Release references to input rows and the last output batch. When images are present, this may free up
-        # a significant amount of memory.
-        self.input_rows = []
-        self.output_batch = None
-        self._is_closed = True
-
-    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
-        _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_batch)} rows')
-        yield self.output_batch
+        if len(output_batch) > 0:
+            _logger.debug(f'RowDataNode: yielding batch of {len(output_batch)} rows')
+            yield output_batch

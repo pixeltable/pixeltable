@@ -35,7 +35,8 @@ def skip_test_if_no_sam3() -> None:
         pytest.skip(f'SAM 3 is not available in transformers {transformers.__version__}')
 
 
-@pytest.mark.very_expensive  # Downloads Hugging Face models
+@pytest.mark.skip_merge_queue  # Downloads Hugging Face models
+@pytest.mark.xdist_group('large_model')
 @rerun_on_network_error()
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestHuggingface:
@@ -66,7 +67,6 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
-    @pytest.mark.xdist_group('large_model')
     def test_sentence_transformer(self, uses_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentence_transformers')
@@ -199,6 +199,7 @@ class TestHuggingface:
         # Test appropriate typing
         assert t.get_metadata()['columns']['featured_object']['type_'] == 'String | None'
 
+    @pytest.mark.resource_intensive
     def test_detr_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -222,7 +223,6 @@ class TestHuggingface:
         assert len(result['segments_info']) > 0
         assert 'label_text' in result['segments_info'][0]
 
-    @pytest.mark.xdist_group('large_model')
     def test_sam3_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()
@@ -261,7 +261,6 @@ class TestHuggingface:
         for score in result['scores']:
             assert 0.0 <= score <= 1.0
 
-    @pytest.mark.xdist_group('large_model')
     def test_sam_automatic_mask_generation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_no_sam3()
@@ -315,7 +314,7 @@ class TestHuggingface:
                 seg=sam3_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
             )
 
-    @pytest.mark.xdist_group('large_model')
+    @pytest.mark.resource_intensive  # 24-45 minutes on a standard runner
     def test_sam3_for_video_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()
@@ -360,7 +359,6 @@ class TestHuggingface:
         )
         assert v_fps.count() == 4
 
-    @pytest.mark.xdist_group('large_model')
     def test_sam3_for_segmentation_no_detections(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()
@@ -400,7 +398,6 @@ class TestHuggingface:
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
 
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
-    @pytest.mark.xdist_group('large_model')
     def test_speech2text_for_conditional_generation(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentencepiece', 'transformers')
@@ -424,7 +421,6 @@ class TestHuggingface:
         assert 'administration' in result['transcription'][0]
         assert 'construire' in result['translation'][0]
 
-    @pytest.mark.xdist_group('large_model')
     def test_text_generation(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -476,7 +472,17 @@ class TestHuggingface:
         assert results[0]['sentiment'][0]['label_text'] == 'positive'
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
-    @pytest.mark.xdist_group('large_model')
+        t.add_computed_column(
+            sentiment_all=text_classification(
+                t.text, model_id='cardiffnlp/twitter-roberta-base-sentiment-latest', top_k=5
+            )
+        )
+        for result in t.select(t.sentiment_all).collect():
+            items = result['sentiment_all']
+            assert sorted(item['label_text'] for item in items) == ['negative', 'neutral', 'positive']
+            scores = [item['score'] for item in items]
+            assert scores == sorted(scores, reverse=True)
+
     def test_image_captioning(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -611,7 +617,6 @@ class TestHuggingface:
         assert isinstance(result['transcript'], str)
         assert len(result['transcript'].strip()) > 0
 
-    @pytest.mark.xdist_group('large_model')
     def test_text_to_speech(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers', 'datasets', 'soundfile')
@@ -632,7 +637,6 @@ class TestHuggingface:
         assert result['audio'] is not None
         # Audio should be pxt.Audio type - basic check that it's not empty
 
-    @pytest.mark.xdist_group('large_model')
     def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -659,7 +663,6 @@ class TestHuggingface:
         assert img.size == (256, 256)
         assert np.asarray(img).std() > 0
 
-    @pytest.mark.xdist_group('large_model')
     def test_image_to_image(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -687,7 +690,7 @@ class TestHuggingface:
         assert img.size == (res['width'], res['height'])
         assert np.asarray(img).std() > 0
 
-    @pytest.mark.xdist_group('large_model')
+    @pytest.mark.resource_intensive
     def test_image_to_video(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')

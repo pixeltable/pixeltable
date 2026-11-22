@@ -47,6 +47,7 @@ class ManagementOperationType(str, Enum):
     GET_RECEIPTS = 'get_receipts'
     RETRY = 'retry'
     GET_ARCHIVE = 'get_archive'
+    GET_UDF_SERVERS = 'get_udf_servers'
     GET_LOGS = 'get_logs'
     GET_SPANS = 'get_spans'
 
@@ -111,6 +112,8 @@ class GetDbResponse(BaseModel):
 class ListDbRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.LIST_DBS] = ManagementOperationType.LIST_DBS
     org: str | None = None
+    # the names of the caller's local databases in the control plane; the listing has no other local database
+    local_db_names: list[str] = Field(default_factory=list)
 
 
 class UpdateDbRequest(BaseModel):
@@ -134,7 +137,7 @@ class UpdateDbRequest(BaseModel):
 
 
 class ArtifactUpload(BaseModel):
-    """An artifact the spec names and the control plane does not hold, and where to put it."""
+    """An artifact of the spec that the control plane is missing, with its upload url."""
 
     artifact: DbArtifact
     url: str
@@ -155,7 +158,7 @@ _SHA256_HEX = re.compile(r'[0-9a-f]{64}')
 
 
 class BlobRef(BaseModel):
-    """A project archive, named by the SHA-256 and size of its bytes."""
+    """A project archive, identified by the SHA-256 and size of its bytes."""
 
     sha256: str
     size: int = Field(ge=0)
@@ -169,7 +172,7 @@ class BlobRef(BaseModel):
 
 
 class BlobUpload(BaseModel):
-    """Where to put a blob the control plane does not hold, and the headers its url was signed with."""
+    """The upload url of a blob that the control plane is missing, with the headers that the upload has to send."""
 
     model_config = ConfigDict(extra='ignore')
 
@@ -216,7 +219,7 @@ class ServiceGeneration(BaseModel):
 
 
 class ExpectedGenerations(BaseModel):
-    """The generations a submission was prepared against: 0 for a resource that does not exist."""
+    """The generations that a submission expects to replace; 0 for a resource that does not exist."""
 
     model_config = ConfigDict(extra='ignore')
 
@@ -230,10 +233,11 @@ class ExpectedGenerations(BaseModel):
 
 
 class PrepareUpdateRequest(BaseModel):
-    """Read the generations a submission would replace, its plan, and where to upload its archive."""
+    """Ask for the generations that a submission would replace, its plan, and the upload url of its archive."""
 
     operation_type: Literal[ManagementOperationType.PREPARE_UPDATE] = ManagementOperationType.PREPARE_UPDATE
     org: str | None = None
+    # the database's name in the control plane; for a local database, LocalDatabase.cloud_db_name()
     db: str
     database_target: DatabaseTarget | None = None
     service_mutations: list[ServiceMutation] = Field(default_factory=list)
@@ -254,17 +258,18 @@ class PrepareUpdateResponse(BaseModel):
     services: list[ServiceMutation] = Field(
         default_factory=list, description='the current desired spec of each touched service that exists'
     )
-    upload: BlobUpload | None = Field(default=None, description='null when the control plane holds the blob')
+    upload: BlobUpload | None = Field(default=None, description='null when the control plane already has the blob')
 
 
 class SubmitUpdateRequest(BaseModel):
-    """Accept the next desired spec of every touched resource, all or none.
+    """Set the desired spec of the database and of each service in service_mutations, all or none.
 
-    Resending an accepted submission returns its original receipts, so resending is safe.
+    Resending an accepted submission returns its original receipts.
     """
 
     operation_type: Literal[ManagementOperationType.SUBMIT_UPDATE] = ManagementOperationType.SUBMIT_UPDATE
     org: str | None = None
+    # the database's name in the control plane; for a local database, LocalDatabase.cloud_db_name()
     db: str
     database_target: DatabaseTarget | None = None
     service_mutations: list[ServiceMutation] = Field(default_factory=list)
@@ -306,7 +311,8 @@ class ReceiptRef(BaseModel):
 class GetReceiptsRequest(BaseModel):
     """Read receipts by their resource ids, within the org.
 
-    No database name: a deletion releases the name before its receipt is observed, and a new database may reuse it.
+    The request has no database name, because a deletion releases the name before its receipt is observed, and a new
+    database may reuse it.
     """
 
     operation_type: Literal[ManagementOperationType.GET_RECEIPTS] = ManagementOperationType.GET_RECEIPTS
@@ -371,7 +377,7 @@ class StopDbRequest(BaseModel):
 
 
 class RestartDbRequest(BaseModel):
-    """Cycle the database's pods onto the image and archive it already runs."""
+    """Restart the database's pods with their current image and archive."""
 
     operation_type: Literal[ManagementOperationType.RESTART_DB] = ManagementOperationType.RESTART_DB
     org: str | None = None
@@ -379,11 +385,11 @@ class RestartDbRequest(BaseModel):
 
 
 class GetArchiveRequest(BaseModel):
-    """Ask for a url serving a project archive of the database; a pod sends this as it starts.
+    """Ask for the download url of one of the database's project archives.
 
-    A pod pinned to a release names its archive digest and build id, and gets that release's archive; without
-    them it gets the archive of the database's current release. The release key tells apart releases that share
-    an archive and a build but not their settings (the fingerprint's config).
+    With archive_digest and build_id, the response has the archive of that release; without them, the archive of the
+    database's current release. release_key selects among releases with the same archive and build and different
+    settings (the fingerprint's config).
     """
 
     operation_type: Literal[ManagementOperationType.GET_ARCHIVE] = ManagementOperationType.GET_ARCHIVE
@@ -399,10 +405,29 @@ class GetArchiveResponse(BaseModel):
     # ProjectFingerprint.archive_digest() of the archive the url serves
     digest: str
 
-    # the fingerprint the archive was published under. A pod reports this rather than one it computes:
-    # loading the application file writes bytecode into the unpacked project, so a pod that walked its own
-    # directory would report files the published project never held.
+    # the fingerprint of the published archive. A fingerprint computed from the unpacked project would include the
+    # bytecode files that loading the application file writes.
     fingerprint: ProjectFingerprint | None = None
+
+
+class GetUdfServersRequest(BaseModel):
+    """Ask for the UDF servers of a local database's current release."""
+
+    operation_type: Literal[ManagementOperationType.GET_UDF_SERVERS] = ManagementOperationType.GET_UDF_SERVERS
+    org: str | None = None
+    # LocalDatabase.cloud_db_name() of the local database
+    db: str
+
+
+class GetUdfServersResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    # the servers' project
+    fingerprint: ProjectFingerprint
+    # keyed by UDF path
+    urls: dict[str, str]
+    # the HTTP headers that authorize a request to one of the urls
+    headers: dict[str, str]
 
 
 class GetLogsRequest(BaseModel):
@@ -610,10 +635,10 @@ class UpdateServiceInstanceResponse(BaseModel):
 
 
 class ReportServiceInstanceRequest(BaseModel):
-    """Record the project an instance loaded; a service pod sends this as it starts serving.
+    """Record the fingerprint of the project that a service instance loaded.
 
-    Unlike UPDATE_SERVICE_INSTANCE this changes nothing the instance is asked to serve, so it must not
-    restart the pod that sends it.
+    Unlike UPDATE_SERVICE_INSTANCE, the request leaves the instance's spec unchanged, so it must not restart the
+    instance's pods.
     """
 
     operation_type: Literal[ManagementOperationType.REPORT_SERVICE_INSTANCE] = (
@@ -661,7 +686,7 @@ class StopServiceInstanceResponse(BaseModel):
 
 
 class RestartServiceInstanceRequest(BaseModel):
-    """Cycle the service's pods onto the image and archive they already run."""
+    """Restart the service's pods with their current image and archive."""
 
     operation_type: Literal[ManagementOperationType.RESTART_SERVICE_INSTANCE] = (
         ManagementOperationType.RESTART_SERVICE_INSTANCE
@@ -778,10 +803,9 @@ class ListKeysResponse(BaseModel):
 
 
 class UpdateKeyRequest(BaseModel):
-    """Add and remove grants on an existing key, leaving the rest alone.
+    """Add grants to an existing key and remove grants from it. The key's other grants stay.
 
-    A delta rather than a replacement list, so granting one more resource does not depend on the
-    caller first knowing -- and faithfully resending -- everything the key already had.
+    The request has the changes instead of the full list of grants, so it doesn't depend on the key's current grants.
     """
 
     operation_type: Literal[ManagementOperationType.UPDATE_KEY] = ManagementOperationType.UPDATE_KEY

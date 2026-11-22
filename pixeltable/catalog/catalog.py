@@ -203,7 +203,7 @@ def _retry_loop(request: LockRequest) -> Callable[[Callable[..., T]], Callable[.
                     if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
-                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}: {e.orig}')
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
                             raise excs.ConcurrencyError(
@@ -592,7 +592,7 @@ class Catalog(CatalogBase):
                             # Handle retriable errors
                             has_exc = True
                             if _is_retryable_exc(e) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
-                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
+                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}: {e.orig}')
                                 num_retries += 1
                                 time.sleep(random.uniform(0.1, 0.5))
                                 # attempt failed -- don't try to commit the transaction before retrying
@@ -609,7 +609,7 @@ class Catalog(CatalogBase):
 
             except LockNotAvailableError as e:
                 has_exc = True
-                # NOWAIT can fail when a schema change holds a conflicting lock or is queued ahead of us.
+                # A short lock wait times out when a schema change holds a conflicting lock or is queued ahead of us.
                 attempt_exc = e
                 raise excs.ConcurrencyError(
                     excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS,
@@ -1136,7 +1136,7 @@ class Catalog(CatalogBase):
                 raise
 
             except excs.ConcurrencyError as e:
-                # Finalization itself waits for locks, but its work may call a NOWAIT operation on another table.
+                # Finalization itself waits for locks, but its work may call a fail-fast operation on another table.
                 # Propagate the error without treating it as a failure that requires rolling back the schema change.
                 _logger.debug(f'Finalize pending ops({tbl_id}): op reported a concurrency error: {e}')
                 raise
@@ -1494,6 +1494,14 @@ class Catalog(CatalogBase):
         move_fn()
 
     def _move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
+        if path == new_path:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
+            )
+        if path.is_ancestor(new_path):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'
+            )
         dest_obj, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,
@@ -3300,7 +3308,7 @@ class Catalog(CatalogBase):
                         excs.ErrorCode.SERIALIZATION_FAILURE, f'Serialization retry limit ({_MAX_RETRIES}) exceeded'
                     ) from e
                 num_retries += 1
-                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}: {e.orig}')
                 time.sleep(random.uniform(0.1, 0.5))
 
     def _handle_path_collision(
