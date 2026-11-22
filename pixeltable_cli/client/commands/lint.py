@@ -302,11 +302,10 @@ def _parse_findings(answer: str) -> list[Finding] | None:
         if not isinstance(f, dict) or not all(isinstance(f.get(key), str) for key in ('rule', 'file', 'why', 'fix')):
             return None
         line = f.get('line')
-        findings.append(
-            Finding(
-                rule=f['rule'], file=f['file'], line=line if isinstance(line, int) else None, why=f['why'], fix=f['fix']
-            )
-        )
+        # bool is a subclass of int, but a JSON true is not a line number
+        if not isinstance(line, int) or isinstance(line, bool):
+            line = None
+        findings.append(Finding(rule=f['rule'], file=f['file'], line=line, why=f['why'], fix=f['fix']))
     return findings
 
 

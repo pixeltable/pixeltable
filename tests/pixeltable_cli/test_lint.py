@@ -97,7 +97,7 @@ class TestLint:
 
     def test_review(self, cli: PxtRunner, project: pathlib.Path) -> None:
         """A reviewer gets the rules and the numbered lines of each file, and the command prints its findings with the
-        rule's title and guide, and exits 2; with no findings, it exits 0."""
+        rule's title and guide, and exits 2; a non-integer line becomes null; with no findings, it exits 0."""
         r = cli('lint', cwd=project, check=False, env_overrides={'LINT_REVIEWER': reviewer(project, answer(_FINDING))})
         assert r.returncode == 2
         prompt = (project / 'prompt.txt').read_text(encoding='utf-8')
@@ -113,10 +113,10 @@ class TestLint:
             '1 finding: fix each, or say why it does not apply.\n'
         )
 
-        two_findings = reviewer(project, answer(_FINDING, {**_FINDING, 'line': 'n/a'}))
-        r = cli('lint', '--json', cwd=project, check=False, env_overrides={'LINT_REVIEWER': two_findings})
+        bad_lines = reviewer(project, answer(_FINDING, {**_FINDING, 'line': 'n/a'}, {**_FINDING, 'line': True}))
+        r = cli('lint', '--json', cwd=project, check=False, env_overrides={'LINT_REVIEWER': bad_lines})
         assert r.returncode == 2
-        assert r.json == {'findings': [_FINDING, {**_FINDING, 'line': None}]}
+        assert r.json == {'findings': [_FINDING, {**_FINDING, 'line': None}, {**_FINDING, 'line': None}]}
 
         r = cli('lint', cwd=project, env_overrides={'LINT_REVIEWER': reviewer(project, answer())})
         assert r.stdout == 'No findings.\n'
