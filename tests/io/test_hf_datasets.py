@@ -335,6 +335,7 @@ class TestHfDatasets:
         res = t.select(t.image.localpath).collect()
         assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
 
+    @pytest.mark.resource_intensive
     @pytest.mark.parametrize('streaming', [False, True])
     def test_import_arrays(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
@@ -544,6 +545,7 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['title'], list) for row in res)
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
+    @pytest.mark.resource_intensive
     @pytest.mark.parametrize('streaming', [False, True])
     def test_import_arraynd(self, streaming: bool, db_root: DatabaseRoot) -> None:
         """Test dataset with Array2D and Array3D features."""
