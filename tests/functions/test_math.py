@@ -132,7 +132,7 @@ class TestMath:
                 raise AssertionError()
 
     def test_trig_and_sign(self, uses_db: None) -> None:
-        """Domain errors and use of the new functions in where(), update() and delete() filters."""
+        """Domain errors, and sign(), trig and conversion functions in where(), update() and delete() filters."""
         t = pxt.create_table('test_tbl', {'id': pxt.Int, 'x': pxt.Float})
         t.insert({'id': i, 'x': x} for i, x in enumerate([-2.0, -0.5, 0.0, 0.5, 2.0]))
 
@@ -157,9 +157,10 @@ class TestMath:
             _ = t.where(t.id == 1).select(out=t.x.sin()).collect()
         # a non-SQLizable identity function forces evaluation in Python
         ident = t.x.apply(lambda x: x, col_type=pxt.Float)
-        with pytest.raises(pxt.Error, match='math domain error'):
+        # the wording of the ValueError message differs across Python versions
+        with pytest.raises(pxt.Error, match='ValueError'):
             _ = t.where(t.id == 0).select(out=ident.asin()).collect()
-        with pytest.raises(pxt.Error, match='math domain error'):
+        with pytest.raises(pxt.Error, match='ValueError'):
             _ = t.where(t.id == 1).select(out=ident.sin()).collect()
 
         # computed columns are evaluated in Python on insert
@@ -168,11 +169,11 @@ class TestMath:
         t.add_computed_column(sin=t.x.sin())
         status = t.insert([{'id': 0, 'x': 2.0}, {'id': 1, 'x': math.inf}], on_error='ignore')
         assert status.num_excs == 3
-        res = t.select(t.asin, t.sin, asin_err=t.asin.errormsg, sin_err=t.sin.errormsg).order_by(t.id).collect()
+        res = t.select(t.asin, t.sin, asin_err=t.asin.errortype, sin_err=t.sin.errortype).order_by(t.id).collect()
         assert res['asin'] == [None, None]
         assert res['sin'] == [math.sin(2.0), None]
-        assert 'math domain error' in res['asin_err'][0]
-        assert 'math domain error' in res['sin_err'][1]
+        assert res['asin_err'][0] == 'ValueError'
+        assert res['sin_err'][1] == 'ValueError'
 
     def test_to_int(self, uses_db: None) -> None:
         """to_int() truncates toward zero and returns the same values from Python and from Postgres."""
