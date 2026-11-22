@@ -18,7 +18,6 @@ from typing import IO, NoReturn
 
 from ..parser import Parser
 from ..utils import EXIT_ERROR, confirm_or_exit
-from .guide import guide_paths
 
 ARCHIVE_URL = 'https://codeload.github.com/pixeltable/pixeltable-skill/tar.gz/refs/heads/main'
 
@@ -55,7 +54,6 @@ Examples:
 
 What it writes:
   The Pixeltable skill, SKILL.md and its references, from github.com/pixeltable/pixeltable-skill,
-  and the agent guides of the installed Pixeltable in guides/ ('pxt guide' prints them),
   into the two project directories coding agents read skills from:
 
     .claude/skills/pixeltable       Claude Code, Cursor
@@ -85,7 +83,6 @@ def run(argv: list[str]) -> None:
 
 def _install(args: argparse.Namespace) -> None:
     files, commit, version = _download()
-    files.update({f'guides/{path.name}': path.read_bytes() for path in guide_paths().values()})
     root = pathlib.Path.cwd()
     targets = [root / skills_dir / SKILL_NAME for skills_dir, _ in SKILL_DIRS]
     # before either copy is written: a linked directory on the way would put the skill outside root

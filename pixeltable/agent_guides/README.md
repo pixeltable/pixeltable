@@ -57,7 +57,7 @@ case. Code in a rule is indented rather than fenced, since the tests run fenced 
 - Markdown in ASCII, one fact per bullet, in plain sentences.
 - The first line after the title summarizes the guide; `pxt guide` lists it.
 - A reference to another guide is its command, such as `pxt guide tables`, since an agent may read the guide from
-  `pxt guide` or from a copy.
+  `pxt guide` or from its file, which `pxt guide --path` locates.
 - `tests/test_agent_guides.py` runs the `python` blocks of each guide in order, as one module, against a new
   catalog, and then calls `create_all()` on each `TableModel` base in the module. Blocks can define UDFs,
   application classes and notebook tables. They must not insert rows into a column that calls a provider: the test

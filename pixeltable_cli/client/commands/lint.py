@@ -51,11 +51,11 @@ REVIEWER_PRESETS = {
     'augment': ReviewerPreset('auggie', "auggie --print --quiet --ask 'Follow the instructions on stdin.'"),
     'opencode': ReviewerPreset('opencode', 'opencode run --agent plan'),
 }
-REVIEWER_ENV_VAR = 'LINT_REVIEWER'
+REVIEWER_ENV_VAR = 'PXT_LINT_REVIEWER'
 REVIEWER_TIMEOUT_SECS = 600
 
 SKIPPED_DIRS = {'__pycache__', 'node_modules', 'site-packages', 'venv', 'build', 'dist'}
-# the prompt contains every file and has to fit the reviewer's context window (400,000 characters: ~100,000 tokens)
+# caps the sources so the prompt fits the reviewer's context window (400,000 characters: ~100,000 tokens)
 MAX_SOURCE_CHARS = 400_000
 
 EPILOG = f"""\
@@ -74,6 +74,7 @@ Notes:
   reviews with the CLI of the coding agent that runs it, if pxt lint has a command for that agent
   ({', '.join(REVIEWER_PRESETS)}). ${REVIEWER_ENV_VAR}=none turns the review off: the command then prints the
   rules and the files for the coding agent that runs it.
+  A review takes several minutes; give the command a timeout of 10 minutes.
   A review sends the files to the reviewer's model, on the reviewer's account."""
 
 PROMPT = """\
@@ -175,21 +176,29 @@ def _python_files(root: pathlib.Path, paths: list[pathlib.Path]) -> list[pathlib
 
 def _relative_to_root(path: pathlib.Path, root: pathlib.Path) -> str:
     resolved = path.resolve()
-    return str(resolved.relative_to(root.resolve())) if resolved.is_relative_to(root.resolve()) else str(path)
+    relative = resolved.relative_to(root.resolve()) if resolved.is_relative_to(root.resolve()) else path
+    return relative.as_posix()
 
 
 def _agent_reviewer() -> str | None:
     """Return the preset command of the coding agent that runs pxt lint, if it has one and its CLI is on PATH."""
     agent = coding_agent()
     preset = REVIEWER_PRESETS.get(agent) if agent is not None else None
-    if preset is None or shutil.which(preset.executable) is None:
-        return None
-    print(
-        f'pxt lint: reviewing with {preset.command}. Each review runs that model on your account; '
-        f'{REVIEWER_ENV_VAR}=none turns it off.',
-        file=sys.stderr,
-    )
-    return preset.command
+    if agent is None:
+        cause = 'no coding agent runs pxt lint'
+    elif preset is None:
+        cause = f'pxt lint has no reviewer command for {agent}'
+    elif shutil.which(preset.executable) is None:
+        cause = f'{preset.executable} is not on PATH'
+    else:
+        print(
+            f'pxt lint: reviewing with {preset.command}. Each review runs that model on your account; '
+            f'{REVIEWER_ENV_VAR}=none turns it off.',
+            file=sys.stderr,
+        )
+        return preset.command
+    print(f'pxt lint: no reviewer: {REVIEWER_ENV_VAR} is not set, and {cause}.', file=sys.stderr)
+    return None
 
 
 def _print_findings(findings: list[Finding], rules_path: pathlib.Path, as_json: bool) -> None:
@@ -288,14 +297,15 @@ def _parse_findings(answer: str) -> list[Finding] | None:
     # a model may wrap the object in prose or a code fence, and the prose may contain braces
     decoder = json.JSONDecoder()
     parsed: Any = None
+    # keep the last one: a model may repeat the prompt's example before its answer
     for start in (i for i, ch in enumerate(answer) if ch == '{'):
         try:
-            parsed, _ = decoder.raw_decode(answer, start)
+            candidate, _ = decoder.raw_decode(answer, start)
         except ValueError:
             continue
-        if isinstance(parsed, dict) and isinstance(parsed.get('findings'), list):
-            break
-    if not isinstance(parsed, dict) or not isinstance(parsed.get('findings'), list):
+        if isinstance(candidate, dict) and isinstance(candidate.get('findings'), list):
+            parsed = candidate
+    if parsed is None:
         return None
     findings: list[Finding] = []
     for f in parsed['findings']:

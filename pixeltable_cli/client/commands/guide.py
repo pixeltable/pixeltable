@@ -14,9 +14,10 @@ Examples:
   pxt guide              # list the guides, one line each
   pxt guide tables       # print the guide to tables
   pxt guide --json       # the guides as {area: summary}
+  pxt guide --path       # the directory of the guide files, to read or search them
 
 A guide states how this version of Pixeltable behaves in one area: what its APIs do, their defaults, errors
-and known issues. 'pxt skills install' also copies the guides into the skill's guides/ directory."""
+and known issues."""
 
 
 def pixeltable_dir() -> pathlib.Path:
@@ -26,9 +27,12 @@ def pixeltable_dir() -> pathlib.Path:
     return pathlib.Path(next(iter(spec.submodule_search_locations)))
 
 
+def guides_dir() -> pathlib.Path:
+    return pixeltable_dir() / 'agent_guides'
+
+
 def guide_paths() -> dict[str, pathlib.Path]:
-    guides_dir = pixeltable_dir() / 'agent_guides'
-    return {path.stem: path for path in sorted(guides_dir.glob('*.md')) if path.name != 'README.md'}
+    return {path.stem: path for path in sorted(guides_dir().glob('*.md')) if path.name != 'README.md'}
 
 
 def run(argv: list[str]) -> None:
@@ -37,8 +41,17 @@ def run(argv: list[str]) -> None:
         prog='pxt guide', description='print an agent guide to this version of Pixeltable, or list them', epilog=EPILOG
     )
     parser.add_argument('area', nargs='?', choices=list(paths), help='the guide to print; omit it to list the guides')
+    parser.add_argument(
+        '--path',
+        action='store_true',
+        help="print the path of the guide's file, or of the guides' directory, instead of the text",
+    )
     parser.add_argument('--json', action='store_true', dest='as_json', help='Emit JSON output')
     args = parser.parse_args(argv)
+    if args.path:
+        path = paths[args.area] if args.area is not None else guides_dir()
+        print(json.dumps({'path': str(path)}, indent=2) if args.as_json else path)
+        return
     if args.area is not None:
         text = paths[args.area].read_text(encoding='utf-8')
         if args.as_json:

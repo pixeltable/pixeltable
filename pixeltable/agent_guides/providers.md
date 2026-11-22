@@ -145,6 +145,8 @@ These paths select the text of a reply:
   `[bedrock.rate_limits]` or `[openai.rate_limits]`.
 - For `together`, the limit is per kind of request, with the key `chat`, `embeddings` or `images` in
   `[together.rate_limits]`.
+- `vlmrun_gateway` sends up to 600 requests per minute by default, above the Gateway's limits of 240 per minute and
+  10,000 per hour; `rate_limit = 160` in `[vlmrun_gateway]` stays under both.
 - The functions with a `rate_limit` retry 408, 429, 503 and 504 errors and throttling errors up to 3 times, after
   the delay in a `Retry-After` header if there is one.
 - The local functions, such as those of `huggingface`, `whisper`, `ollama` and `llama_cpp`, are neither throttled
