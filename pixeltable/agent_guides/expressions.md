@@ -47,6 +47,8 @@ parsed = trips.select(
 - Conditions combine with `&`, `|` and `~`.
 - `x == None` and `x != None` test for null.
 - `x.isin(['a', 'b'])` tests membership.
+- A UUID compares with the string form of a UUID, as in `t.id == str(doc_id)`; a string that is not a UUID raises
+  `not a valid UUID`.
 - Python `and`, `or` and `not` on a column raise `TypeError`.
 - `x is None` is a Python `bool`, not a condition.
 - An f-string or `str.format()` on a column raises `An f-string or str.format() on a Pixeltable expression produces
@@ -68,6 +70,9 @@ parsed = trips.select(
 
 - `pxtf.timestamp.strptime(s, '%d/%m/%Y %H:%M')` and `pxtf.date.strptime(s, '%d/%m/%Y')` parse other formats.
 - `strptime()` fails the row of a string that does not match the format.
+- `astype(pxt.Int)` on a Float raises `Cannot convert ... from Float to Int with astype()`.
+- `to_int()` converts a Float to an Int and truncates toward zero; `round().to_int()`, `floor().to_int()` and
+  `ceil().to_int()` round first.
 - `astype(pxt.String)` on a UUID fails each row with `TypeError`.
 - `pxtf.uuid.to_string(col)` converts a UUID to a String.
 - A cast of a Json value checks the value when the expression runs (`pxt guide json`).
@@ -92,9 +97,15 @@ parsed = trips.select(
   time it runs.
 - A stored computed column records the time of the insert, and a recompute replaces it with the time of the
   recompute.
-- `+` and `-` on a Timestamp raise `+ requires numeric types`.
-- To get the seconds between two timestamps, subtract their `posix_timestamp()` values.
+- `ts + timedelta(hours=1)` and `ts - timedelta(days=7)` shift a Timestamp, as in
+  `t.where(t.created_at > pxtf.timestamp.now() - timedelta(days=7))`.
+- A timedelta added to or subtracted from a Date must be a whole number of days.
 - `date.add_days(n)` adds `n` days to a Date.
+- `ts.add_seconds(n)` adds `n` seconds to a Timestamp; `n` can be a column.
+- `end.seconds_since(start)` returns the seconds from `start` to `end`; `end - start` raises `- is not defined for
+  two Timestamps`.
+- A timedelta, `add_seconds()` and `seconds_since()` measure elapsed time: across a daylight saving time change,
+  `ts + timedelta(days=1)` moves the wall-clock time by 23 or 25 hours.
 
 ## Media values
 

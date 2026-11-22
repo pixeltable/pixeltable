@@ -69,21 +69,19 @@ totals = regions.select(regions.region, total=region_total(regions.region)).coll
 - A query also takes one `select()` and one `group_by()`.
 - `col is None` is a Python `bool`, which `where()` rejects; write `col == None`.
 - `pxt guide expressions` covers the operators.
-- Known issue (PXT-1457): a `where()` that compares a computed column with `stored=False` to a constant, as in
-  `t.where(t.flag == True)`, raises `AssertionError`. To work around it, use the Bool column by itself
-  (`t.where(t.flag)`, `~t.flag`), or write the column's expression in place of the column.
 - `order_by()` calls accumulate: later keys break ties.
 - Nulls sort last in ascending order and first in descending order.
-- Known issue (PXT-1514): `order_by()` on a UDF call does not sort, and raises `AttributeError` with `asc=False`.
-  Order by a stored column instead.
+- `order_by()` takes only expressions that run in SQL. A UDF call, a Json path, or a computed column with
+  `stored=False` over either raises `Invalid order_by() expression, needs to be expressible in SQL`; order by a
+  stored computed column instead.
 - `limit(n, offset=k)` skips the first `k` rows.
 - Without `select()`, a query returns every column.
 - Result column names: a keyword argument sets the name, a column keeps its name, a function call gets the
   function's name, and any other expression gets `col_0`, `col_1`, ... by its position.
 - A repeated result column name gets the suffix `_1`.
 - Result column names are lowercased.
-- `sample()` comes after `where()` and `select()`; calling `where()`, `order_by()`, `limit()`, `group_by()` or
-  `join()` after `sample()` raises.
+- `sample()` comes after `where()`; `select()` can come before or after it.
+- Calling `where()`, `order_by()`, `limit()`, `group_by()` or `join()` after `sample()` raises.
 - The same `seed` returns the same rows.
 - `stratify_by=` samples each group of rows with equal `stratify_by` values separately.
 
@@ -110,6 +108,9 @@ totals = regions.select(regions.region, total=region_total(regions.region)).coll
 - Without `group_by()`, an aggregate query returns one row.
 - Selecting a column that is neither in `group_by()` nor aggregated raises `Invalid non-aggregate expression in
   aggregate query`.
+- In a `group_by()` query that runs partly in Python, such as one with a UDF call in `where()` or `select()`,
+  `order_by()` takes only the grouping columns: `order_by() is limited to the grouping expressions`. Sort the
+  collected rows instead.
 - An aggregate with `group_by=` and `order_by=` arguments is a window function, with one value per row:
   `pxtf.sum(t.amount, group_by=t.region, order_by=t.id)` is a running total per region.
 - Known issue (PXT-1801): an aggregate with `group_by=` and no `order_by=` returns a running value instead of the
@@ -124,10 +125,8 @@ totals = regions.select(regions.region, total=region_total(regions.region)).coll
 - `on=` also takes a column, matched by name in both tables.
 - `how='cross'` takes no `on=`; every other join type requires it.
 - A join without `select()` returns the columns of both tables, with a suffix on a repeated name (`region_1`).
-- `join()` takes a table, a view or a snapshot, not a query: the result of a `group_by()` query cannot be joined to
-  its table. Collect the `group_by()` result and look up its rows by key in Python.
-- Known issue (PXT-1709): `join()` with a bound model on either side raises `AttributeError`; join the `Table`
-  objects from `pxt.get_table()` instead.
+- `join()` takes a table, a view, a snapshot or a bound model, not a query: the result of a `group_by()` query
+  cannot be joined to its table. Collect the `group_by()` result and look up its rows by key in Python.
 
 ## `@pxt.query` functions
 
@@ -160,6 +159,8 @@ totals = regions.select(regions.region, total=region_total(regions.region)).coll
 - Known issue (PXT-1736): in a script, a `@pxt.query` declared over models fails in `select()` and `where()`, with
   `Table was dropped` or `declared over a model rather than a table`. It works in a model's computed column, in a
   route and in `pxt.eval_udf()`. In a script, declare the query over the `Table` objects from `pxt.get_table()`.
+- `add_computed_column()` refuses a `@pxt.query` declared over models: `can only be used in a TableModel or a query
+  route`.
 - A computed column stores the query itself, so it can call a `@pxt.query` defined in a notebook.
 - After a change to the function's body, `pxt schema diff` reports the column's expression as changed, and existing
   rows keep their values.

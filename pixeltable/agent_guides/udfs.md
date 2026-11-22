@@ -144,14 +144,16 @@ class Assistant(TableModel, name='assistant'):
 - A tool's non-nullable parameters are required.
 - `pxt.tools()` takes UDFs, `@pxt.query` functions and `pxt.retrieval_udf()` results; passing an aggregate raises
   `Aggregator UDFs cannot be used as tools`.
-- A tool's parameters can be `String`, `Int`, `Float`, `Bool`, `UUID` or Json; a parameter of another type fails.
+- A tool's parameters can be `String`, `Int`, `Float`, `Bool`, `UUID` or Json; `pxt.tool()` and `pxt.tools()`
+  refuse a UDF with a parameter of another type: `parameter 'when' has unsupported type`.
 - `openai`, `anthropic`, `gemini`, `bedrock` and `groq` each have an `invoke_tools()` for their own replies.
 - `invoke_tools()` returns a dict with one key per tool; the value is the tool's list of results, or null if the
   model did not call the tool, as in `{'get_weather': ['Paris: 22C, sunny'], 'shorten': None}`.
 - The UDF from `pxt.retrieval_udf(table, parameters=['sku'])` returns the rows whose `sku` equals its argument, up to
   `limit` rows (10 by default), as a list of dicts with every column.
 - With `limit=1`, the UDF from `pxt.retrieval_udf()` returns one dict, or null.
-- `pxt.retrieval_udf()` takes a `Table` from `pxt.get_table()`, not a model class.
+- `pxt.retrieval_udf()` takes a `Table` or a model class; over a model in `app.py`, the returned UDF can define
+  another model's computed column.
 - `pxt.mcp_udfs(url)` connects to the MCP server at `url` over streamable HTTP and returns a UDF for each of its tools.
 
 ```bash

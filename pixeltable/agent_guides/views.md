@@ -83,7 +83,7 @@ Every iterator view also has `pos`, the row's position within its base row, star
 
 | Iterator | Module | Output columns |
 |---|---|---|
-| `document_splitter()` | `pixeltable.functions.document` | `text`; `image` with `elements=['text', 'image']`; `title`, `heading`, `sourceline`, `page`, `bounding_box` as listed in `metadata=` |
+| `document_splitter()` | `pixeltable.functions.document` | `text`; `image` with `elements=['text', 'image']`; `title`, `heading`, `page` as listed in `metadata=` |
 | `string_splitter()` | `pixeltable.functions.string` | `text` |
 | `frame_iterator()` | `pixeltable.functions.video` | `frame` (not stored), `frame_attrs` (`index`, `pts`, `dts`, `time`, `is_corrupt`, `key_frame`, `pict_type`, `interlaced_frame`) |
 | `legacy_frame_iterator()` | `pixeltable.functions.video` | `frame` (not stored), `frame_idx`, `pos_msec`, `pos_frame` |
@@ -97,19 +97,31 @@ Every iterator view also has `pos`, the row's position within its base row, star
 - `frame_attrs.time` is the frame's timestamp in seconds.
 - For a PDF with `'page'` in `separators`, `page` is the page number, starting at 0; in every other case, `page` is
   null.
-- `heading` applies to HTML and Markdown.
-- `document_splitter()` with `separators='paragraph'` fails on a PDF: `Paragraph splitting is not currently
-  supported for PDF documents`.
+- `heading` applies to HTML, Markdown and Office documents (DOCX, PPTX, XLSX).
+- `title` is the `<title>` of an HTML document, and `''` for other formats.
+- `metadata=` accepts `title`, `heading` and `page`; `sourceline` and `bounding_box` raise `Invalid metadata`.
+- A separator that does not apply to a document's format is ignored without an error: `'page'` splits only PDFs,
+  `'heading'` splits only HTML, Markdown and Office documents, and `'paragraph'` does not split text files.
+- `document_splitter()` with `separators='paragraph'` fails on a PDF: `Separator 'paragraph' is not supported for
+  PDF documents`. The error fails the whole `insert()`, even with `on_error='ignore'`; on a base that already has a
+  PDF, it fails `create_view()`.
 - `separators='sentence'` in `document_splitter()` and `string_splitter()` needs spaCy and a spaCy model:
   `en_core_web_sm`, or the model in `spacy_model=`.
 - A missing spaCy model raises `Failed to locate spaCy model`.
 - The `'token_limit'` separator needs `tiktoken`.
 - Creating a `document_splitter()` view checks the requirements of `'sentence'` and `'token_limit'`.
-- `document_splitter()` extracts images only from a PDF with `separators='page'`.
+- An `'image'` element requires `separators='page'` with no other separator and works only on PDFs: any other
+  document fails the whole `insert()` with `Expected non-None value`.
+- With `'image'` in `elements`, a PDF page without text, such as a scanned page, gives a row whose `text` is `''`.
 - `string_splitter()` supports only `separators='sentence'`.
 - `video_splitter()` needs `ffmpeg` on the `PATH`: `ffmpeg is not installed or not in PATH`.
-- `list_iterator()` needs typed Json, such as `pxt.Json[list[str]]`; on untyped Json, it raises
-  `list_iterator(): Expected a type for ...`.
+- `video_splitter()` sorts `segment_times`.
+- A negative or repeated time in `segment_times` raises at `create_view()` for a constant; for a column value, it
+  fails the whole `insert()`, even with `on_error='ignore'`.
+- `list_iterator()` needs typed Json, such as `pxt.Json[list[str]]`; on untyped Json, it raises. Cast the value
+  first, as in `list_iterator(tag=t.raw.astype(pxt.Json[list[str]] | None))`.
+- A keyword argument of `list_iterator()` cannot be a name reserved for a table attribute, such as `count` or
+  `columns`: `'count' is reserved and cannot be the name of an iterator output`.
 - `list_iterator()` produces no rows for a null list.
 
 ## How a view follows its base

@@ -30,6 +30,8 @@ class Docs(TableModel, name='docs'):
 - `pxt.Column()` takes what an annotation cannot express: `primary_key=True`, `stored=False` (computed when a query
   reads it, never stored), `media_validation='on_read'` (the default is `'on_write'`), `destination=` (where media
   files go), `comment=` and `custom_metadata=`.
+- An annotation does not set the type of a `pxt.Column()`: `id: pxt.Int = pxt.Column(primary_key=True)` raises
+  `` defines neither `type` nor `value` ``; write `id = pxt.Column(type=pxt.Int, primary_key=True)`.
 - Types: `String`, `Int`, `Float`, `Bool`, `Timestamp`, `Date`, `UUID`, `Binary`, `Json`, `Array[(3, 4), pxt.Float]`,
   `Image`, `Video`, `Audio`, `Document`.
 - `pxt.Json[...]` takes a TypedDict, a Pydantic model or `list[...]`; paths into the column, such as `tags[0]`, are
@@ -80,6 +82,8 @@ docs.delete(where=docs.id == 3)
   values).
 - `batch_update()` matches rows by primary key.
 - `batch_update(if_not_exists='insert')` inserts the rows with unknown keys; `'ignore'` skips them.
+- Each row inserted by `batch_update()` needs every non-nullable input column; a missing one raises
+  `Missing required column(s)`, and `batch_update()` applies none of the rows.
 - `batch_update()` recomputes the dependent computed columns of every matched row, even when the new values equal the
   old ones; a column that calls a paid model runs again.
 - `delete()` without `where` deletes every row.

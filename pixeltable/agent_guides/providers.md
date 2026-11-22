@@ -6,9 +6,9 @@ Calling model providers in computed columns: keys, request options, replies, emb
 
 The provider modules under `pixeltable.functions` are `anthropic`, `bedrock`, `bfl`, `deepseek`, `fabric`, `fal`,
 `fireworks`, `gemini`, `groq`, `huggingface`, `jina`, `llama_cpp`, `mistralai`, `nebius`, `ollama`, `openai`,
-`openrouter`, `replicate`, `runwayml`, `together`, `twelvelabs`, `vllm`, `vlmrun`, `vlmrun_gateway`, `voyageai`,
-`whisper`, `whisperx` and `yolox`. A module's functions need the provider's SDK package; importing the module does
-not.
+`openllm`, `openrouter`, `parallel`, `replicate`, `runwayml`, `together`, `twelvelabs`, `vllm`, `vlmrun`,
+`vlmrun_gateway`, `voyageai`, `whisper`, `whisperx` and `yolox`. A module's functions need the provider's SDK
+package; importing the module does not.
 
 - Pixeltable reads a provider's key from an environment variable or from `$PIXELTABLE_HOME/config.toml`:
   `OPENAI_API_KEY` or `api_key` in the `[openai]` section, `ANTHROPIC_API_KEY` or `api_key` in the `[anthropic]`
@@ -19,12 +19,17 @@ not.
   `RUNWAYML_API_SECRET`.
 - Without `GEMINI_API_KEY`, `gemini` leaves authentication to the Google GenAI client: `GOOGLE_API_KEY`, or Vertex AI
   with `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_PROJECT`.
+- With `GEMINI_API_KEY`, or `api_key` in the `[gemini]` section, `gemini` calls the Gemini Developer API, even when
+  `GOOGLE_GENAI_USE_VERTEXAI=true`.
 - Without `BEDROCK_API_KEY`, `bedrock` uses boto3's default AWS credentials.
 - `BEDROCK_REGION_NAME` sets the region for `bedrock`.
 - `ollama` connects to `OLLAMA_HOST` if it is set, and to the `ollama` package's default host otherwise.
+- Without `PARALLEL_API_KEY`, `parallel` calls Parallel's free MCP endpoint, which needs the `mcp` package.
 - `OPENAI_BASE_URL`, or `base_url` in the `[openai]` section, points the `openai` functions at another
   OpenAI-compatible server, such as a LiteLLM proxy.
 - `DEEPSEEK_BASE_URL`, or `base_url` in the `[deepseek]` section, does the same for `deepseek`.
+- `openllm` calls the local OpenLLM daemon at `http://127.0.0.1:8787/v1` and needs no key; `OPENLLM_BASE_URL`, or
+  `base_url` in the `[openllm]` section, points it at another server.
 - A missing key fails the call, not the column definition: `` `openai` client not initialized: parameter `api_key`
   is not configured``.
 - The `pxt` daemon reads the environment when it starts; `pxt daemon restart` applies a changed variable.
@@ -103,7 +108,7 @@ These paths select the text of a reply:
 | `openai.chat_completions()` | `.choices[0].message.content`, a `String \| None` |
 | `openai.responses()` | `.output_text`, a `String \| None` |
 | `anthropic.messages()` | `.content.filter(lambda b: b.type == 'text')[0].text`, a `String \| None` |
-| `chat_completions()` of `deepseek`, `fabric`, `fireworks`, `groq`, `mistralai`, `nebius`, `openrouter`, `together`, `vlmrun` and `vlmrun_gateway`; `llama_cpp.create_chat_completion()` | `.choices[0].message.content` |
+| `chat_completions()` of `deepseek`, `fabric`, `fireworks`, `groq`, `mistralai`, `nebius`, `openllm`, `openrouter`, `together`, `vlmrun` and `vlmrun_gateway`; `llama_cpp.create_chat_completion()` | `.choices[0].message.content` |
 | `gemini.generate_content()` | `.candidates[0].content.parts[0].text` |
 | `bedrock.converse()` | `.output.message.content[0].text` |
 | `ollama.chat()`, `ollama.generate()` | `.message.content`, `.response` |
