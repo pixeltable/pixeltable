@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import sys
 
@@ -12,6 +13,7 @@ EPILOG = """\
 Examples:
   pxt guide              # list the guides, one line each
   pxt guide tables       # print the guide to tables
+  pxt guide --json       # the guides as {area: summary}
 
 A guide states how this version of Pixeltable behaves in one area: what its APIs do, their defaults, errors
 and known issues. 'pxt skills install' also copies the guides into the skill's guides/ directory."""
@@ -35,9 +37,17 @@ def run(argv: list[str]) -> None:
         prog='pxt guide', description='print an agent guide to this version of Pixeltable, or list them', epilog=EPILOG
     )
     parser.add_argument('area', nargs='?', choices=list(paths), help='the guide to print; omit it to list the guides')
+    parser.add_argument('--json', action='store_true', dest='as_json', help='Emit JSON output')
     args = parser.parse_args(argv)
     if args.area is not None:
-        sys.stdout.write(paths[args.area].read_text(encoding='utf-8'))
+        text = paths[args.area].read_text(encoding='utf-8')
+        if args.as_json:
+            print(json.dumps({'area': args.area, 'text': text}, indent=2))
+        else:
+            sys.stdout.write(text)
+        return
+    if args.as_json:
+        print(json.dumps({area: _summary(path) for area, path in paths.items()}, indent=2))
         return
     width = max(len(area) for area in paths)
     for area, path in paths.items():

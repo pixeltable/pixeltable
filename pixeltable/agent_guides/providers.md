@@ -14,9 +14,12 @@ package; importing the module does not.
   `OPENAI_API_KEY` or `api_key` in the `[openai]` section, `ANTHROPIC_API_KEY` or `api_key` in the `[anthropic]`
   section, and similarly for the other providers.
 - The environment variable takes precedence over `$PIXELTABLE_HOME/config.toml`.
-- The variable and section names differ from the module name in four cases: `voyageai` reads `VOYAGE_API_KEY`,
-  `mistralai` reads `MISTRAL_API_KEY`, `replicate` reads `REPLICATE_API_TOKEN` and `runwayml` reads
-  `RUNWAYML_API_SECRET`.
+- The variable, section or key differs from the module name for `voyageai` (`VOYAGE_API_KEY`, `[voyage] api_key`),
+  `mistralai` (`MISTRAL_API_KEY`, `[mistral] api_key`), `replicate` (`REPLICATE_API_TOKEN`, `[replicate] api_token`)
+  and `runwayml` (`RUNWAYML_API_SECRET`, `[runwayml] api_secret`).
+- `vlmrun_gateway` uses the `vlmrun` key: `VLMRUN_API_KEY` or `api_key` in `[vlmrun]`.
+- `whisperx` reads a Hugging Face token from `HF_TOKEN` or `token` in `[hf]`; the `huggingface` functions use
+  `HF_TOKEN` or `huggingface-cli login` for gated models.
 - Without `GEMINI_API_KEY`, `gemini` leaves authentication to the Google GenAI client: `GOOGLE_API_KEY`, or Vertex AI
   with `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_PROJECT`.
 - With `GEMINI_API_KEY`, or `api_key` in the `[gemini]` section, `gemini` calls the Gemini Developer API, even when
@@ -32,7 +35,8 @@ package; importing the module does not.
   `base_url` in the `[openllm]` section, points it at another server.
 - A missing key fails the call, not the column definition: `` `openai` client not initialized: parameter `api_key`
   is not configured``.
-- The `pxt` daemon reads the environment when it starts; `pxt daemon restart` applies a changed variable.
+- The `pxt` daemon reads the environment when it starts; after a variable changes, the next command that reads or
+  changes table data restarts it (`pxt guide cli`).
 - `pxt config --section openai` shows the source of each value.
 
 ## Calling a model
@@ -133,6 +137,8 @@ These paths select the text of a reply:
 - These four functions retry a failed request up to 10 times when the error is retryable, such as a rate limit or a
   timeout.
 - Most other API functions send at most `rate_limit` requests per minute, 600 by default.
+- Known issue (PXT-1785): the `gemini` functions ignore `[gemini.rate_limits]` and are not throttled; they retry a
+  429 error after the delay in Gemini's reply.
 - The provider's environment variable or config section sets `rate_limit`: `GROQ_RATE_LIMIT` or `rate_limit` in
   `[groq]`, for example.
 - For `bedrock` and the other `openai` functions, the limit is per model, with the model id as the key in

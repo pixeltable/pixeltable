@@ -26,14 +26,14 @@ Running `pxt` in a project: the project root, the daemon, application files, pro
 - The daemon serves one project. A command run under another project root restarts the daemon for that project; a
   command run outside any project uses the running daemon.
 - A command also restarts the daemon when the Pixeltable version, the Python interpreter, the installed packages or a
-  `PIXELTABLE_*` variable differs from the daemon's. While the daemon serves a request, the command fails with
-  `DAEMON_BUSY` instead.
+  `PIXELTABLE_*` variable differs from the daemon's.
 - The daemon reads its other settings once, at startup: environment variables such as `OPENAI_API_KEY`, and the values
   in `$PIXELTABLE_HOME/config.toml`.
-- After one of them changes, most commands fail with 409 `STALE_CONFIG` until `pxt daemon restart`.
-- The `STALE_CONFIG` message is `the daemon started with a different environment` or
-  `configuration has changed since the daemon started`.
-- With stale settings, `pxt ls` and `pxt describe` still work.
+- After one of them changes, the next command that reads or changes table data restarts the daemon with the new
+  values, then runs.
+- `pxt config`, `pxt ls` and `pxt describe` leave the daemon as it is; `pxt config` lists the variables whose values
+  differ between the shell and the daemon.
+- While the daemon serves a request, a command that has to restart it fails with `DAEMON_BUSY`, which is retryable.
 - `pxt daemon restart` refuses while the daemon serves a request; with `-f` it restarts anyway and stops every request
   in progress.
 - The daemon starts each local service as a separate process with the daemon's environment.

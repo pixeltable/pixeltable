@@ -295,25 +295,6 @@ class TestConfig:
             project_config.write_text(original, encoding='utf-8')
             cli('daemon', 'restart')
 
-    def test_lint_settings(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
-        """The daemon keeps serving when the [lint] reviewer changes, in the project config or in the caller's
-        environment: only `pxt lint` reads it."""
-        target = db_root.make_catalog_path('cfg')
-        make_table(target)
-        project_config = project_dir.parent / 'pixeltable.toml'
-        original = project_config.read_text(encoding='utf-8')
-        assert 'hello' in cli('rows', f'{target}/docs', '-n', '1').stdout
-        try:
-            project_config.write_text(f"{original}\n[lint]\nreviewer = 'claude -p'\n", encoding='utf-8')
-            assert 'hello' in cli('rows', f'{target}/docs', '-n', '1').stdout
-
-            with_reviewer = {'LINT_REVIEWER': 'none'}
-            assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=with_reviewer).stdout
-            assert 'pxt daemon restart' not in cli('config', env_overrides=with_reviewer).stdout
-        finally:
-            project_config.write_text(original, encoding='utf-8')
-            cli('daemon', 'restart')
-
     def test_edited_config_file(self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Editing a credential in the config file of a running daemon restarts it at the next command."""
         target = db_root.make_catalog_path('cfg')

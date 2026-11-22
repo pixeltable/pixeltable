@@ -5,10 +5,10 @@ TODO:
   prompt on stdin, prints only its answer on stdout, cannot edit files or run shell commands, denies a request for
   approval instead of waiting for an answer, and exits nonzero on failure.
 - cursor: pass a prompt over 131 KB in a file; "$(cat)" exceeds Linux's size limit for one argument.
+- cursor: the preset needs sh, which Windows does not have.
 - codex: codex reads files with shell commands; confirm that its read-only sandbox blocks their writes.
 - opencode: replace the plan agent with one that also denies shell commands, if plan allows them.
 - antigravity: add a preset once agy reads its prompt on stdin and has a read-only mode.
-- Write a preset's command to the project configuration only after its first review succeeds.
 - Run test_agent_reviewer for every agent in AGENT_MARKERS, with a fake CLI for each.
 """
 
@@ -25,10 +25,9 @@ import subprocess
 import sys
 from typing import Any, NamedTuple, TypedDict
 
-from pixeltable_cli.utils import _resolve_pixeltable_config_file, _resolve_pixeltable_home, find_project_root
+from pixeltable_cli.utils import find_project_root
 
 from ..parser import Parser
-from ..project_config import add_option, find_project_config, get_option
 from ..utils import EXIT_CHANGES_PENDING, EXIT_ERROR, coding_agent, fail, plural
 from .guide import guide_paths, pixeltable_dir
 
@@ -52,7 +51,6 @@ REVIEWER_PRESETS = {
     'augment': ReviewerPreset('auggie', "auggie --print --quiet --ask 'Follow the instructions on stdin.'"),
     'opencode': ReviewerPreset('opencode', 'opencode run --agent plan'),
 }
-# env_var_name('lint', 'reviewer') in pixeltable.config
 REVIEWER_ENV_VAR = 'LINT_REVIEWER'
 REVIEWER_TIMEOUT_SECS = 600
 
@@ -72,12 +70,10 @@ Exit codes:
 
 Notes:
   'pxt guide review' prints the rules. A reviewer is a command that reads a prompt on stdin and answers on
-  stdout, such as a coding agent's non-interactive mode. The config option [lint] reviewer sets it, read from
-  ${REVIEWER_ENV_VAR}, then the project configuration, then $PIXELTABLE_HOME/config.toml. Without it, pxt lint
-  reviews with the coding agent that runs it, if pxt lint has a command for that agent
-  ({', '.join(REVIEWER_PRESETS)}), and writes the command to the project configuration.
-  reviewer = "none" turns the review off: the command then prints the rules and the files for the coding
-  agent that runs it.
+  stdout, such as a coding agent's non-interactive mode. ${REVIEWER_ENV_VAR} sets it. Without it, pxt lint
+  reviews with the CLI of the coding agent that runs it, if pxt lint has a command for that agent
+  ({', '.join(REVIEWER_PRESETS)}). ${REVIEWER_ENV_VAR}=none turns the review off: the command then prints the
+  rules and the files for the coding agent that runs it.
   A review sends the files to the reviewer's model, on the reviewer's account."""
 
 PROMPT = """\
@@ -141,7 +137,16 @@ def run(argv: list[str]) -> None:
     files = _python_files(root, [pathlib.Path(p) for p in args.paths])
     if len(files) == 0:
         fail('pxt lint', 'there are no Python files to review', 'NO_FILES', args.as_json)
-    sources = {_relative_to_root(path, root): path.read_text(encoding='utf-8', errors='replace') for path in files}
+    names = [_relative_to_root(path, root) for path in files]
+
+    rules_path = guide_paths()['review']
+    configured = os.environ.get(REVIEWER_ENV_VAR, '').strip()
+    reviewer = configured if configured != '' else _agent_reviewer()
+    if reviewer is None or reviewer == 'none':
+        _print_checklist(names, rules_path, args.as_json)
+        return
+
+    sources = {name: path.read_text(encoding='utf-8', errors='replace') for name, path in zip(names, files)}
     if sum(len(source) for source in sources.values()) > MAX_SOURCE_CHARS:
         fail(
             'pxt lint',
@@ -149,15 +154,6 @@ def run(argv: list[str]) -> None:
             'TOO_LARGE',
             args.as_json,
         )
-
-    rules_path = guide_paths()['review']
-    reviewer = _configured_reviewer(root)
-    if reviewer is None:
-        reviewer = _set_up_agent_reviewer(root)
-    if reviewer is None or reviewer == 'none':
-        _print_checklist(list(sources), rules_path, args.as_json)
-        return
-
     findings = _review(reviewer, sources, rules_path, root, args.as_json)
     _print_findings(findings, rules_path, args.as_json)
     if len(findings) > 0:
@@ -182,36 +178,18 @@ def _relative_to_root(path: pathlib.Path, root: pathlib.Path) -> str:
     return str(resolved.relative_to(root.resolve())) if resolved.is_relative_to(root.resolve()) else str(path)
 
 
-def _configured_reviewer(root: pathlib.Path) -> str | None:
-    if os.environ.get(REVIEWER_ENV_VAR, '') != '':
-        return os.environ[REVIEWER_ENV_VAR]
-    home_config = pathlib.Path(_resolve_pixeltable_config_file(_resolve_pixeltable_home()))
-    for config_file in (find_project_config(root), home_config):
-        reviewer = get_option(config_file, 'lint', 'reviewer') if config_file is not None else None
-        if isinstance(reviewer, str) and reviewer != '':
-            return reviewer
-    return None
-
-
-def _set_up_agent_reviewer(root: pathlib.Path) -> str | None:
-    """Return the reviewer command for the coding agent that runs pxt lint, and write it to the project configuration.
-
-    Returns None if no agent with a preset runs pxt lint, or if the preset's executable is not on PATH.
-    """
+def _agent_reviewer() -> str | None:
+    """Return the preset command of the coding agent that runs pxt lint, if it has one and its CLI is on PATH."""
     agent = coding_agent()
     preset = REVIEWER_PRESETS.get(agent) if agent is not None else None
     if preset is None or shutil.which(preset.executable) is None:
         return None
-    command = preset.command
-    config_file = find_project_config(root)
-    saved = config_file is not None and add_option(config_file, 'lint', 'reviewer', command)
-    where = f'[lint] reviewer in {config_file.name}' if saved and config_file is not None else 'this run only'
     print(
-        f'pxt lint: reviewing with {command} ({where}). Each review runs that model on your account; '
-        '[lint] reviewer = "none" in the project configuration turns it off.',
+        f'pxt lint: reviewing with {preset.command}. Each review runs that model on your account; '
+        f'{REVIEWER_ENV_VAR}=none turns it off.',
         file=sys.stderr,
     )
-    return command
+    return preset.command
 
 
 def _print_findings(findings: list[Finding], rules_path: pathlib.Path, as_json: bool) -> None:
@@ -260,8 +238,12 @@ def _review(
         files=files,
     )
     try:
+        argv = shlex.split(reviewer)
+    except ValueError as e:
+        fail('pxt lint', f'the reviewer command cannot be parsed ({e}): {reviewer}', 'REVIEWER_FAILED', as_json)
+    try:
         result = subprocess.run(
-            shlex.split(reviewer),
+            argv,
             input=prompt,
             capture_output=True,
             text=True,
@@ -273,6 +255,8 @@ def _review(
         )
     except FileNotFoundError:
         fail('pxt lint', f'the reviewer command was not found: {reviewer}', 'REVIEWER_FAILED', as_json)
+    except OSError as e:
+        fail('pxt lint', f'the reviewer command cannot run ({e.strerror or e}): {reviewer}', 'REVIEWER_FAILED', as_json)
     except subprocess.TimeoutExpired:
         fail(
             'pxt lint',

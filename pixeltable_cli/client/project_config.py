@@ -1,6 +1,5 @@
 """Utilities related to the project config"""
 
-import json
 import pathlib
 import tomllib
 from typing import Any
@@ -13,7 +12,6 @@ from pixeltable_cli.utils import (
     _resolve_pixeltable_home,
     find_project_root,
     hosted_db_uri_error,
-    parse_toml,
     split_pxt_uri,
 )
 
@@ -81,7 +79,9 @@ def add_database_entry(db_uri: str) -> pathlib.Path | None:
     config_file = find_project_config(pathlib.Path.cwd())
     if config_file is None:
         raise RuntimeError("no project configuration here; run 'pxt init' to write one")
-    with _config_lock():
+    # serialize the read, check and append across processes; the lock file sits in the Pixeltable home
+    # because a file in the project would go into its archive
+    with InterProcessLock(str(pathlib.Path(_resolve_pixeltable_home()) / 'project-config.lock')):
         # find_project_root() already refused a file that does not parse
         text = config_file.read_text(encoding='utf-8')
         key, databases = _database_option(tomllib.loads(text), config_file)
@@ -120,73 +120,18 @@ def add_database_entry(db_uri: str) -> pathlib.Path | None:
     return config_file
 
 
-def get_option(config_file: pathlib.Path, section: str, key: str) -> Any:
-    """Return the value of section.key in config_file, or None if config_file does not set it."""
-    return _option(parse_toml(config_file), config_file, section, key) if config_file.is_file() else None
+def _database_option(parsed: dict[str, Any], config_file: pathlib.Path) -> tuple[str, Any]:
+    """Return the dotted key of the [pixeltable] section in config_file and the value of its database option.
 
-
-def add_option(config_file: pathlib.Path, section: str, key: str, value: str) -> bool:
-    """Append a table that sets section.key to value to config_file, unless config_file already sets it.
-
-    Returns False if the file already sets the option, if its layout has no place for the section, or if the file
-    would not parse with the table appended. Concurrent calls in several processes append the table once.
-    """
-    with _config_lock():
-        text = config_file.read_text(encoding='utf-8')
-        parsed = tomllib.loads(text)
-        section_key = _section_key(parsed, config_file, section)
-        if section_key is None or _option(parsed, config_file, section, key) is not None:
-            return False
-        separator = '' if text == '' else '\n' if text.endswith('\n') else '\n\n'
-        # json.dumps() of a str is a valid TOML basic string
-        addition = f'{separator}[{section_key}]\n{key} = {json.dumps(value, ensure_ascii=False)}\n'
-        try:
-            tomllib.loads(text + addition)
-        except tomllib.TOMLDecodeError:
-            return False
-        with open(config_file, 'a', encoding='utf-8') as fp:
-            fp.write(addition)
-    return True
-
-
-def _option(parsed: dict[str, Any], config_file: pathlib.Path, section: str, key: str) -> Any:
-    section_key = _section_key(parsed, config_file, section)
-    table = _lookup(parsed, section_key) if section_key is not None else None
-    return table.get(key) if isinstance(table, dict) else None
-
-
-def _config_lock() -> InterProcessLock:
-    """Return the lock that serializes a read, check and append of a project configuration across processes."""
-    # in the Pixeltable home, because a file in the project would go into its archive
-    return InterProcessLock(str(pathlib.Path(_resolve_pixeltable_home()) / 'project-config.lock'))
-
-
-def _section_key(parsed: dict[str, Any], config_file: pathlib.Path, section: str) -> str | None:
-    """Return the dotted key of section's table in config_file, or None if the file's layout has no place for it.
-
-    Mirrors pixeltable.config.Config.__load_project_config(), which cannot be imported here: a pyproject.toml has the
-    configuration under tool.pixeltable, which contains the sections only if it has a tool.pixeltable.pixeltable table,
-    and the settings of the [pixeltable] section otherwise.
+    Mirrors pixeltable.config.Config.__load_project_config(), which cannot be imported here.
     """
     if config_file.name != PYPROJECT_FILE:
-        return section
-    tool = _lookup(parsed, 'tool.pixeltable')
-    if isinstance(tool, dict) and isinstance(tool.get('pixeltable'), dict):
-        return f'tool.pixeltable.{section}'
-    return 'tool.pixeltable' if section == 'pixeltable' else None
-
-
-def _lookup(parsed: dict[str, Any], dotted_key: str) -> Any:
-    value: Any = parsed
-    for part in dotted_key.split('.'):
-        value = value.get(part) if isinstance(value, dict) else None
-    return value
-
-
-def _database_option(parsed: dict[str, Any], config_file: pathlib.Path) -> tuple[str, Any]:
-    """Return the dotted key of the [pixeltable] section in config_file and the value of its database option."""
-    key = _section_key(parsed, config_file, 'pixeltable')
-    # every layout has a place for the [pixeltable] section
-    assert key is not None
-    section = _lookup(parsed, key)
+        key, section = 'pixeltable', parsed.get('pixeltable')
+    else:
+        tool = parsed.get('tool', {}).get('pixeltable')
+        # tool.pixeltable contains either the settings of the [pixeltable] section or the sections themselves
+        if isinstance(tool, dict) and isinstance(tool.get('pixeltable'), dict):
+            key, section = 'tool.pixeltable.pixeltable', tool['pixeltable']
+        else:
+            key, section = 'tool.pixeltable', tool
     return key, section.get('database') if isinstance(section, dict) else None

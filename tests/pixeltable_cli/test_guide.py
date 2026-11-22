@@ -20,12 +20,15 @@ _GUIDES = sorted(
 class TestGuide:
     def test_guide(self, cli: PxtRunner) -> None:
         """Without an area, the command lists each guide with the line after its title; with one, it prints that
-        guide; an unknown area is a usage error that lists the areas."""
+        guide, in text or as JSON; an unknown area is a usage error that lists the areas."""
         summaries = dict(line.split(maxsplit=1) for line in cli('guide').stdout.splitlines())
         assert list(summaries) == [path.stem for path in _GUIDES]
         assert summaries['tables'] == "Declaring tables, writing rows, and changing a table's schema."
+        assert cli('guide', '--json').json == summaries
 
-        assert cli('guide', 'tables').stdout == (_GUIDES[0].parent / 'tables.md').read_text(encoding='utf-8')
+        tables = (_GUIDES[0].parent / 'tables.md').read_text(encoding='utf-8')
+        assert cli('guide', 'tables').stdout == tables
+        assert cli('guide', 'tables', '--json').json == {'area': 'tables', 'text': tables}
 
         r = cli('guide', 'tabels', check=False)
         assert r.returncode == 2

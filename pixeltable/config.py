@@ -1077,7 +1077,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
-    'lint': {'reviewer': 'Command that receives the review prompt of `pxt lint` on stdin'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
     'nebius': {
         'api_key': 'Nebius Token Factory API key',

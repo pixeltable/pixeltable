@@ -19,14 +19,6 @@ from pixeltable_cli.utils import value_fingerprint
 
 _logger = logging.getLogger(__name__)
 
-# pxt lint reads the [lint] section in the client; the daemon never reads it, so changing it needs no restart
-_CLIENT_SECTIONS = ('lint',)
-
-
-def daemon_env_keys() -> list[ConfigKey]:
-    """Return the settings of Config.env_keys() outside _CLIENT_SECTIONS."""
-    return [ck for ck in Config.get().env_keys() if ck.section not in _CLIENT_SECTIONS]
-
 
 # the name of pixeltable.udf in config_fingerprint(); no environment variable sets it
 _UDF_SETTING_NAME = 'pixeltable.udf'
@@ -36,7 +28,7 @@ def fingerprinted_settings() -> dict[str, ConfigKey]:
     """Return the settings of config_fingerprint(), keyed by name: the environment variable's name, or
     _UDF_SETTING_NAME for pixeltable.udf."""
     config = Config.get()
-    settings = {env_var_name(ck.section, ck.key): ck for ck in daemon_env_keys()}
+    settings = {env_var_name(ck.section, ck.key): ck for ck in config.env_keys()}
     settings[_UDF_SETTING_NAME] = next(
         ck for ck in config.config_keys() if (ck.section, ck.key) == ('pixeltable', 'udf')
     )
@@ -64,7 +56,7 @@ def compare_env_values(other: Mapping[str, str], mine: Mapping[str, str]) -> tup
 
     Returns (set for other but not in mine, resolved differently in mine)
     """
-    known = {env_var_name(ck.section, ck.key) for ck in daemon_env_keys()}
+    known = {env_var_name(ck.section, ck.key) for ck in Config.get().env_keys()}
     relevant = {name: h for name, h in other.items() if name.startswith(VAR_ENV_PREFIX) or name in known}
     missing = sorted(name for name in relevant if name not in mine)
     differing = sorted(name for name, h in relevant.items() if name in mine and mine[name] != h)
@@ -161,8 +153,8 @@ class DaemonState:
         self._env_fingerprint = config_fingerprint()
 
     def known_env_vars(self) -> list[str]:
-        """The names of the daemon's config env vars, set or not."""
-        return sorted(env_var_name(ck.section, ck.key) for ck in daemon_env_keys())
+        """Every env var pixeltable reads config from, set or not."""
+        return sorted(env_var_name(ck.section, ck.key) for ck in Config.get().env_keys())
 
     def changed_env_vars(self, current: Mapping[str, str]) -> list[str]:
         """The env vars whose value in current no longer matches the recorded _env_fingerprint."""
