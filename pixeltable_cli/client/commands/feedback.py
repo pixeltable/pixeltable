@@ -14,7 +14,7 @@ import urllib.parse
 from typing import NoReturn
 
 from ..parser import Parser
-from ..utils import AGENT_MARKERS, EXIT_ERROR, EXIT_REFUSED, flush_stdout, print_error_document
+from ..utils import EXIT_REFUSED, coding_agent, fail
 
 DEFAULT_SITE_URL = 'https://www.pixeltable.com'
 _FEEDBACK_PATH = '/api/v1/feedback'
@@ -93,7 +93,13 @@ def run(argv: list[str]) -> None:
     if os.environ.get('DO_NOT_TRACK', '').strip().lower() in ('1', 'true', 'yes'):
         if not args.as_json:
             _print_preview(url, fields, as_json=False)
-        _fail('DO_NOT_TRACK is set, so nothing was sent.', 'DO_NOT_TRACK', args.as_json, exit_code=EXIT_REFUSED)
+        fail(
+            'pxt feedback',
+            'DO_NOT_TRACK is set, so nothing was sent.',
+            'DO_NOT_TRACK',
+            args.as_json,
+            exit_code=EXIT_REFUSED,
+        )
 
     report_id = _send(url, fields, args.as_json)
     if args.as_json:
@@ -109,23 +115,35 @@ def _feedback_url(as_json: bool) -> str:
     # The preview must name the host the socket reaches. The URL itself is not printed: it may hold credentials.
     if '\\' in site:
         # urllib3 ends a URL's host at a backslash and urlsplit does not
-        _fail('PIXELTABLE_SITE_URL contains a backslash', 'INVALID_CONFIGURATION', as_json)
+        fail('pxt feedback', 'PIXELTABLE_SITE_URL contains a backslash', 'INVALID_CONFIGURATION', as_json)
     if any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in site):
         # urlsplit drops a tab or a newline that requests sends percent-encoded
-        _fail('PIXELTABLE_SITE_URL contains a space or a control character', 'INVALID_CONFIGURATION', as_json)
+        fail(
+            'pxt feedback',
+            'PIXELTABLE_SITE_URL contains a space or a control character',
+            'INVALID_CONFIGURATION',
+            as_json,
+        )
     try:
         parts = urllib.parse.urlsplit(site)
         hostname = parts.hostname
     except ValueError:
-        _fail('PIXELTABLE_SITE_URL is not a valid URL', 'INVALID_CONFIGURATION', as_json)
+        fail('pxt feedback', 'PIXELTABLE_SITE_URL is not a valid URL', 'INVALID_CONFIGURATION', as_json)
     if not hostname:
-        _fail('PIXELTABLE_SITE_URL names no host', 'INVALID_CONFIGURATION', as_json)
+        fail('pxt feedback', 'PIXELTABLE_SITE_URL names no host', 'INVALID_CONFIGURATION', as_json)
     if not hostname.isascii():
         # requests connects to the IDNA A-label, which a look-alike letter such as U+0435 hides in the preview;
         # stdlib and requests encode some names differently, so the preview cannot show it either
-        _fail('PIXELTABLE_SITE_URL must name its host in ASCII (xn-- for an IDN)', 'INVALID_CONFIGURATION', as_json)
+        fail(
+            'pxt feedback',
+            'PIXELTABLE_SITE_URL must name its host in ASCII (xn-- for an IDN)',
+            'INVALID_CONFIGURATION',
+            as_json,
+        )
     if not (parts.scheme == 'https' or (parts.scheme == 'http' and hostname in _LOOPBACK_HOSTS)):
-        _fail('PIXELTABLE_SITE_URL must use https, except on localhost', 'INVALID_CONFIGURATION', as_json)
+        fail(
+            'pxt feedback', 'PIXELTABLE_SITE_URL must use https, except on localhost', 'INVALID_CONFIGURATION', as_json
+        )
     return site + _FEEDBACK_PATH
 
 
@@ -139,9 +157,7 @@ def _agent() -> str | None:
     declared = ' '.join(''.join(' ' if unicodedata.category(ch) == 'Cc' else ch for ch in raw).split())
     if declared != '':
         return declared[:_MAX_AGENT_CHARS]
-    if os.environ.get('CURSOR_EXTENSION_HOST_ROLE') == 'agent-exec':
-        return 'cursor'
-    return next((agent for marker, agent in AGENT_MARKERS.items() if os.environ.get(marker)), None)
+    return coding_agent()
 
 
 def _os_name() -> str:
@@ -196,17 +212,17 @@ def _send(url: str, fields: dict[str, str | None], as_json: bool) -> str | None:
     except requests.RequestException as e:
         if _may_have_arrived(e):
             _unconfirmed(type(e).__name__, as_json)
-        _fail(f'could not send ({type(e).__name__})', 'FEEDBACK_NOT_SENT', as_json, retryable=True)
+        fail('pxt feedback', f'could not send ({type(e).__name__})', 'FEEDBACK_NOT_SENT', as_json, retryable=True)
     if resp.status_code == 429:
         # seconds only: Retry-After may also be an HTTP date; isdigit() alone takes '²'
         wait = resp.headers.get('Retry-After', '').strip()
         retry_after = int(wait) if wait.isascii() and wait.isdigit() else None
         message = 'not sent (rate limited)' + ('' if retry_after is None else f'; try again in {retry_after} s')
-        _fail(f'{message}.', 'RATE_LIMITED', as_json, retryable=True, retry_after=retry_after)
+        fail('pxt feedback', f'{message}.', 'RATE_LIMITED', as_json, retryable=True, retry_after=retry_after)
     if resp.status_code >= 500:
         _unconfirmed(f'HTTP {resp.status_code}', as_json)
     if resp.status_code != 202:
-        _fail(f'could not send (HTTP {resp.status_code})', 'FEEDBACK_NOT_SENT', as_json)
+        fail('pxt feedback', f'could not send (HTTP {resp.status_code})', 'FEEDBACK_NOT_SENT', as_json)
     try:
         report_id = resp.json()['id']
     except (ValueError, TypeError, KeyError):
@@ -234,20 +250,4 @@ def _may_have_arrived(e: Exception) -> bool:
 def _unconfirmed(cause: str, as_json: bool) -> NoReturn:
     # the site answers 5xx when Slack does not confirm the post, and a timeout can follow a post that arrived; a resend
     # may duplicate the report, so this is not retryable
-    _fail(f'not confirmed as sent ({cause}); it may have arrived', 'FEEDBACK_UNCONFIRMED', as_json)
-
-
-def _fail(
-    message: str,
-    error_code: str,
-    as_json: bool,
-    *,
-    retryable: bool = False,
-    retry_after: int | None = None,
-    exit_code: int = EXIT_ERROR,
-) -> NoReturn:
-    if as_json:
-        print_error_document(error_code, message, retryable=retryable, retry_after=retry_after)
-    flush_stdout()
-    print(f'pxt feedback: {message}', file=sys.stderr)
-    sys.exit(exit_code)
+    fail('pxt feedback', f'not confirmed as sent ({cause}); it may have arrived', 'FEEDBACK_UNCONFIRMED', as_json)

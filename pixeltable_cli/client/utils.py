@@ -54,6 +54,14 @@ AGENT_MARKERS = {
     'CLAUDE_CODE': 'claude',
 }
 
+
+def coding_agent() -> str | None:
+    """Return the name of the coding agent whose marker is set in the environment, if any."""
+    if os.environ.get('CURSOR_EXTENSION_HOST_ROLE') == 'agent-exec':
+        return 'cursor'
+    return next((agent for marker, agent in AGENT_MARKERS.items() if os.environ.get(marker, '') != ''), None)
+
+
 # shared exit codes for all commands
 EXIT_IN_AGREEMENT = 0
 EXIT_ERROR = 1
@@ -741,6 +749,24 @@ def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: 
     if command is not None:
         print_next(command, effect)
     sys.exit(EXIT_REFUSED)
+
+
+def fail(
+    prog: str,
+    message: str,
+    error_code: str,
+    as_json: bool,
+    *,
+    retryable: bool = False,
+    retry_after: int | None = None,
+    exit_code: int = EXIT_ERROR,
+) -> NoReturn:
+    """Report a failure of prog on stderr, and with as_json also as the --json document on stdout; then exit."""
+    if as_json:
+        print_error_document(error_code, message, retryable=retryable, retry_after=retry_after)
+    flush_stdout()
+    print(f'{prog}: {message}', file=sys.stderr)
+    sys.exit(exit_code)
 
 
 def flush_stdout() -> None:

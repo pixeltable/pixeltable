@@ -17,11 +17,15 @@ A guide states how this version of Pixeltable behaves in one area: what its APIs
 and known issues. 'pxt skills install' also copies the guides into the skill's guides/ directory."""
 
 
-def guide_paths() -> dict[str, pathlib.Path]:
+def pixeltable_dir() -> pathlib.Path:
     # find_spec() locates the package without importing it, which would slow down the command
     spec = importlib.util.find_spec('pixeltable')
     assert spec is not None and spec.submodule_search_locations is not None
-    guides_dir = pathlib.Path(next(iter(spec.submodule_search_locations))) / 'agent_guides'
+    return pathlib.Path(next(iter(spec.submodule_search_locations)))
+
+
+def guide_paths() -> dict[str, pathlib.Path]:
+    guides_dir = pixeltable_dir() / 'agent_guides'
     return {path.stem: path for path in sorted(guides_dir.glob('*.md')) if path.name != 'README.md'}
 
 
@@ -37,10 +41,10 @@ def run(argv: list[str]) -> None:
         return
     width = max(len(area) for area in paths)
     for area, path in paths.items():
-        print(f'{area:<{width}}  {summary(path)}')
+        print(f'{area:<{width}}  {_summary(path)}')
 
 
-def summary(path: pathlib.Path) -> str:
+def _summary(path: pathlib.Path) -> str:
     """Return the first nonblank line after the guide's title."""
     lines = path.read_text(encoding='utf-8').splitlines()
     return next(line for line in lines[1:] if line.strip() != '')

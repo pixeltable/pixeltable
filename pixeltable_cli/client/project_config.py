@@ -125,7 +125,7 @@ def get_option(config_file: pathlib.Path, section: str, key: str) -> Any:
     return _option(parse_toml(config_file), config_file, section, key) if config_file.is_file() else None
 
 
-def set_option(config_file: pathlib.Path, section: str, key: str, value: str) -> bool:
+def add_option(config_file: pathlib.Path, section: str, key: str, value: str) -> bool:
     """Append a table that sets section.key to value to config_file, unless config_file already sets it.
 
     Returns False if the file already sets the option, if its layout has no place for the section, or if the file

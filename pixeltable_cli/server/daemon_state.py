@@ -19,11 +19,12 @@ from pixeltable_cli.utils import value_fingerprint
 
 _logger = logging.getLogger(__name__)
 
+# pxt lint reads the [lint] section in the client; the daemon never reads it, so changing it needs no restart
 _CLIENT_SECTIONS = ('lint',)
 
 
 def daemon_env_keys() -> list[ConfigKey]:
-    """Config.env_keys() relevant to the daemon."""
+    """Return the settings of Config.env_keys() outside _CLIENT_SECTIONS."""
     return [ck for ck in Config.get().env_keys() if ck.section not in _CLIENT_SECTIONS]
 
 

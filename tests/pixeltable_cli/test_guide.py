@@ -5,7 +5,10 @@ import pathlib
 import pytest
 
 import pixeltable
-from pixeltable_cli.client.commands import guide
+
+from .conftest import PxtRunner
+
+pytestmark = pytest.mark.db_roots('local', reason='prints files of the installed package, independent of any catalog')
 
 _GUIDES = sorted(
     path
@@ -15,22 +18,16 @@ _GUIDES = sorted(
 
 
 class TestGuide:
-    def test_guide(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_guide(self, cli: PxtRunner) -> None:
         """Without an area, the command lists each guide with the line after its title; with one, it prints that
         guide; an unknown area is a usage error that lists the areas."""
-        guide.run([])
-        listing = capsys.readouterr().out.splitlines()
-        assert [line.split()[0] for line in listing] == [path.stem for path in _GUIDES]
-        for line, path in zip(listing, _GUIDES):
-            summary = next(text for text in path.read_text(encoding='utf-8').splitlines()[1:] if text.strip() != '')
-            assert line.endswith(summary)
+        summaries = dict(line.split(maxsplit=1) for line in cli('guide').stdout.splitlines())
+        assert list(summaries) == [path.stem for path in _GUIDES]
+        assert summaries['tables'] == "Declaring tables, writing rows, and changing a table's schema."
 
-        guide.run(['tables'])
-        assert capsys.readouterr().out == (_GUIDES[0].parent / 'tables.md').read_text(encoding='utf-8')
+        assert cli('guide', 'tables').stdout == (_GUIDES[0].parent / 'tables.md').read_text(encoding='utf-8')
 
-        with pytest.raises(SystemExit) as exc:
-            guide.run(['tabels'])
-        assert exc.value.code == 2
-        err = capsys.readouterr().err
-        assert "invalid choice: 'tabels'" in err
-        assert 'tables' in err
+        r = cli('guide', 'tabels', check=False)
+        assert r.returncode == 2
+        assert "invalid choice: 'tabels'" in r.stderr
+        assert 'tables' in r.stderr

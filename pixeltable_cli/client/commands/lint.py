@@ -1,9 +1,20 @@
-"""`pxt lint` - review a project's Python code against the rules of the agent guide 'review'."""
+"""`pxt lint` - review a project's Python code against the rules of the agent guide 'review'.
+
+TODO:
+- Validate each reviewer preset except claude's with the signed-in CLI on a fixture project: it reads the whole
+  prompt on stdin, prints only its answer on stdout, cannot edit files or run shell commands, denies a request for
+  approval instead of waiting for an answer, and exits nonzero on failure.
+- cursor: pass a prompt over 131 KB in a file; "$(cat)" exceeds Linux's size limit for one argument.
+- codex: codex reads files with shell commands; confirm that its read-only sandbox blocks their writes.
+- opencode: replace the plan agent with one that also denies shell commands, if plan allows them.
+- antigravity: add a preset once agy reads its prompt on stdin and has a read-only mode.
+- Write a preset's command to the project configuration only after its first review succeeds.
+- Run test_agent_reviewer for every agent in AGENT_MARKERS, with a fake CLI for each.
+"""
 
 from __future__ import annotations
 
 import importlib.metadata
-import importlib.util
 import json
 import os
 import pathlib
@@ -12,22 +23,41 @@ import shlex
 import shutil
 import subprocess
 import sys
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, TypedDict
 
 from pixeltable_cli.utils import _resolve_pixeltable_config_file, _resolve_pixeltable_home, find_project_root
 
 from ..parser import Parser
-from ..project_config import find_project_config, get_option, set_option
-from ..utils import AGENT_MARKERS, EXIT_CHANGES_PENDING, EXIT_ERROR, plural, print_error_document
-from .guide import guide_paths
+from ..project_config import add_option, find_project_config, get_option
+from ..utils import EXIT_CHANGES_PENDING, EXIT_ERROR, coding_agent, fail, plural
+from .guide import guide_paths, pixeltable_dir
 
-# by coding agent: a command that answers a prompt from stdin, with read-only tools
-REVIEWER_PRESETS = {'claude': 'claude -p --model sonnet --tools Read,Grep,Glob --allowedTools Read,Grep,Glob'}
+
+class ReviewerPreset(NamedTuple):
+    """A coding agent's command that reads the prompt on stdin and gets only read-only tools."""
+
+    executable: str  # the agent's CLI; pxt lint uses the preset only if it is on PATH
+    command: str
+
+
+# keyed by the agent names in AGENT_MARKERS
+REVIEWER_PRESETS = {
+    'claude': ReviewerPreset('claude', 'claude -p --tools Read,Grep,Glob --allowedTools Read,Grep,Glob'),
+    'codex': ReviewerPreset('codex', 'codex exec --sandbox read-only --skip-git-repo-check -'),
+    # Cursor's agent takes the prompt only as an argument
+    'cursor': ReviewerPreset('agent', 'sh -c \'exec agent -p --mode ask --trust --output-format text "$(cat)"\''),
+    # gemini appends the -p text to the prompt on stdin
+    'gemini': ReviewerPreset('gemini', "gemini --approval-mode plan --skip-trust -p 'Follow the instructions above.'"),
+    # auggie takes stdin as context for the instruction in its argument
+    'augment': ReviewerPreset('auggie', "auggie --print --quiet --ask 'Follow the instructions on stdin.'"),
+    'opencode': ReviewerPreset('opencode', 'opencode run --agent plan'),
+}
 # env_var_name('lint', 'reviewer') in pixeltable.config
 REVIEWER_ENV_VAR = 'LINT_REVIEWER'
 REVIEWER_TIMEOUT_SECS = 600
 
 SKIPPED_DIRS = {'__pycache__', 'node_modules', 'site-packages', 'venv', 'build', 'dist'}
+# the prompt contains every file and has to fit the reviewer's context window (400,000 characters: ~100,000 tokens)
 MAX_SOURCE_CHARS = 400_000
 
 EPILOG = f"""\
@@ -81,6 +111,14 @@ Files:
 {rules}"""
 
 
+class Finding(TypedDict):
+    rule: str
+    file: str
+    line: int | None
+    why: str
+    fix: str
+
+
 def run(argv: list[str]) -> None:
     parser = Parser(
         prog='pxt lint',
@@ -94,17 +132,20 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='as_json', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    root = find_project_root(pathlib.Path.cwd()) or pathlib.Path.cwd()
+    root = find_project_root(pathlib.Path.cwd())
+    if root is None:
+        root = pathlib.Path.cwd()
     for path in args.paths:
         if not os.path.exists(path):
             parser.error(f'{path} does not exist')
     files = _python_files(root, [pathlib.Path(p) for p in args.paths])
     if len(files) == 0:
-        _fail('there are no Python files to review', 'NO_FILES', args.as_json)
+        fail('pxt lint', 'there are no Python files to review', 'NO_FILES', args.as_json)
     sources = {_relative_to_root(path, root): path.read_text(encoding='utf-8', errors='replace') for path in files}
     if sum(len(source) for source in sources.values()) > MAX_SOURCE_CHARS:
-        _fail(
-            f'the files have more than {MAX_SOURCE_CHARS} characters; name the files to review',
+        fail(
+            'pxt lint',
+            f'the files have more than {MAX_SOURCE_CHARS} characters; explicitly list the files to review',
             'TOO_LARGE',
             args.as_json,
         )
@@ -157,12 +198,13 @@ def _set_up_agent_reviewer(root: pathlib.Path) -> str | None:
 
     Returns None if no agent with a preset runs pxt lint, or if the preset's executable is not on PATH.
     """
-    agent = next((name for marker, name in AGENT_MARKERS.items() if os.environ.get(marker, '') != ''), None)
-    command = REVIEWER_PRESETS.get(agent) if agent is not None else None
-    if command is None or shutil.which(shlex.split(command)[0]) is None:
+    agent = coding_agent()
+    preset = REVIEWER_PRESETS.get(agent) if agent is not None else None
+    if preset is None or shutil.which(preset.executable) is None:
         return None
+    command = preset.command
     config_file = find_project_config(root)
-    saved = config_file is not None and set_option(config_file, 'lint', 'reviewer', command)
+    saved = config_file is not None and add_option(config_file, 'lint', 'reviewer', command)
     where = f'[lint] reviewer in {config_file.name}' if saved and config_file is not None else 'this run only'
     print(
         f'pxt lint: reviewing with {command} ({where}). Each review runs that model on your account; '
@@ -172,7 +214,7 @@ def _set_up_agent_reviewer(root: pathlib.Path) -> str | None:
     return command
 
 
-def _print_findings(findings: list[dict[str, Any]], rules_path: pathlib.Path, as_json: bool) -> None:
+def _print_findings(findings: list[Finding], rules_path: pathlib.Path, as_json: bool) -> None:
     if as_json:
         print(json.dumps({'findings': findings}, indent=2))
         return
@@ -202,11 +244,8 @@ def _print_checklist(files: list[str], rules_path: pathlib.Path, as_json: bool) 
 
 def _review(
     reviewer: str, sources: dict[str, str], rules_path: pathlib.Path, root: pathlib.Path, as_json: bool
-) -> list[dict[str, Any]]:
+) -> list[Finding]:
     """Send the rules and the files to the reviewer command, and return its findings."""
-    spec = importlib.util.find_spec('pixeltable')
-    assert spec is not None and spec.submodule_search_locations is not None
-    package_dir = pathlib.Path(next(iter(spec.submodule_search_locations)))
     files = '\n\n'.join(
         f'<file path="{name}">\n'
         + '\n'.join(f'{i:>5}  {line}' for i, line in enumerate(source.splitlines(), start=1))
@@ -216,7 +255,7 @@ def _review(
     prompt = PROMPT.format(
         version=importlib.metadata.version('pixeltable'),
         guides_dir=rules_path.parent,
-        package_dir=package_dir,
+        package_dir=pixeltable_dir(),
         rules=rules_path.read_text(encoding='utf-8'),
         files=files,
     )
@@ -228,20 +267,31 @@ def _review(
             text=True,
             timeout=REVIEWER_TIMEOUT_SECS,
             cwd=root,
+            # opencode takes the project root from PWD, which cwd= leaves unchanged
+            env={**os.environ, 'PWD': str(root)},
             check=False,
         )
     except FileNotFoundError:
-        _fail(f'the reviewer command was not found: {reviewer}', 'REVIEWER_FAILED', as_json)
+        fail('pxt lint', f'the reviewer command was not found: {reviewer}', 'REVIEWER_FAILED', as_json)
     except subprocess.TimeoutExpired:
-        _fail(f'the reviewer did not answer within {REVIEWER_TIMEOUT_SECS} s: {reviewer}', 'REVIEWER_FAILED', as_json)
+        fail(
+            'pxt lint',
+            f'the reviewer did not answer within {REVIEWER_TIMEOUT_SECS} s: {reviewer}',
+            'REVIEWER_FAILED',
+            as_json,
+        )
     if result.returncode != 0:
         tail = result.stderr.strip()[-500:]
-        _fail(
-            f'the reviewer exited {result.returncode}: {tail if tail != "" else reviewer}', 'REVIEWER_FAILED', as_json
+        fail(
+            'pxt lint',
+            f'the reviewer exited {result.returncode}: {tail if tail != "" else reviewer}',
+            'REVIEWER_FAILED',
+            as_json,
         )
     findings = _parse_findings(result.stdout)
     if findings is None:
-        _fail(
+        fail(
+            'pxt lint',
             f'the reviewer\'s answer has no {{"findings": [...]}} object: {result.stdout.strip()[:300]}',
             'REVIEWER_FAILED',
             as_json,
@@ -249,7 +299,7 @@ def _review(
     return findings
 
 
-def _parse_findings(answer: str) -> list[dict[str, Any]] | None:
+def _parse_findings(answer: str) -> list[Finding] | None:
     """Parse the findings out of the reviewer's answer; None if the answer has no valid {"findings": [...]} object."""
     # a model may wrap the object in prose or a code fence, and the prose may contain braces
     decoder = json.JSONDecoder()
@@ -263,12 +313,16 @@ def _parse_findings(answer: str) -> list[dict[str, Any]] | None:
             break
     if not isinstance(parsed, dict) or not isinstance(parsed.get('findings'), list):
         return None
-    findings: list[dict[str, Any]] = []
+    findings: list[Finding] = []
     for f in parsed['findings']:
         if not isinstance(f, dict) or not all(isinstance(f.get(key), str) for key in ('rule', 'file', 'why', 'fix')):
             return None
         line = f.get('line')
-        findings.append({**f, 'line': line if isinstance(line, int) else None})
+        findings.append(
+            Finding(
+                rule=f['rule'], file=f['file'], line=line if isinstance(line, int) else None, why=f['why'], fix=f['fix']
+            )
+        )
     return findings
 
 
@@ -281,10 +335,3 @@ def _rule_headings(rules_path: pathlib.Path) -> dict[str, tuple[str, str]]:
         areas = [] if guide is None else [area.strip() for area in guide.group(1).split(',')]
         rules[rule_id] = (title, ', '.join(f'pxt guide {area}' for area in areas))
     return rules
-
-
-def _fail(message: str, error_code: str, as_json: bool) -> NoReturn:
-    if as_json:
-        print_error_document(error_code, message, retryable=False)
-    print(f'pxt lint: {message}', file=sys.stderr)
-    sys.exit(EXIT_ERROR)
