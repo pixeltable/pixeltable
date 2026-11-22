@@ -4,6 +4,7 @@ import json
 import os
 import re
 import zipfile
+from pathlib import Path
 from typing import Any
 
 import PIL.Image
@@ -193,8 +194,10 @@ class TestDocument:
         # test invalid metadata
         invalid_metadata = [
             'chapter',  # invalid
-            'page, bounding_box, chapter',  # mix of valid and invalid
-            'page bounding_box',  # separator
+            'bounding_box',  # removed
+            'sourceline',  # removed
+            'page, title, chapter',  # mix of valid and invalid
+            'page title',  # separator
         ]
         for md in invalid_metadata:
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid metadata'):
@@ -203,17 +206,23 @@ class TestDocument:
         invalid_separators = ['page, sentence', 'paragraph, sentence', 'char_limit, sentence', 'token_limit, sentence']
         for sep in invalid_separators:
             with pxt_raises(
-                pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Image elements are only supported for the 'page' separator"
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=re.escape("elements=['image'] requires separators='page' with no other separators"),
             ):
                 _ = pxt.create_view(
                     'chunks', t, iterator=document_splitter(document=t.doc, separators=sep, elements=['image'])
                 )
 
         pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
+        html_file = next(f for f in self.valid_doc_paths() if f.endswith('.html'))
         t = pxt.create_table('docs', {'doc': pxt.Document | None}, if_exists='replace')
-        _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='paragraph'))
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'not currently supported.+contact us'):
-            t.insert(doc=pdf_file)
+        _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='page,paragraph'))
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Separator 'paragraph' is not supported for PDF documents; use 'page', 'sentence', 'token_limit'",
+        ):
+            t.insert([{'doc': html_file}, {'doc': pdf_file}], on_error='ignore')
+        assert t.count() == 0
 
         # RequestError message will depend on which dependencies are installed.
         with pxt_raises(
@@ -256,7 +265,7 @@ class TestDocument:
 
         # run all combinations of (headings, paragraph, sentence) x (token_limit, char_limit, None)
         # and make sure they extract the same text in aggregate
-        all_metadata = ['title', 'heading', 'sourceline', 'page', 'bounding_box']
+        all_metadata = ['title', 'heading', 'page']
         # combinations are given as (sep1, sep2, limit, metadata)
         sep1_values = ['', 'heading', 'page', 'sentence']
         if not pdf:
@@ -353,7 +362,7 @@ class TestDocument:
         assert status.num_excs == 0
 
         # verify that only the requested metadata is present in the view
-        md_elements = ['title', 'heading', 'sourceline']
+        md_elements = ['title', 'heading', 'page']
         md_tuples = list(
             itertools.chain.from_iterable(itertools.combinations(md_elements, i) for i in range(len(md_elements) + 1))
         )
@@ -444,7 +453,7 @@ class TestDocument:
                 separators='sentence, char_limit',
                 limit=50,
                 overlap=0,
-                metadata='title,heading,sourceline,page,bounding_box',
+                metadata='title,heading,page',
             ),
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
@@ -455,7 +464,6 @@ class TestDocument:
             assert len(r['text']) <= 50
             assert r['title'] == ''
             assert r['heading'] is None
-            assert r['sourceline'] is None
             assert r['page'] is None
             assert r['doc'].endswith('pxtbrief.txt')
 
@@ -538,7 +546,7 @@ class TestDocument:
         assert chunks[-1].startswith(', vector search, prompt management, and chain')
         assert chunks[-1].endswith('enhancing productivity.\n')
 
-    def test_doc_splitter_images(self, uses_db: None) -> None:
+    def test_doc_splitter_images(self, uses_db: None, tmp_path: Path) -> None:
         file_paths = [p for p in get_documents() if p.endswith('.pdf')]
         t = pxt.create_table('docs', {'doc': pxt.Document | None})
 
@@ -552,6 +560,21 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+        scanned_path = tmp_path / 'scanned.pdf'
+        scanned_pages = [PIL.Image.new('RGB', (200, 300), 'white'), PIL.Image.new('RGB', (200, 300), 'gray')]
+        scanned_pages[0].save(scanned_path, save_all=True, append_images=scanned_pages[1:])
+        scanned = pxt.create_table('scanned', {'doc': pxt.Document})
+        pages = pxt.create_view(
+            'scanned_pages',
+            scanned,
+            iterator=document_splitter(scanned.doc, separators='page', elements=['text', 'image'], metadata='page'),
+        )
+        scanned.insert(doc=str(scanned_path))
+        res = pages.order_by(pages.page).collect()
+        assert res['page'] == [0, 1]
+        assert res['text'] == ['', '']
+        assert [img.size for img in res['image']] == [(200, 300), (200, 300)]
 
     def test_doc_splitter_image_dpi(self, uses_db: None) -> None:
         pdf_file = next(p for p in get_documents() if p.endswith('1706.03762.pdf'))
