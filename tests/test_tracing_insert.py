@@ -270,7 +270,7 @@ class TestInsertTracing:
             assert all(s['parent_id'] == insert_rows['id'] for s in encodes)
             assert all(s['ended'] for s in recorder.spans)
 
-    def test_model_load_span(self) -> None:
+    def test_model_load_span(self, init_env: None) -> None:
         """A model loaded outside any operation (eg, by `.using()`) still gets a span, as a root."""
         skip_test_if_not_installed('torch')
         with record_telemetry() as recorder:

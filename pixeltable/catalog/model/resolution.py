@@ -302,7 +302,7 @@ def resolve_query_columns(query: pxt.Query) -> pxt.Query:
         if col_md.name is not None
     )
     return pxt.Query._from_query(
-        query, from_clause=query._from_clause, substitution_fn=lambda e: resolve_query_calls(e.copy().substitute(subst))
+        query, from_clause=query._from_clause, substitution_fn=lambda e: resolve_query_calls(e.substitute(subst))
     )
 
 

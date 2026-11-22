@@ -27,11 +27,26 @@ def daemon_env_keys() -> list[ConfigKey]:
     return [ck for ck in Config.get().env_keys() if ck.section not in _CLIENT_SECTIONS]
 
 
+# the name of pixeltable.udf in config_fingerprint(); no environment variable sets it
+_UDF_SETTING_NAME = 'pixeltable.udf'
+
+
+def fingerprinted_settings() -> dict[str, ConfigKey]:
+    """Return the settings of config_fingerprint(), keyed by name: the environment variable's name, or
+    _UDF_SETTING_NAME for pixeltable.udf."""
+    config = Config.get()
+    settings = {env_var_name(ck.section, ck.key): ck for ck in daemon_env_keys()}
+    settings[_UDF_SETTING_NAME] = next(
+        ck for ck in config.config_keys() if (ck.section, ck.key) == ('pixeltable', 'udf')
+    )
+    return settings
+
+
 def config_fingerprint() -> dict[str, str]:
-    """Fingerprints of the config values relevant to the daemon, as {env var name: hash}."""
+    """Fingerprints of the config values relevant to the daemon, as {name in fingerprinted_settings(): hash}."""
     config = Config.get()
     out: dict[str, str] = {}
-    for ck in daemon_env_keys():
+    for name, ck in fingerprinted_settings().items():
         value: str | None
         # settings from [[pixeltable.database]] are read per command
         if (ck.section, ck.key) == ('pixeltable', 'database'):
@@ -39,7 +54,7 @@ def config_fingerprint() -> dict[str, str]:
         else:
             value = config.get_value(ck.key, str, section=ck.section)
         if value is not None and value != '':
-            out[env_var_name(ck.section, ck.key)] = value_fingerprint(value)
+            out[name] = value_fingerprint(value)
     return out
 
 

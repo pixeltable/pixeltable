@@ -90,6 +90,16 @@ def doubled(xs: Batch[int]) -> Batch[int]:
 
 
 @pxt.udf
+def day_of(when: datetime) -> str:
+    return when.strftime('%A')
+
+
+@pxt.udf
+def count_items(items: pxt.Json) -> int:
+    return len(items)
+
+
+@pxt.udf
 def failing_udf(x: int) -> int:
     raise ValueError(f'bad value: {x}')
 
@@ -1237,7 +1247,7 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
 
             @pxt.query
-            def q_cast(n: float) -> pxt.Query:
+            def q_cast(n: bool) -> pxt.Query:
                 return t.select(t.c4).limit(n.astype(pxt.Int | None))  # type: ignore[attr-defined]
 
         # column reference is not allowed for limit
@@ -1255,7 +1265,7 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
 
             @pxt.query
-            def q_off_cast(n: float) -> pxt.Query:
+            def q_off_cast(n: bool) -> pxt.Query:
                 return t.select(t.c4).limit(10, offset=n.astype(pxt.Int | None))  # type: ignore[attr-defined]
 
         # column reference is not allowed for offset
@@ -2293,10 +2303,77 @@ class TestFunction:
             pxt.get_table('test')
 
     def test_tool_errors(self) -> None:
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
+        # pxt.tool(), pxt.tools() and direct pxt.Tool() construction all get the same checks
+        msg = 'Aggregator UDFs cannot be used as tools'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
-        assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.Tool(fn=pxt.functions.sum)
 
+        msg = r"Tool 'day_of': parameter 'when' has unsupported type `Timestamp`; supported types are String, Int"
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tool(day_of)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tools(day_of)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.Tool(fn=day_of)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'weekday': parameter 'when'"):
+            pxt.tool(day_of, name='weekday')
+
+        msg = "Tool 'overloaded_udf': a function with overloads cannot be a tool"
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.tool(TestFunction.overloaded_udf)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'describe': a function with overloads"):
+            pxt.tools(describe)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Tool 'describe': a function with overloads"):
+            pxt.Tool(fn=describe)
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Tool 'udf_variadic_kw': variadic parameter 'kwargs' is not supported",
+        ):
+            pxt.tool(TestFunction.udf_variadic_kw)
+
+        # a Json parameter and an optional parameter with a None default stay accepted
+        for fn in (pop_max_tokens, TestFunction.udf_default_param_none):
+            pxt.tools(pxt.tool(fn)).model_dump()
+
+    def test_tool_json_param(self, db_root: DatabaseRoot) -> None:
+        from pixeltable.functions import anthropic, openai
+
+        tools = pxt.tools(count_items)
+        t = pxt.create_table(
+            db_root.make_catalog_path('tool_json'), {'id': pxt.Int, 'anthropic_resp': pxt.Json, 'openai_resp': pxt.Json}
+        )
+        t.add_computed_column(anthropic_calls=anthropic.invoke_tools(tools, t.anthropic_resp))
+        t.add_computed_column(openai_calls=openai.invoke_tools(tools, t.openai_resp))
+
+        def anthropic_resp(args: dict) -> dict:
+            return {'content': [{'type': 'tool_use', 'name': 'count_items', 'input': args}]}
+
+        def openai_resp(args: str) -> dict:
+            tool_call = {'function': {'name': 'count_items', 'arguments': args}}
+            return {'choices': [{'message': {'tool_calls': [tool_call]}}]}
+
+        t.insert(
+            [
+                {
+                    'id': 1,
+                    'anthropic_resp': anthropic_resp({'items': [1, 2, 3]}),
+                    'openai_resp': openai_resp('{"items": [1]}'),
+                },
+                {
+                    'id': 2,
+                    'anthropic_resp': anthropic_resp({'items': 'abcd'}),
+                    'openai_resp': openai_resp('{"items": {"a": 1}}'),
+                },
+            ]
+        )
+        res = t.order_by(t.id).select(t.anthropic_calls, t.openai_calls).collect()
+        assert res['anthropic_calls'] == [{'count_items': [3]}, {'count_items': [4]}]
+        assert res['openai_calls'] == [{'count_items': [1]}, {'count_items': [1]}]
+
+    # the table a retrieval UDF reads is not in the lock set of the operation that evaluates it
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     @pytest.mark.db_roots('local', reason='builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:
         t = pxt.create_table('customers', {'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None})
@@ -2375,6 +2452,31 @@ class TestFunction:
         lookup = pxt.create_table('lookup', {'lookup_id': pxt.String})
         lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
         assert lookup.matching.col_type == fn2.signature.return_type
+
+        table_model = pxt.model_base()
+
+        class Items(table_model, name='items'):
+            item_id: pxt.String
+            name: pxt.String
+
+        item_by_id = pxt.retrieval_udf(Items, parameters=[Items.item_id], limit=1)
+        assert item_by_id.name == 'items'
+        assert list(item_by_id.signature.parameters.keys()) == ['item_id']
+
+        class Orders(table_model, name='orders'):
+            order_id: pxt.Int
+            item_id: pxt.String
+            item = item_by_id(item_id)  # noqa: F821
+
+        table_model.create_all('')
+        Items.insert([{'item_id': 'A1', 'name': 'apple'}, {'item_id': 'B2', 'name': 'banana'}])
+        Orders.insert([{'order_id': 1, 'item_id': 'B2'}, {'order_id': 2, 'item_id': 'X'}])
+        res = Orders.order_by(Orders.order_id).select(Orders.item).collect()  # type: ignore[arg-type]
+        assert res['item'] == [{'item_id': 'B2', 'name': 'banana'}, None]
+
+        fn4 = pxt.retrieval_udf(Items, parameters=['item_id'], limit=1)
+        res = Items.select(found=fn4(item_id='B2')).limit(1).collect()
+        assert res[0] == {'found': {'item_id': 'B2', 'name': 'banana'}}
 
     @pytest.mark.db_roots('local', reason='builds a query function from a table via Function.from_table')
     def test_from_table(self, uses_db: None) -> None:
@@ -2616,6 +2718,14 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t3.insert([{'num': 1}])
 
+    def test_resource_pool_in_json_mapper(self, db_root: DatabaseRoot) -> None:
+        """A UDF with a resource_pool runs when a JsonMapper calls it per element, as invoke_tools() does."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_mapped_rp'), {'id': pxt.Int | None, 'words': pxt.Json | None})
+        t.add_computed_column(shouted=pxtf.map(t.words, lambda w: mapped_udf_with_rp(w)))
+        validate_update_status(t.insert([{'id': 0, 'words': ['a', 'b']}, {'id': 1, 'words': ['c']}]))
+        assert [row['shouted'] for row in t.order_by(t.id).collect()] == [['A', 'B'], ['C']]
+
     def test_future_annotations_udf(self, db_root: DatabaseRoot) -> None:
         """Tests that UDFs can be defined in modules with `from __future__ import annotations`."""
         p = db_root.make_catalog_path
@@ -2731,6 +2841,11 @@ def sync_udf_with_rp(text: str) -> str:
 @pxt.udf(batch_size=4, resource_pool='request-rate:test-sync-batch')
 def sync_batched_udf_with_rp(texts: Batch[str]) -> Batch[str]:
     return [t.upper() for t in texts]
+
+
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:test-mapped')
+async def mapped_udf_with_rp(text: str) -> str:
+    return text.upper()
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:test-sync-poly')

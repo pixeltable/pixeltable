@@ -148,7 +148,6 @@ class TestVLMRunClient:
                 _artifact_id(ref, 'vid')
 
 
-@pytest.mark.remote_api
 @pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestVLMRun:

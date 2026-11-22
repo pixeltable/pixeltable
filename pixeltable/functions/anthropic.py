@@ -162,6 +162,8 @@ class Usage(TypedDict):
     """The number of server tool requests."""
     service_tier: NotRequired[str | None]
     """The service tier: `'priority'`, `'standard'` or `'batch'`."""
+    speed: NotRequired[str | None]
+    """The inference speed: `'standard'` or `'fast'`."""
 
 
 class ContentBlock(TypedDict, total=False):
@@ -218,6 +220,8 @@ class Message(TypedDict):
     """The code execution tool's container."""
     stop_details: NotRequired[dict[str, Any] | None]
     """The details of a refusal."""
+    diagnostics: NotRequired[dict[str, Any] | None]
+    """Why the prompt cache couldn't fully reuse the request's prefix."""
 
 
 @pxt.udf(is_deterministic=False)

@@ -4,11 +4,13 @@ import re
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 from textwrap import dedent
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
+import toml
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -557,6 +559,11 @@ class TestConfig:
         for text, message in (
             # a local service runs in-process, at whatever size its process has
             ('[[pixeltable.database]]\nservices.api = { cpu = 1.0 }\n', r'`services` applies to a hosted database'),
+            # a local database has no pods to size
+            (
+                '[[pixeltable.database]]\ncpu = 1.0\ndisk_gb = 10\n',
+                r'the compute settings \(`cpu`, `disk_gb`\) apply to a hosted database',
+            ),
             (
                 "[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = { disk_gb = 10 }\n",
                 r'unknown settings: disk_gb',
@@ -573,8 +580,8 @@ class TestConfig:
 
     @pytest.mark.db_roots('local', reason="a proxy catalog's daemon evaluates its queries with its own config")
     def test_udf_setting(self, uses_db: None, project_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """pixeltable.udf comes from the project config, the environment or pxt.init(), and a query that calls a UDF
-        reports an invalid entry together with its source."""
+        """pixeltable.udf comes from the project config file only, and a query that calls a UDF reports an invalid
+        entry together with its file."""
         t = pxt.create_table('tbl', {'x': pxt.Int})
         t.insert([{'x': 1}])
         config_file = project_env / 'pixeltable.toml'
@@ -623,36 +630,37 @@ class TestConfig:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Invalid type for option 'pixeltable\.udf'"):
             load('[pixeltable]\nudf = 4\n')
 
-        # the environment wins over the file, and pxt.init() wins over both
-        load(entry('pixeltable.functions.video.clip', 'cpu = 0'))
+        # an environment variable doesn't set it
         monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.video.clip': {'cpu': 4}}))
-        assert t.select(y=double(t.x)).collect()['y'] == [2]
-        monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.video.clip': {'cpus': 4}}))
-        with pxt_raises(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            match=r'(?s)PIXELTABLE_UDF in the environment.*Extra inputs are not permitted',
+        with (
+            pytest.warns(excs.PixeltableWarning, match=r'Ignoring PIXELTABLE_UDF: pixeltable\.udf can only be set'),
+            pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=rf'(?s){in_file}.*greater than 0'),
         ):
-            t.select(y=double(t.x)).collect()
-        monkeypatch.setenv('PIXELTABLE_UDF', 'not json')
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"'pixeltable\.udf': not json"):
+            load(entry('pixeltable.functions.video.clip', 'cpu = 0'))
             t.select(y=double(t.x)).collect()
 
-        Config.init(
-            config_overrides={'pixeltable.udf': {'pixeltable.functions.video.clip': {'cpu': 4}}},
-            reinit=True,
-            project_root=project_env,
-        )
-        assert t.select(y=double(t.x)).collect()['y'] == [2]
-        Config.init(
-            config_overrides={'pixeltable.udf': {'pixeltable.functions.video.clip': {'cpu': -1}}},
-            reinit=True,
-            project_root=project_env,
-        )
+        # and neither does pxt.init()
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Cannot override pixeltable\.udf'):
+            Config.init(
+                config_overrides={'pixeltable.udf': {'pixeltable.functions.video.clip': {'cpu': 4}}},
+                reinit=True,
+                project_root=project_env,
+            )
+
+        # nor does the home config, which every project of the installation reads
+        home_config = project_env.parent / 'home-config.toml'
+        home_config.write_text(entry('pixeltable.functions.video.clip'), encoding='utf-8')
+        original_home_config = os.environ.get('PIXELTABLE_CONFIG')
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(home_config))
         with pxt_raises(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            match=r'(?s)pixeltable\.udf in the config_overrides of pxt\.init\(\).*greater than 0',
+            excs.ErrorCode.INVALID_CONFIGURATION, match=r"Cannot set 'pixeltable\.udf' in .*home-config\.toml"
         ):
-            t.select(y=double(t.x)).collect()
+            Config.init(reinit=True, project_root=project_env)
+        if original_home_config is None:
+            monkeypatch.delenv('PIXELTABLE_CONFIG')
+        else:
+            monkeypatch.setenv('PIXELTABLE_CONFIG', original_home_config)
+        Config.init(reinit=True, project_root=project_env)
 
     def test_create_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         home = tmp_path / 'home.toml'
@@ -716,6 +724,15 @@ class TestConfig:
             excs.ErrorCode.INVALID_CONFIGURATION, match=r'pxt secret set pxt://myorg:prod OPENAI_API_KEY=<value>'
         ):
             config.create_project_config(config.get_database_config(prod_uri))
+        # a project with a pixeltable.udf setting: the secret is refused for the local database as well
+        config = load("[openai]\napi_key = 'sk-project'\n\n[pixeltable.udf.'pixeltable.functions.video.clip']\n")
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            match=r'(?s)Move it to .*home\.toml or to the environment variable OPENAI_API_KEY\..*'
+            r'pxt secret set pxt://<org> OPENAI_API_KEY=<value>\n    pxt db update\n.*'
+            r'pxt db update\n    pxt secret set pxt://<org>:<db> OPENAI_API_KEY=<value>\n    pxt db update$',
+        ):
+            config.create_project_config(config.get_database_config(local_uri))
 
         config = load(f"[otel]\nexporter_otlp_headers = 'Authorization=Basic abc'\n{hosted}")
         with pxt_raises(
@@ -839,6 +856,27 @@ class TestConfig:
             load('[[pixeltable.database]]\ndb_verbosity = 2\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='input_media_dest'):
             load("[[pixeltable.database]]\ninput_media_dest = 's3://local/input/'\n")
+
+    def test_default_config_appears_whole(self, tmp_path: Path) -> None:
+        """A process that starts while another creates the default config file never reads a partial file."""
+        config_file = tmp_path / 'config.toml'
+        visible_during_write: list[bool] = []
+        dump = toml.dump
+
+        def checked_dump(*args: Any, **kwargs: Any) -> str:
+            visible_during_write.append(config_file.exists())
+            return dump(*args, **kwargs)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv('PIXELTABLE_HOME', str(tmp_path / 'home'))
+            mp.setenv('PIXELTABLE_CONFIG', str(config_file))
+            mp.setattr(toml, 'dump', checked_dump)
+            Config.init(reinit=True)
+        Config.init(reinit=True)
+
+        assert visible_during_write == [False]
+        assert 'file_cache_size_g' in tomllib.loads(config_file.read_text())['pixeltable']
+        assert sorted(path.name for path in tmp_path.iterdir()) == ['config.toml', 'home']
 
     def test_reload_if_changed(self, tmp_path: Path) -> None:
         """The config file is re-read after it changes, which is how a running daemon picks up an edit."""

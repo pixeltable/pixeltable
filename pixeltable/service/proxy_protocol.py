@@ -49,7 +49,7 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectSto
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 10
+PROTOCOL_VERSION = 11
 
 
 def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
@@ -1053,8 +1053,9 @@ def decode_body(body: bytes) -> tuple[bytes, list[bytes]]:
 # On macOS a socket write of more than INT_MAX bytes fails, so bodies are written in slices of this size.
 _BODY_CHUNK_SIZE = 16 * 2**20
 
-# How long the proxy daemon keeps an idle connection open; clients stop reusing one before then.
-KEEP_ALIVE_S = 5
+# How long the proxy daemon keeps an idle connection open. The margin over the client's idle limit (_MAX_IDLE_S in
+# proxy_client) is how long a stall of either process can delay a request on a reused connection without a reset.
+KEEP_ALIVE_S = 60
 
 
 def iter_body_chunks(body: bytes) -> Iterator[memoryview]:

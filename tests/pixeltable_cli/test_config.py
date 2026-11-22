@@ -17,7 +17,7 @@ import pixeltable as pxt
 from pixeltable_cli.utils import PROJECT_CONFIG_FILE
 
 from ..utils import DatabaseRoot, skip_test_if_not_installed
-from .conftest import PxtRunner
+from .conftest import PxtRunner, daemon_pid
 
 pytestmark = pytest.mark.db_roots('local', reason='the daemon under test is the one serving the in-process catalog')
 
@@ -47,10 +47,9 @@ _SLOW_SCHEMA_SRC = dedent(
 
 @pytest.fixture(autouse=True)
 def daemon_serving_the_test_process_values(cli: PxtRunner) -> Iterator[None]:
-    """Leave behind a daemon serving with the values this process's environment holds.
+    """Leave behind a daemon serving with the values of this process's environment.
 
-    A test here restarts the daemon with values of its own. A later caller supplies none of them, and a daemon
-    still holding them refuses that caller's work.
+    A later test's commands set none of this test's values, so they would run on a daemon that still has them.
     """
     yield
     cli('daemon', 'stop', '-f', check=False)
@@ -66,40 +65,40 @@ def make_table(target: str) -> None:
 
 class TestConfig:
     def test_key_daemon_lacks(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        """A shell binds a credential the daemon has not got: work is refused, inspection is not, a restart fixes it."""
+        """A shell binds a credential the daemon lacks: inspection reports it, work restarts the daemon with it."""
         target = db_root.make_catalog_path('cfg')
         make_table(target)
         with_key = {'OPENAI_API_KEY': _A_KEY}
         without_key: dict[str, str | None] = {'OPENAI_API_KEY': None}
         cli('daemon', 'restart', env_overrides=without_key)
+        without_key_pid = daemon_pid(cli)
 
-        # work that could compute with the credential is refused, and the refusal says what to do about it
-        r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=with_key, check=False)
-        assert r.returncode != 0
-        assert 'OPENAI_API_KEY' in r.stderr
-        assert 'pxt daemon restart' in r.stderr
-
-        # any other work is refused too, without the endpoint having to ask for the check
-        r = cli('count', f'{target}/docs', env_overrides=with_key, check=False)
-        assert r.returncode != 0
-        assert 'OPENAI_API_KEY' in r.stderr
-
-        # the commands needed to diagnose it keep working, and report the difference
+        # the commands that diagnose it report the difference and leave the daemon running
         r = cli('config', env_overrides=with_key)
         assert 'OPENAI_API_KEY' in r.stdout
-        assert 'pxt daemon restart' in r.stdout
+        assert 'restarts the daemon' in r.stdout
         cli('ls', target, env_overrides=with_key)
         cli('describe', f'{target}/docs', env_overrides=with_key)
+        assert daemon_pid(cli) == without_key_pid
 
-        # a caller that binds nothing asked for no particular value, so its work runs
-        assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=without_key).stdout
-
-        # adopting the caller's environment takes a restart, after which the same command runs
-        cli('daemon', 'restart', env_overrides=with_key)
+        # work that could compute with the credential restarts the daemon, then runs
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=with_key).stdout
+        with_key_pid = daemon_pid(cli)
+        assert with_key_pid != without_key_pid
+        assert 'OPENAI_API_KEY' not in cli('config', env_overrides=with_key).stdout
+
+        # a caller that binds nothing asked for no particular value, so its work runs on the same daemon
+        assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=without_key).stdout
+        assert daemon_pid(cli) == with_key_pid
+
+        # any other work restarts the daemon too
+        cli('daemon', 'restart', env_overrides=without_key)
+        without_key_pid = daemon_pid(cli)
+        cli('count', f'{target}/docs', env_overrides=with_key)
+        assert daemon_pid(cli) != without_key_pid
 
     def test_rotated_key(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        """A shell binds a credential to a new value: refused until the daemon is restarted with it."""
+        """A shell binds a credential to a new value: work restarts the daemon with it."""
         target = db_root.make_catalog_path('cfg')
         make_table(target)
         first = {'OPENAI_API_KEY': _A_KEY}
@@ -107,15 +106,12 @@ class TestConfig:
 
         cli('daemon', 'restart', env_overrides=first)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=first).stdout
+        first_pid = daemon_pid(cli)
 
-        # the same variable set to something else is a disagreement, not a new value
-        r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=second, check=False)
-        assert r.returncode != 0
-        assert 'OPENAI_API_KEY' in r.stderr
         assert 'set to a different value in the daemon' in cli('config', env_overrides=second).stdout
-
-        cli('daemon', 'restart', env_overrides=second)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=second).stdout
+        assert daemon_pid(cli) != first_pid
+        assert 'OPENAI_API_KEY' not in cli('config', env_overrides=second).stdout
 
     def test_non_credential_setting(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Any env-settable setting counts, not just credentials: an endpoint decides what the work talks to."""
@@ -123,12 +119,10 @@ class TestConfig:
         make_table(target)
         other_endpoint = {'OPENAI_BASE_URL': 'https://example.invalid/v1'}
         cli('daemon', 'restart', env_overrides={'OPENAI_BASE_URL': None})
+        pid = daemon_pid(cli)
 
-        r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=other_endpoint, check=False)
-        assert r.returncode != 0
-        assert 'OPENAI_BASE_URL' in r.stderr
-        cli('daemon', 'restart', env_overrides=other_endpoint)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=other_endpoint).stdout
+        assert daemon_pid(cli) != pid
 
     def test_instance_settings_ignore_env(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A setting every process using the instance shares is read from the file, and says so when exported."""
@@ -281,23 +275,22 @@ class TestConfig:
         try:
             project_config.write_text(f"{original}\n{hosted}uv_options = '--no-dev'\n", encoding='utf-8')
             cli('daemon', 'restart')
+            pid = daemon_pid(cli)
 
             time.sleep(0.01)  # the file stamp is (mtime, size), so a rewrite needs a distinct mtime
             project_config.write_text(f"{original}\n{hosted}uv_options = '--all-extras'\n", encoding='utf-8')
             assert 'hello' in cli('rows', f'{target}/docs', '-n', '1').stdout
+            assert daemon_pid(cli) == pid
 
-            # a binding of the local database is another matter: the daemon built its clients from the old one
+            # a binding of the local database restarts the daemon, which built its clients from the old one
             time.sleep(0.01)
             project_config.write_text(
                 f"{original}\n{hosted}\n[[pixeltable.database]]\nvars.pxt_test_key = '{_A_KEY}'\n", encoding='utf-8'
             )
-            r = cli('rows', f'{target}/docs', '-n', '1', check=False)
-            assert r.returncode != 0
-            # the refusal names the binding as the file spells it, and the file holding it
-            assert 'pixeltable.database.vars.pxt_test_key' in r.stderr
-            assert str(project_config) in r.stderr
-            assert 'pxt daemon restart' in r.stderr
-            assert _A_KEY not in r.stderr
+            r = cli('rows', f'{target}/docs', '-n', '1')
+            assert 'hello' in r.stdout
+            assert daemon_pid(cli) != pid
+            assert _A_KEY not in r.stdout + r.stderr
         finally:
             project_config.write_text(original, encoding='utf-8')
             cli('daemon', 'restart')
@@ -322,7 +315,7 @@ class TestConfig:
             cli('daemon', 'restart')
 
     def test_edited_config_file(self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
-        """Editing a credential in the config file of a running daemon is refused until it is restarted."""
+        """Editing a credential in the config file of a running daemon restarts it at the next command."""
         target = db_root.make_catalog_path('cfg')
         make_table(target)
 
@@ -332,6 +325,7 @@ class TestConfig:
         own_config = {'PIXELTABLE_CONFIG': str(config_file)}
         assert cli('config', '--json', env_overrides=own_config).json['config_file'] == str(config_file)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config).stdout
+        pid = daemon_pid(cli)
 
         time.sleep(0.01)  # the file stamp is (mtime, size), so a rewrite needs a distinct mtime
         config_file.write_text(
@@ -339,15 +333,12 @@ class TestConfig:
             encoding='utf-8',
         )
 
-        r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config, check=False)
-        assert r.returncode != 0
-        assert 'pixeltable.database.vars.pxt_test_key' in r.stderr
-        assert 'pxt daemon restart' in r.stderr
-        assert _A_KEY not in r.stderr
+        r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config)
+        assert 'hello' in r.stdout
+        assert daemon_pid(cli) != pid
+        assert _A_KEY not in r.stdout + r.stderr
 
         # the restarted daemon serves with what the file now says
-        cli('daemon', 'restart', env_overrides=own_config)
-        assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config).stdout
         entries = cli('config', '--json', env_overrides=own_config).json['entries']
         test_key = next(e for e in entries if (e['section'], e['key']) == ('pixeltable.database.vars', 'pxt_test_key'))
         assert test_key['source'] == str(config_file)

@@ -6,7 +6,7 @@ import os
 import pathlib
 import re
 import textwrap
-from typing import Any
+from typing import Any, Iterator, TypedDict
 
 import numpy as np
 import pytest
@@ -64,6 +64,16 @@ def as_dict(diff: TableDiff) -> dict[str, Any]:
     }
 
 
+class LegRow(TypedDict):
+    leg: int
+
+
+@pxt.iterator
+def legs(num_legs: int) -> Iterator[LegRow]:
+    for leg in range(num_legs):
+        yield {'leg': leg}
+
+
 @pxt.udf
 def tag(s: str, label: str) -> str:
     return f'{label}: {s}'
@@ -85,7 +95,7 @@ def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
 
 
 class TestTableModel:
-    def test_referenced_functions(self) -> None:
+    def test_referenced_functions(self, init_env: None) -> None:
         """Every function a declaration persists is reported, whichever declaration holds it."""
         TableModel = pxt.model_base()
 
@@ -1222,6 +1232,48 @@ class TestTableModel:
         assert res['lower_code'] == ['a', 'b', 'c']
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
 
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r"'count' is reserved and cannot be the name of an iterator output.",
+        ):
+
+            class TripCounts(
+                TableModel, name='trip_counts', base=Trips, iterator=pxtf.json.list_iterator(count=Trips.codes)
+            ):
+                pass
+
+    def test_view_model_on_iterator_view(self, db_root: DatabaseRoot) -> None:
+        """A view model stacks on an iterator view model whose iterator argument is a compound expression."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Trips(TableModel, name='trips'):
+            id: pxt.Int
+            num_stops: pxt.Int
+            meta: pxt.Json[{'codes': [str], 'fares': [int]}]
+
+        class Legs(TableModel, name='legs', base=Trips, iterator=legs(Trips.num_stops + 1)):
+            pass
+
+        class LaterLegs(TableModel, name='later_legs', base=Legs.where(Legs.pos > 0)):
+            next_leg = Legs.leg + 1
+
+        class TripCodes(
+            TableModel, name='trip_codes', base=Trips, iterator=pxtf.json.list_iterator(code=Trips.meta.codes)
+        ):
+            raised_fares = Trips.meta.fares.map(lambda fare: fare + 1)
+
+        class LowerTripCodes(TableModel, name='lower_trip_codes', base=TripCodes):
+            lower_code = TripCodes.code.lower()
+
+        TableModel.update_all(p(''))
+        Trips.insert([{'id': 1, 'num_stops': 2, 'meta': {'codes': ['A', 'B'], 'fares': [10, 20]}}])
+        assert LaterLegs.table.order_by(LaterLegs.pos).collect()['next_leg'] == [2, 3]
+        res = LowerTripCodes.table.order_by(LowerTripCodes.pos).collect()
+        assert res['lower_code'] == ['a', 'b']
+        assert res['raised_fares'] == [[11, 21], [11, 21]]
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
+
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
@@ -1464,7 +1516,6 @@ class TestTableModel:
             TableModel3.update_all(p(''))
         assert pxt.get_table(p('notes'), if_not_exists='ignore') is None
 
-    @pytest.mark.skip(reason='PXT-1709: join() of two bound models raises AttributeError')
     def test_bound_model_join(self, db_root: DatabaseRoot) -> None:
         """join() on a bound model accepts another bound model."""
         p = db_root.make_catalog_path
@@ -1483,6 +1534,14 @@ class TestTableModel:
         Tags.insert(doc_id=1, tag='greek')
         res = Docs.join(Tags, on=Docs.id == Tags.doc_id).select(Docs.body, Tags.tag).collect()  # type: ignore[arg-type]
         assert list(res) == [{'body': 'alpha', 'tag': 'greek'}]
+
+        TableModel2 = pxt.model_base()
+
+        class Notes(TableModel2, name='notes'):
+            doc_id: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.NOT_BOUND, match=r'`Notes` is not yet bound'):
+            Docs.join(Notes, on=Docs.id == Notes.doc_id)  # type: ignore[arg-type]
 
     @pytest.mark.skip(reason='PXT-1710: ModelQuery called in a joined Query is never bound')
     def test_joined_query_calls_model_query(self, db_root: DatabaseRoot) -> None:
@@ -2587,11 +2646,32 @@ class TestTableModel:
             class SecondDup(TableModel, name='dup_name'):
                 id: pxt.Int | None
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must define `type` or `value`, but not both'):
+        neither = r"Column specification for 'bad' defines neither `type` nor `value`; pass `type=` to Column\(\)"
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
 
             class BadColSpec(TableModel, name='bad_col_spec'):
                 id: pxt.Int | None
                 bad = Column()
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
+
+            class BadPkColSpec(TableModel, name='bad_pk_col_spec'):
+                bad = Column(primary_key=True)
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
+
+            class AnnotatedPkColSpec(TableModel, name='annotated_pk_col_spec'):
+                bad: pxt.UUID = Column(primary_key=True)  # type: ignore[assignment]
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column specification for 'both' cannot define both `type` and `value`: a computed column "
+            r'takes its type from `value`; to change it, cast the value with `.astype\(\)`$',
+        ):
+
+            class BothColSpec(TableModel, name='both_col_spec'):
+                id: pxt.Int | None
+                both = Column(type=pxt.Int, value=1)
 
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).
@@ -2869,7 +2949,7 @@ class TestTableModel:
             class MultiBase(TableModel, name='multi_base', base=ValidTableModel.order_by(ValidTableModel.id).limit(10)):
                 pass
 
-    def test_aggregation_rejected(self) -> None:
+    def test_aggregation_rejected(self, init_env: None) -> None:
         """A view is maintained one base row at a time, so nothing in a model may aggregate."""
         TableModel = pxt.model_base()
 
@@ -2925,6 +3005,13 @@ class TestTableModel:
         probe.insert([{'cutoff': 0}, {'cutoff': 1}])
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
         assert rows == [['alpha', 'beta'], ['beta']]
+
+        t = pxt.create_table(f'{target}/t', {'cutoff': pxt.Int})
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match='A query over model `Docs` can only be used in a TableModel'
+        ):
+            t.add_computed_column(matches=titles_after(t.cutoff))
+        assert 'matches' not in t.columns()
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')

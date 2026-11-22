@@ -241,8 +241,14 @@ def add_days(self: date, n: int) -> date:
     Add `n` days to the date.
 
     Equivalent to [`date + timedelta(days=n)`](https://docs.python.org/3/library/datetime.html#datetime.timedelta).
+    `t.d + timedelta(days=n)` and `t.d - timedelta(days=n)` are shorthand for `add_days()`.
     """
     return self + timedelta(days=n)
+
+
+@add_days.to_sql
+def _(self: sql.ColumnElement, n: sql.ColumnElement) -> sql.ColumnElement:
+    return self + n.cast(sql.Integer)
 
 
 @pxt.udf(is_method=True)

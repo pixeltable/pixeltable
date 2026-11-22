@@ -267,6 +267,7 @@ class EmbeddingIndex(IndexBase):
         else:
             assert self.metric == self.Metric.L2
             result = val_column.sa_col.l2_distance(query)
+            result = result if is_asc else result.desc()
         return result
 
     @classmethod
@@ -302,7 +303,7 @@ class EmbeddingIndex(IndexBase):
                 if resolved_fn is None:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_CONFIGURATION,
-                        f'The function `{embed_fn.name}` is not a valid {embed_type.name.lower()} '
+                        f'The function `{embed_fn.display_name}` is not a valid {embed_type.name.lower()} '
                         f'embedding: it must take a single {embed_type.name.lower()} parameter',
                     )
                 embeddings[embed_type] = resolved_fn
@@ -316,7 +317,7 @@ class EmbeddingIndex(IndexBase):
             # `embed` was specified and contains no matching signatures.
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'The function `{embed.name}` is not a valid embedding: '
+                f'The function `{embed.display_name}` is not a valid embedding: '
                 'it must take a single string, image, audio, video, or document parameter',
             )
         return embeddings
@@ -363,33 +364,33 @@ class EmbeddingIndex(IndexBase):
         if not isinstance(return_type, ts.ArrayType):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'The function `{embed_fn.display_name}` is not a valid embedding: '
                 f'it must return an array, but returns {return_type}',
             )
         shape = return_type.shape
         if shape is None or len(shape) != 1:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'The function `{embed_fn.display_name}` is not a valid embedding: '
                 f'it must return a 1-dimensional array, but returns {return_type}',
             )
         if shape[0] is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'The function `{embed_fn.display_name}` is not a valid embedding: '
                 f'it must return a 1-dimensional array of a specific length',
             )
         if shape[0] <= 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'The function `{embed_fn.display_name}` is not a valid embedding: '
                 f'it returns an array of invalid length {shape[0]}',
             )
 
         if array_column_shape is not None and shape != array_column_shape:
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,
-                f'The function `{embed_fn.name}` returns an array with shape {shape}, '
+                f'The function `{embed_fn.display_name}` returns an array with shape {shape}, '
                 f'but the indexed column has shape {array_column_shape}',
             )
 
