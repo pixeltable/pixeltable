@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import importlib.metadata
-import io
 import json
 import os
 import platform
-import sys
 import textwrap
 import unicodedata
 import urllib.parse
 from typing import NoReturn
 
 from ..parser import Parser
-from ..utils import EXIT_REFUSED, coding_agent, fail
+from ..utils import EXIT_REFUSED, coding_agent, escape_unencodable_stdout, fail
 
 DEFAULT_SITE_URL = 'https://www.pixeltable.com'
 _FEEDBACK_PATH = '/api/v1/feedback'
@@ -63,9 +61,7 @@ def run(argv: list[str]) -> None:
     )
     parser.add_argument('--json', action='store_true', dest='as_json', help='Emit JSON output')
     args = parser.parse_args(argv)
-    # a pipe on Windows encodes with the locale's code page, which may lack a character of the text
-    if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(errors='backslashreplace')
+    escape_unencodable_stdout()
 
     # a carriage return would hide what precedes it on the preview's line, and still be sent
     message = args.text.replace('\r\n', '\n').replace('\r', '\n').strip()

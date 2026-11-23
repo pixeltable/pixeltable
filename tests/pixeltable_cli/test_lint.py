@@ -38,11 +38,14 @@ def project(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.
 
 
 def reviewer(tmp_path: pathlib.Path, body: str) -> str:
-    """Return the command of a reviewer script; the script saves its prompt in prompt.txt, then runs body."""
+    """Return the command of a reviewer script; the script saves its prompt in prompt.txt, then runs body. Like an
+    agent's CLI, it reads and writes UTF-8."""
     script = tmp_path / f'reviewer_{len(list(tmp_path.glob("reviewer_*")))}.py'
     script.write_text(
         'import pathlib, sys, time\n'
-        f'pathlib.Path({str(tmp_path / "prompt.txt")!r}).write_text(sys.stdin.read())\n' + body,
+        "sys.stdin.reconfigure(encoding='utf-8')\n"
+        "sys.stdout.reconfigure(encoding='utf-8')\n"
+        f"pathlib.Path({str(tmp_path / 'prompt.txt')!r}).write_text(sys.stdin.read(), encoding='utf-8')\n" + body,
         encoding='utf-8',
     )
     return f'{shlex.quote(sys.executable)} {shlex.quote(str(script))}'
@@ -52,7 +55,7 @@ def answer(*findings: dict[str, object]) -> str:
     """Return a reviewer body that prints findings as JSON, wrapped in prose with braces and a code fence."""
     return (
         'print("I checked {app.py} first.")\nprint("```json")\n'
-        f'print({json.dumps({"findings": list(findings)})!r})\nprint("```")\n'
+        f'print({json.dumps({"findings": list(findings)}, ensure_ascii=False)!r})\nprint("```")\n'
     )
 
 
@@ -60,12 +63,23 @@ def search_path(*dirs: pathlib.Path) -> str:
     """Return a PATH with dirs, the directory of pxt, and the system directories."""
     pxt = shutil.which('pxt')
     assert pxt is not None
-    return os.pathsep.join([*map(str, dirs), str(pathlib.Path(pxt).parent), '/usr/bin', '/bin'])
+    system_dirs = (
+        [os.path.join(os.environ['SYSTEMROOT'], 'System32')] if sys.platform == 'win32' else ['/usr/bin', '/bin']
+    )
+    return os.pathsep.join([*map(str, dirs), str(pathlib.Path(pxt).parent), *system_dirs])
 
 
 def fake_claude(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
-    """Return a directory with a claude that answers every review with no findings."""
+    """Return a directory with a claude that answers every review with no findings; on Windows, a claude.cmd, like an
+    npm install of Claude Code."""
     bin_dir = tmp_path_factory.mktemp('bin')
+    if sys.platform == 'win32':
+        script = bin_dir / 'fake_claude.py'
+        script.write_text(
+            f'import sys\nsys.stdin.buffer.read()\nprint({json.dumps({"findings": []})!r})\n', encoding='utf-8'
+        )
+        (bin_dir / 'claude.cmd').write_text(f'@"{sys.executable}" "{script}" %*\n', encoding='utf-8')
+        return bin_dir
     (bin_dir / 'claude').write_text(
         f"#!/bin/sh\ncat > /dev/null\necho '{json.dumps({'findings': []})}'\n", encoding='utf-8'
     )
@@ -136,6 +150,23 @@ class TestLint:
         r = cli('lint', cwd=project, env_overrides={'PXT_LINT_REVIEWER': reviewer(project, answer())})
         assert r.stdout == 'No findings.\n'
 
+    def test_non_ascii(self, cli: PxtRunner, project: pathlib.Path) -> None:
+        """Characters outside the locale's code page reach the reviewer in the source and come back in its --json
+        findings, and the text output prints findings that contain them."""
+        (project / 'labels.py').write_text('NEXT = "\u2192"\n', encoding='utf-8')
+        # UTF-8 encodes U+201D with the byte 0x9D, which cp1252 cannot decode
+        finding = {**_FINDING, 'why': 'loops over rows \u201cone by one\u201d \u2192 slow'}
+        command = reviewer(project, answer(finding))
+        r = cli('lint', '--json', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': command})
+        assert (r.returncode, r.json) == (2, {'findings': [finding]})
+        assert '<file path="labels.py">\n    1  NEXT = "\u2192"\n' in (project / 'prompt.txt').read_text(
+            encoding='utf-8'
+        )
+
+        r = cli('lint', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': command})
+        assert r.returncode == 2
+        assert r.stdout.endswith('1 finding: fix each, or say why it does not apply.\n')
+
     def test_project_config_reviewer(self, cli: PxtRunner, project: pathlib.Path) -> None:
         """A reviewer in the project configuration never runs: only PXT_LINT_REVIEWER sets one."""
         with open(project / 'pixeltable.toml', 'a', encoding='utf-8') as fp:
@@ -183,7 +214,6 @@ class TestLint:
         assert exc.value.code == 1
         assert 'did not answer within 1 s' in capsys.readouterr().err
 
-    @pytest.mark.skipif(sys.platform == 'win32', reason='the fake claude is a shell script')
     def test_agent_reviewer(
         self, cli: PxtRunner, project: pathlib.Path, tmp_path_factory: pytest.TempPathFactory
     ) -> None:
@@ -218,8 +248,8 @@ class TestLint:
         assert r.stdout.startswith('No reviewer ran')
 
     def test_usage_errors(self, cli: PxtRunner, project: pathlib.Path) -> None:
-        """A missing path, no Python files, more source than a review takes, or a file that cannot be read is an error,
-        exit 1; the checklist takes any amount of source."""
+        """A missing path, no Python files, a project configuration that does not parse, more source than a review
+        takes, or a file that cannot be read is an error, exit 1; the checklist takes any amount of source."""
         r = cli('lint', 'missing.py', cwd=project, check=False)
         assert r.returncode == 1
         assert 'missing.py does not exist' in r.stderr
@@ -228,6 +258,13 @@ class TestLint:
         r = cli('lint', 'docs', cwd=project, check=False)
         assert r.returncode == 1
         assert 'no Python files to review' in r.stderr
+
+        (project / 'broken').mkdir()
+        (project / 'broken' / 'pyproject.toml').write_text('[tool.pixeltable\n', encoding='utf-8')
+        r = cli('lint', '--json', cwd=project / 'broken', check=False)
+        assert r.returncode == 1
+        assert (r.json['error_code'], r.json['retryable']) == ('INVALID_CONFIGURATION', False)
+        assert r.json['message'].startswith(f'{project / "broken" / "pyproject.toml"} cannot be parsed: ')
 
         (project / 'big.py').write_text('x = 1\n' * 70_000, encoding='utf-8')
         assert '  big.py\n' in cli('lint', cwd=project).stdout

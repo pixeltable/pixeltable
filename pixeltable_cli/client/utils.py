@@ -5,6 +5,7 @@ stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 
 import contextlib
 import http.client
+import io
 import json
 import os
 import platform
@@ -775,6 +776,12 @@ def flush_stdout() -> None:
         sys.stdout.flush()
     except OSError:
         pass
+
+
+def escape_unencodable_stdout() -> None:
+    # on Windows, stdout to a pipe uses the locale's code page, which lacks most characters
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(errors='backslashreplace')
 
 
 def print_json_schema(adapter: pydantic.TypeAdapter) -> None:

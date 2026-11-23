@@ -28,7 +28,7 @@ from typing import Any, NamedTuple, TypedDict
 from pixeltable_cli.utils import find_project_root
 
 from ..parser import Parser
-from ..utils import EXIT_CHANGES_PENDING, EXIT_ERROR, coding_agent, fail, plural
+from ..utils import EXIT_CHANGES_PENDING, EXIT_ERROR, coding_agent, escape_unencodable_stdout, fail, plural
 from .guide import guide_paths, pixeltable_dir
 
 
@@ -75,8 +75,8 @@ Exit codes:
 
 Notes:
   'pxt guide review' prints the rules. A reviewer is a command that reads a prompt on stdin and answers on
-  stdout, such as a coding agent's non-interactive mode. ${REVIEWER_ENV_VAR} sets it. Without it, pxt lint
-  reviews with the CLI of the coding agent that runs it, if pxt lint has a command for that agent
+  stdout, both in UTF-8, such as a coding agent's non-interactive mode. ${REVIEWER_ENV_VAR} sets it. Without
+  it, pxt lint reviews with the CLI of the coding agent that runs it, if pxt lint has a command for that agent
   ({', '.join(REVIEWER_PRESETS)}). ${REVIEWER_ENV_VAR}=none turns the review off: the command then prints the
   rules and the files for the coding agent that runs it.
   A review takes several minutes; give the command a timeout of 10 minutes.
@@ -133,8 +133,12 @@ def run(argv: list[str]) -> None:
     )
     parser.add_argument('--json', action='store_true', dest='as_json', help='Emit JSON output')
     args = parser.parse_args(argv)
+    escape_unencodable_stdout()
 
-    root = find_project_root(pathlib.Path.cwd())
+    try:
+        root = find_project_root(pathlib.Path.cwd())
+    except RuntimeError as e:
+        fail('pxt lint', str(e), 'INVALID_CONFIGURATION', args.as_json)
     if root is None:
         root = pathlib.Path.cwd()
     for path in args.paths:
@@ -260,12 +264,18 @@ def _review(
         argv = shlex.split(reviewer)
     except ValueError as e:
         fail('pxt lint', f'the reviewer command cannot be parsed ({e}): {reviewer}', 'REVIEWER_FAILED', as_json)
+    # on Windows, which() also finds npm's .cmd shims; subprocess.run() finds only .exe files
+    executable = shutil.which(argv[0])
+    if executable is not None:
+        argv[0] = executable
     try:
         result = subprocess.run(
             argv,
             input=prompt,
             capture_output=True,
-            text=True,
+            # not the locale's code page, which on Windows lacks most characters
+            encoding='utf-8',
+            errors='replace',
             timeout=REVIEWER_TIMEOUT_SECS,
             cwd=root,
             # opencode takes the project root from PWD, which cwd= leaves unchanged
