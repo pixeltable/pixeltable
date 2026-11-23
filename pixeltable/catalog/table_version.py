@@ -1345,8 +1345,7 @@ class TableVersion:
         return plan
 
     def _rowid_gen(self) -> Iterator[int] | None:
-        """Generates rowids from the table's sequence for a data-versioned table; StoreBase generates them for an
-        operational table."""
+        """Generates rowids from the table's sequence for a data-versioned table."""
         if not self.is_data_versioned:
             return None
 
@@ -1789,18 +1788,11 @@ class TableVersion:
         first_inserted_rowid: if not None, the rows with a rowid of at least first_inserted_rowid were inserted by the
             operation instead of replacing existing rows. The views load them regardless of cascade, as insert() does.
         """
-        from pixeltable.exec import CreatedRowsPart
         from pixeltable.plan import Planner
 
         result = UpdateStatus()
         if not cascade and first_inserted_rowid is None:
             return result
-
-        replaced_rows: CreatedRowsPart | None = None
-        inserted_rows: CreatedRowsPart | None = None
-        if first_inserted_rowid is not None:
-            replaced_rows = CreatedRowsPart(first_inserted_rowid, inserted=False)
-            inserted_rows = CreatedRowsPart(first_inserted_rowid, inserted=True)
 
         changed_qids = {c.qid for c in modified_cols} | {c.qid for c in recomputed_view_cols}
         changed_dependents = self.get_dependent_columns(modified_cols)
@@ -1828,7 +1820,7 @@ class TableVersion:
                 if needs_iterator_reload:
                     view_plans.append(
                         Planner.create_view_load_plan(
-                            view_tv.path, created_at_current_version=updated_bases, created_rows_part=replaced_rows
+                            view_tv.path, created_at_current_version=updated_bases, max_rowid=first_inserted_rowid
                         )
                     )
                 elif membership_change:
@@ -1845,7 +1837,7 @@ class TableVersion:
                             view_tv.path,
                             created_at_current_version=updated_bases,
                             exclude_existing_rows=True,
-                            created_rows_part=replaced_rows,
+                            max_rowid=first_inserted_rowid,
                         )
                     )
                 elif len(recomputed_cols) > 0:
@@ -1856,12 +1848,12 @@ class TableVersion:
                     )
 
             insert_plans: list[exec.ExecNode] = []
-            if inserted_rows is not None:
+            if first_inserted_rowid is not None:
                 insert_plans.append(
                     Planner.create_view_load_plan(
                         view_tv.path,
                         created_at_current_version=view_tv.path.get_bases(),
-                        created_rows_part=inserted_rows,
+                        min_rowid=first_inserted_rowid,
                     )
                 )
 

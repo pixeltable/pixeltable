@@ -1074,7 +1074,8 @@ class Planner:
         view: catalog.TableVersionPath,
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         exclude_existing_rows: bool = False,
-        created_rows_part: exec.CreatedRowsPart | None = None,
+        min_rowid: int | None = None,
+        max_rowid: int | None = None,
     ) -> exec.ExecNode:
         """Creates a query plan for populating a view.
 
@@ -1084,7 +1085,8 @@ class Planner:
                 reads every other base at its visible rows
             exclude_existing_rows: if True, skip base rows for which the view already has a row that was deleted at
                 the view's current version
-            created_rows_part: if not None, read only this part of the base rows created at the current version
+            min_rowid: if not None, read only base rows whose root rowid is at least min_rowid
+            max_rowid: if not None, read only base rows whose root rowid is less than max_rowid
 
         Returns:
             - root node of the plan
@@ -1134,7 +1136,8 @@ class Planner:
             with_pk=True,
             created_at_current_version=created_at_current_version,
             exclude_deleted_at_current_version=view.tbl_version if exclude_existing_rows else None,
-            created_rows_part=created_rows_part,
+            min_rowid=min_rowid,
+            max_rowid=max_rowid,
         )
         exec_ctx = plan.ctx
         if target.is_component_view:
@@ -1348,7 +1351,8 @@ class Planner:
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
         exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
-        created_rows_part: exec.CreatedRowsPart | None = None,
+        min_rowid: int | None = None,
+        max_rowid: int | None = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -1415,7 +1419,7 @@ class Planner:
             assert len(columns) == 0
             assert len(created_at_current_version) == 0 and len(deleted_at_current_version) == 0
             assert exclude_deleted_at_current_version is None
-            assert created_rows_part is None
+            assert min_rowid is None and max_rowid is None
             plan = exec.SqlJoinNode(
                 row_builder,
                 tbls=analyzer.from_clause.tvps,
@@ -1441,7 +1445,8 @@ class Planner:
                 created_at_current_version=created_at_current_version,
                 deleted_at_current_version=deleted_at_current_version,
                 exclude_deleted_at_current_version=exclude_deleted_at_current_version,
-                created_rows_part=created_rows_part,
+                min_rowid=min_rowid,
+                max_rowid=max_rowid,
             )
 
         if analyzer.sql_where_clause is not None:
