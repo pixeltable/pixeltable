@@ -134,7 +134,6 @@ Every iterator view also has `pos`, the row's position within its base row, star
 - `insert()` on a view raises `Cannot insert into a view`, and `delete()` on a view raises `Cannot delete from a view`.
 - `update()` on a view changes only the view's own columns: updating a base column raises `Column 'score' is a base
   table column and cannot be updated`.
-- The values that `update()` sets on a view survive updates to the base row.
 - Dropping a base with views raises an error listing them; `pxt drop PATH --cascade` drops the views too.
 
 ## What a view may reference

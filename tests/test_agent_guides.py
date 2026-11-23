@@ -50,22 +50,21 @@ class TestAgentGuides:
         try:
             try:
                 module = importlib.import_module(module_name)
+                catalog_dir = f'guide_{guide.stem}'
+                pxt.create_dir(catalog_dir, if_exists='ignore')
+                for value in list(vars(module).values()):
+                    if isinstance(value, type) and 'create_all' in vars(value):
+                        vars(value)['create_all'](catalog_dir)
             except ModuleNotFoundError as e:
                 if e.name is None or e.name.split('.')[0] == 'pixeltable':
                     raise
                 pytest.skip(f'{guide.name} needs {e.name}')
-            catalog_dir = f'guide_{guide.stem}'
-            pxt.create_dir(catalog_dir, if_exists='ignore')
-            for value in list(vars(module).values()):
-                if isinstance(value, type) and 'create_all' in vars(value):
-                    try:
-                        vars(value)['create_all'](catalog_dir)
-                    except pxt.Error as e:
-                        # an iterator or a function checks for its optional package only when a table uses it
-                        missing = re.search(r'requires the `([\w.-]+)` package', str(e))
-                        if missing is None:
-                            raise
-                        pytest.skip(f'{guide.name} needs {missing.group(1)}')
+            except pxt.Error as e:
+                # Pixeltable's error for an optional package that is not installed
+                missing = re.search(r'requires the `([\w.-]+)` package', str(e))
+                if missing is None:
+                    raise
+                pytest.skip(f'{guide.name} needs {missing.group(1)}')
         finally:
             sys.modules.pop(module_name, None)
 
