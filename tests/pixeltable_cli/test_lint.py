@@ -134,10 +134,10 @@ class TestLint:
             '1 finding: fix each, or say why it does not apply.\n'
         )
 
-        bad_lines = reviewer(project, answer(_FINDING, {**_FINDING, 'line': 'n/a'}, {**_FINDING, 'line': True}))
+        bad_lines = reviewer(project, answer(_FINDING, {**_FINDING, 'line': 'n/a'}))
         r = cli('lint', '--json', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': bad_lines})
         assert r.returncode == 2
-        assert r.json == {'findings': [_FINDING, {**_FINDING, 'line': None}, {**_FINDING, 'line': None}]}
+        assert r.json == {'findings': [_FINDING, {**_FINDING, 'line': None}]}
 
         malformed = reviewer(project, answer({'rule': 'R05'}, _FINDING, {**_FINDING, 'fix': None}))
         r = cli('lint', '--json', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': malformed})

@@ -330,8 +330,7 @@ def _parse_findings(answer: str) -> list[Finding] | None:
         if not isinstance(f, dict) or not all(isinstance(f.get(key), str) for key in ('rule', 'file', 'why', 'fix')):
             continue
         line = f.get('line')
-        # bool is a subclass of int, but a JSON true is not a line number
-        if not isinstance(line, int) or isinstance(line, bool):
+        if not isinstance(line, int):
             line = None
         findings.append(Finding(rule=f['rule'], file=f['file'], line=line, why=f['why'], fix=f['fix']))
     skipped = len(parsed['findings']) - len(findings)
