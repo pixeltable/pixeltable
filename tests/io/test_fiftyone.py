@@ -103,7 +103,7 @@ class TestFiftyone:
         import fiftyone as fo  # type: ignore[import-not-found]
 
         num_datasets = len(fo.list_datasets())
-        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="images must not be null, but 'image' has a null value"):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='images must not be null'):
             pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications)
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='images must not be null'):
             pxt.io.export_images_as_fo_dataset(t, t.image.rotate(180))

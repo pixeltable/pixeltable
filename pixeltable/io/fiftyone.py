@@ -23,7 +23,6 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     __labels: dict[str, tuple[exprs.Expr, type[fo.Label]]]  # label_name -> (expr, label_cls)
     __image_idx: int  # index of the image expr in the select list
     __localpath_idx: int | None  # index of the image localpath in the select list, if present
-    __image_expr: exprs.Expr
     __row_iter: Iterator[list]  # iterator over the table rows, to be convered to FiftyOne samples
 
     def __init__(
@@ -85,7 +84,6 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
 
         selection = [expr for expr, _ in self.__labels.values()]
         self.__image_idx = len(selection)
-        self.__image_expr = image
         selection.append(image)
 
         if isinstance(image, exprs.ColumnRef) and image.col.is_stored:
@@ -102,10 +100,8 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         row = next(self.__row_iter)
         img = row[self.__image_idx]
         if img is None:
-            image_str = str(self.__image_expr)
             raise excs.RequestError(
-                excs.ErrorCode.MISSING_REQUIRED,
-                f'export_images_as_fo_dataset(): images must not be null, but {image_str!r} has a null value',
+                excs.ErrorCode.MISSING_REQUIRED, 'export_images_as_fo_dataset(): images must not be null'
             )
         assert isinstance(img, PIL.Image.Image)
         if self.__localpath_idx is not None:
