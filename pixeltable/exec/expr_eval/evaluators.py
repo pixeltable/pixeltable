@@ -79,7 +79,7 @@ class FnCallEvaluator(Evaluator):
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
         self_path = self.fn.self_path
-        if self_path is not None and self_path in env.Env.get().udf_resources():
+        if self_path is not None and self_path in env.Env.get().udf_configs():
             self.resource_pool = ModalScheduler.get_resource_pool(self_path)
         else:
             self.resource_pool = fn_call.resource_pool

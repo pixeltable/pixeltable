@@ -223,6 +223,7 @@ class TestHuggingface:
         assert len(result['segments_info']) > 0
         assert 'label_text' in result['segments_info'][0]
 
+    @pytest.mark.resource_intensive
     def test_sam3_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()
@@ -359,6 +360,7 @@ class TestHuggingface:
         )
         assert v_fps.count() == 4
 
+    @pytest.mark.resource_intensive
     def test_sam3_for_segmentation_no_detections(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()
@@ -471,6 +473,17 @@ class TestHuggingface:
                 assert 'score' in item
         assert results[0]['sentiment'][0]['label_text'] == 'positive'
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
+
+        t.add_computed_column(
+            sentiment_all=text_classification(
+                t.text, model_id='cardiffnlp/twitter-roberta-base-sentiment-latest', top_k=5
+            )
+        )
+        for result in t.select(t.sentiment_all).collect():
+            items = result['sentiment_all']
+            assert sorted(item['label_text'] for item in items) == ['negative', 'neutral', 'positive']
+            scores = [item['score'] for item in items]
+            assert scores == sorted(scores, reverse=True)
 
     def test_image_captioning(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
@@ -639,7 +652,7 @@ class TestHuggingface:
         t.add_computed_column(
             image=text_to_image(
                 t.prompt,
-                model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
+                model_id='hf-internal-testing/tiny-sd-pipe',
                 height=256,
                 width=256,
                 seed=42,
@@ -662,11 +675,12 @@ class TestHuggingface:
         test_prompt = 'turn this into a red circle'
 
         # Test with Stable Diffusion
+        t.add_computed_column(small_img=t.img.resize((256, 192)))
         t.add_computed_column(
             modified_image=image_to_image(
-                t.img,
+                t.small_img,
                 t.prompt,
-                model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
+                model_id='hf-internal-testing/tiny-sd-pipe',
                 model_kwargs={'strength': 0.5, 'num_inference_steps': 10},
             )
         )
@@ -674,7 +688,7 @@ class TestHuggingface:
         validate_update_status(
             t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH), prompt=test_prompt), expected_rows=1
         )
-        res = t.select(t.modified_image, width=t.img.width, height=t.img.height).collect()[0]
+        res = t.select(t.modified_image, width=t.small_img.width, height=t.small_img.height).collect()[0]
         img = res['modified_image']
         assert img.size == (res['width'], res['height'])
         assert np.asarray(img).std() > 0

@@ -376,7 +376,7 @@ DbTarget = Literal['image', 'archive', 'capacity', 'config', 'generation']
 
 
 class DbChangeOp(ChangeOp):
-    """One operation reconciling a hosted database with a DatabaseConfig."""
+    """One operation reconciling a database with a DatabaseConfig."""
 
     target: DbTarget
 
@@ -396,20 +396,37 @@ class DbChangeOp(ChangeOp):
         )
 
     @classmethod
-    def config(cls, changes: list[str]) -> DbChangeOp:
-        """The project config changed; the pods read the new settings when they restart."""
+    def user_secrets(cls) -> DbChangeOp:
+        """The secrets of a local database or of its organization changed since its UDF servers were deployed."""
+        return cls(
+            target='config',
+            name='secrets',
+            op='alter',
+            severity='additive',
+            description='secrets changed, which redeploys the UDF servers',
+            requires_restart=False,
+        )
+
+    @classmethod
+    def config(cls, changes: list[str], *, requires_restart: bool = True) -> DbChangeOp:
+        """The project config changed.
+
+        requires_restart: False for a local database, whose update deploys its UDF servers again and restarts nothing.
+        """
+        effect = 'restarts the database' if requires_restart else 'redeploys the UDF servers'
         return cls(
             target='config',
             name='config',
             op='alter',
             severity='additive',
-            description=f'{_summary(changes)}, which restarts the database',
+            description=f'{_summary(changes)}, which {effect}',
             details={'changes': '; '.join(changes)},
-            requires_restart=True,
+            requires_restart=requires_restart,
         )
 
     @classmethod
-    def build_image(cls, changes: list[str] | None = None) -> DbChangeOp:
+    def build_image(cls, changes: list[str] | None = None, *, requires_restart: bool = True) -> DbChangeOp:
+        """requires_restart: False for a local database, which has no pods"""
         description: str
         details: dict[str, str]
         if changes is not None:
@@ -425,7 +442,7 @@ class DbChangeOp(ChangeOp):
             severity='additive',
             description=description,
             details=details,
-            requires_restart=True,
+            requires_restart=requires_restart,
         )
 
     @classmethod
@@ -447,7 +464,8 @@ class DbChangeOp(ChangeOp):
         )
 
     @classmethod
-    def upload_archive(cls, changes: list[str] | None = None) -> DbChangeOp:
+    def upload_archive(cls, changes: list[str] | None = None, *, requires_restart: bool = True) -> DbChangeOp:
+        """requires_restart: False for a local database, which has no pods"""
         description: str
         details: dict[str, str]
         if changes is not None:
@@ -463,7 +481,7 @@ class DbChangeOp(ChangeOp):
             severity='additive',
             description=description,
             details=details,
-            requires_restart=True,
+            requires_restart=requires_restart,
         )
 
 

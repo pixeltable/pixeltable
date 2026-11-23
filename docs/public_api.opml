@@ -251,6 +251,20 @@
           <outline text="udf|pixeltable.functions.math.round" />
           <outline text="udf|pixeltable.functions.math.to_int" />
           <outline text="udf|pixeltable.functions.math.pow" />
+          <outline text="udf|pixeltable.functions.math.to_float" />
+          <outline text="udf|pixeltable.functions.math.sqrt" />
+          <outline text="udf|pixeltable.functions.math.exp" />
+          <outline text="udf|pixeltable.functions.math.log" />
+          <outline text="udf|pixeltable.functions.math.log10" />
+          <outline text="udf|pixeltable.functions.math.sign" />
+          <outline text="udf|pixeltable.functions.math.sin" />
+          <outline text="udf|pixeltable.functions.math.cos" />
+          <outline text="udf|pixeltable.functions.math.tan" />
+          <outline text="udf|pixeltable.functions.math.asin" />
+          <outline text="udf|pixeltable.functions.math.acos" />
+          <outline text="udf|pixeltable.functions.math.atan" />
+          <outline text="udf|pixeltable.functions.math.degrees" />
+          <outline text="udf|pixeltable.functions.math.radians" />
           <outline text="udf|pixeltable.functions.math.bitwise_and" />
           <outline text="udf|pixeltable.functions.math.bitwise_or" />
           <outline text="udf|pixeltable.functions.math.bitwise_xor" />
@@ -336,6 +350,8 @@
           <outline text="udf|pixeltable.functions.timestamp.strip_timezone" />
           <outline text="udf|pixeltable.functions.timestamp.toordinal" />
           <outline text="udf|pixeltable.functions.timestamp.posix_timestamp" />
+          <outline text="udf|pixeltable.functions.timestamp.add_seconds" />
+          <outline text="udf|pixeltable.functions.timestamp.seconds_since" />
         </outline>
         <outline text="module|pixeltable.functions.uuid">
           <outline text="udf|pixeltable.functions.uuid.uuid4" />
@@ -478,6 +494,10 @@
           <outline text="udf|pixeltable.functions.openai.moderations" />
           <outline text="udf|pixeltable.functions.openai.decisions" />
           <outline text="func|pixeltable.functions.openai.invoke_tools" />
+        </outline>
+        <outline text="module|pixeltable.functions.openllm">
+          <outline text="udf|pixeltable.functions.openllm.chat_completions" />
+          <outline text="udf|pixeltable.functions.openllm.responses" />
         </outline>
         <outline text="module|pixeltable.functions.openrouter">
           <outline text="udf|pixeltable.functions.openrouter.chat_completions" />

@@ -410,8 +410,42 @@ class TestIterator:
             def reserved_pos_iterator(x: int) -> Iterator[PosRow]:
                 yield from []
 
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r"'count' is reserved and cannot be the name of an iterator output.",
+        ):
+
+            class CountRow(TypedDict):
+                count: int
+
+            @pxt.iterator
+            def reserved_count_iterator(x: int) -> Iterator[CountRow]:
+                yield from []
+
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r"'insert' is reserved and cannot be the name of an iterator output.",
+        ):
+
+            class InsertRow(TypedDict):
+                insert: int
+
+            @pxt.iterator
+            class reserved_insert_iterator(pxt.PxtIterator[InsertRow]):
+                def __next__(self) -> InsertRow:
+                    raise StopIteration
+
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match=r"Invalid iterator output name: '_hidden'"):
+
+            class HiddenRow(TypedDict):
+                _hidden: int
+
+            @pxt.iterator
+            def invalid_name_iterator(x: int) -> Iterator[HiddenRow]:
+                yield from []
+
     def test_create_view_schema_errors(self, db_root: DatabaseRoot) -> None:
-        """create_view() validates the iterator's output schema; these errors surface in both local and proxy mode."""
+        """Iterator output schema errors surface at call time, in both local and proxy mode."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl_plain_dict'), schema={'input': pxt.Int | None})
 

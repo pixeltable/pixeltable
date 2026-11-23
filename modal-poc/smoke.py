@@ -1,4 +1,4 @@
-"""Run some of the demo's UDFs on Modal, through computed columns and a query, and check the results.
+"""Run some of the demo's UDFs on their UDF servers, through computed columns and a query, and check the results.
 
 README.md says how to run it.
 """
@@ -21,7 +21,7 @@ VIDEO = '../tests/data/videos/bangkok_half_res.mp4'
 
 
 class ModalCallCounter(logging.Handler):
-    """Counts the Modal calls per UDF path, from ModalServerClient.call()'s debug line."""
+    """Counts the Modal calls per path in the pixeltable.udf setting, from ModalServerClient.call()'s debug line."""
 
     counts: collections.Counter[str]
 
@@ -43,7 +43,7 @@ def duration(path: str) -> float:
 
 def main() -> None:
     if 'PIXELTABLE_HOME' not in os.environ:
-        sys.exit('Set PIXELTABLE_HOME to a new directory; this script creates tables in it.')
+        sys.exit("Set PIXELTABLE_HOME to the demo's directory; this script creates a table in its database.")
     counter = ModalCallCounter()
     logger = logging.getLogger('pixeltable')
     logger.addHandler(counter)
@@ -87,10 +87,10 @@ def main() -> None:
 
     expected_calls = {
         # one call per overload
-        huggingface.clip.self_path: 2,
+        'pixeltable.functions.huggingface.clip': 2,
         # the row without a video makes no call
-        video.clip.self_path: 2,
-        video.concat_videos.self_path: 1,
+        'pixeltable.functions.video.clip': 2,
+        'pixeltable.functions.video.concat_videos': 1,
     }
     assert dict(counter.counts) == expected_calls, dict(counter.counts)
     print(f'OK: Modal calls {dict(counter.counts)}')

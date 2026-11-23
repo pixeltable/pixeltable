@@ -12,7 +12,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -203,21 +203,30 @@ class TestExprs:
         rows = t.select(t.c2, a=t.c4 & True, b=True & t.c4, c=t.c4 | False, d=False | t.c4).order_by(t.c2).collect()
         assert all(r['a'] == r['b'] == r['c'] == r['d'] == (r['c2'] % 2 == 1) for r in rows)
 
-        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='c4: & requires Bool operands, but the other operand has type `Int`'
+        ):
             _ = t.c4 & 5
-        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r'c4: \| requires Bool operands, but the other operand has type `String`'
+        ):
             _ = t.c4 | 'x'
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='c4: & requires Bool operands, but the other operand has type `Int`'
+        ):
+            _ = t.c4 & t.c2
 
         # a non-bool column must fail at construction too, in both operand orders (t.c2 is Int)
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        not_bool = 'requires Bool operands, but this expression has type `Int`'
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = t.c2 & True
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = True & t.c2
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=rf'c2: \| {not_bool}'):
             _ = t.c2 | False
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=rf'c2: \| {not_bool}'):
             _ = False | t.c2
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = t.c2 & t.c4
 
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
@@ -539,6 +548,34 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
+
+    def test_unsupported_operand(self, test_tbl: pxt.Table) -> None:
+        """An operand that is neither an expression nor a literal raises TYPE_MISMATCH."""
+        t = test_tbl
+        td = datetime.timedelta(hours=1)
+        cases: list[tuple[Callable[[], Expr], str]] = [
+            (lambda: t.c2 + object(), r'c2: the other operand of \+ needs to be .* `object`'),
+            (lambda: object() - t.c2, r'c2: the other operand of - needs to be .* `object`'),
+            (lambda: t.c3 < object(), r'c3: the other operand of < needs to be .* `object`'),
+            (lambda: t.c1 + object(), r'c1: the other operand of \+ needs to be .* `object`'),
+            (lambda: object() + t.c1, r'c1: the other operand of \+ needs to be .* `object`'),
+            (
+                lambda: t.c5 * td,
+                r'c5: \* is not defined for a timedelta; a timedelta can only be added to or subtracted',
+            ),
+            (
+                lambda: t.c5 > td,
+                r'c5: > is not defined for a timedelta; a timedelta can only be added to or subtracted',
+            ),
+            (lambda: t.c3 < td, r'c3: < is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+            (lambda: td / t.c3, r'c3: / is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+            (lambda: t.c4 & object(), r'c4: the other operand of & needs to be .* `object`'),
+            (lambda: object() & t.c4, r'c4: the other operand of & needs to be .* `object`'),
+            (lambda: t.c4 | object(), r'c4: the other operand of \| needs to be .* `object`'),
+        ]
+        for make_expr, match in cases:
+            with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+                _ = make_expr()
 
     @pytest.mark.parametrize('backfill', [True, False], ids=['backfill', 'insert'])
     def test_int_mod(self, db_root: DatabaseRoot, backfill: bool) -> None:
