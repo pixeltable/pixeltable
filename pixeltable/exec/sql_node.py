@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import random
 import warnings
@@ -31,6 +32,19 @@ class OrderByItem(NamedTuple):
 
 
 OrderByClause = list[OrderByItem]
+
+
+@dataclasses.dataclass(frozen=True)
+class CreatedRowsPart:
+    """One part of the rows an operation created at the current version, for an operation that both replaced existing
+    rows and inserted new ones.
+
+    A data-versioned table allocates rowids in increasing order, so the inserted rows are the ones whose root rowid is
+    at least first_inserted_rowid.
+    """
+
+    first_inserted_rowid: int
+    inserted: bool
 
 
 def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause | None:
@@ -329,6 +343,7 @@ class SqlNode(ExecNode):
         created_at_current_version: set[UUID] | None = None,
         deleted_at_current_version: set[UUID] | None = None,
         exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
+        created_rows_part: CreatedRowsPart | None = None,
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
         Args:
@@ -342,6 +357,7 @@ class SqlNode(ExecNode):
             exclude_deleted_at_current_version: a table that is not part of tbl's join chain and contributes no
               columns; rows of tbl's table that have a corresponding row (identified by rowid) in it deleted at its
               current version are excluded
+            created_rows_part: if not None, restricts the rows to one part of the rows created at the current version
         Returns:
             augmented stmt
         """
@@ -359,6 +375,7 @@ class SqlNode(ExecNode):
             assert len(created_at_current_version) == 0
             assert len(deleted_at_current_version) == 0
             assert exclude_deleted_at_current_version is None
+            assert created_rows_part is None
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
             # all tables in the path have the same versioning
@@ -397,6 +414,13 @@ class SqlNode(ExecNode):
                 else:
                     stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
             prev_tv = tv
+
+        if created_rows_part is not None:
+            root_rowid_col = joined_tbls[-1].get().store_tbl.rowid_columns()[0]
+            if created_rows_part.inserted:
+                stmt = stmt.where(root_rowid_col >= created_rows_part.first_inserted_rowid)
+            else:
+                stmt = stmt.where(root_rowid_col < created_rows_part.first_inserted_rowid)
 
         if exclude_deleted_at_current_version is not None:
             # the exclusion is implemented as (exclude_deleted_at_current_version is always a view):
@@ -592,6 +616,7 @@ class SqlScanNode(SqlNode):
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
         exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
+        created_rows_part: CreatedRowsPart | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -612,6 +637,7 @@ class SqlScanNode(SqlNode):
         self.created_at_current_version = created_at_current_version
         self.deleted_at_current_version = deleted_at_current_version
         self.exclude_deleted_at_current_version = exclude_deleted_at_current_version
+        self.created_rows_part = created_rows_part
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
@@ -624,6 +650,7 @@ class SqlScanNode(SqlNode):
             created_at_current_version={t.id for t in self.created_at_current_version},
             deleted_at_current_version={t.id for t in self.deleted_at_current_version},
             exclude_deleted_at_current_version=self.exclude_deleted_at_current_version,
+            created_rows_part=self.created_rows_part,
         )
         return stmt
 

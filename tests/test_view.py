@@ -1601,6 +1601,117 @@ class TestView:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"batch_update\(\): cannot insert into View 'nv'"):
             nv.batch_update([{'_rowid': (999,), 'note': 'x'}], if_not_exists='insert')
 
+    @pytest.mark.parametrize('cascade', [True, False], ids=['cascade', 'no_cascade'])
+    def test_upsert_creates_one_version(self, cascade: bool, db_root: DatabaseRoot) -> None:
+        """An upsert that updates and inserts creates one version of the table and of each view, and revert() undoes
+        both."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'x': pxt.Int, 'n': pxt.Int}, primary_key='id')
+        t.insert([{'id': 1, 'x': 1, 'n': 1}, {'id': 2, 'x': 2, 'n': 2}, {'id': 3, 'x': 8, 'n': 1}])
+        v = pxt.create_view(p('v'), t, additional_columns={'x2': t.x * 2})
+        vv = pxt.create_view(p('vv'), v, additional_columns={'x3': v.x2 + 1})
+        fv = pxt.create_view(p('fv'), t.where(t.x > 5))
+        fvv = pxt.create_view(p('fvv'), fv.where(fv.n == 2), additional_columns={'xn': fv.x + fv.n})
+        cv = pxt.create_view(p('cv'), t, iterator=simple_iterator(t.n))
+        cvv = pxt.create_view(p('cvv'), cv, additional_columns={'icol10': cv.icol * 10})
+        tbls: list[pxt.Table] = [t, v, vv, fv, fvv, cv, cvv]
+
+        def contents() -> dict[str, list[tuple]]:
+            return {
+                'v': sorted((r['id'], r['x2']) for r in v.select(v.id, v.x2).collect()),
+                'vv': sorted((r['id'], r['x3']) for r in vv.select(vv.id, vv.x3).collect()),
+                'fv': sorted(r['id'] for r in fv.select(fv.id).collect()),
+                'fvv': sorted((r['id'], r['xn']) for r in fvv.select(fvv.id, fvv.xn).collect()),
+                'cv': sorted((r['id'], r['pos'], r['icol']) for r in cv.select(cv.id, cv.pos, cv.icol).collect()),
+                'cvv': sorted(
+                    (r['id'], r['pos'], r['icol10']) for r in cvv.select(cvv.id, cvv.pos, cvv.icol10).collect()
+                ),
+            }
+
+        contents_before = contents()
+        num_versions_before = [len(tbl.get_versions()) for tbl in tbls]
+
+        status = t.batch_update(
+            [{'id': 1, 'x': 10, 'n': 1}, {'id': 3, 'x': 3, 'n': 1}, {'id': 4, 'x': 40, 'n': 2}],
+            if_not_exists='insert',
+            cascade=cascade,
+        )
+        assert status.row_count_stats == RowCountStats(inserted_rows=1, updated_rows=2)
+        assert [len(tbl.get_versions()) for tbl in tbls] == [n + 1 for n in num_versions_before]
+
+        if cascade:
+            fresh_v = pxt.create_view(p('fresh_v'), t, additional_columns={'x2': t.x * 2})
+            fresh_fv = pxt.create_view(p('fresh_fv'), t.where(t.x > 5))
+            fresh_cv = pxt.create_view(p('fresh_cv'), t, iterator=simple_iterator(t.n))
+            assert contents() == {
+                'v': sorted((r['id'], r['x2']) for r in fresh_v.select(fresh_v.id, fresh_v.x2).collect()),
+                'vv': [(1, 21), (2, 5), (3, 7), (4, 81)],
+                'fv': sorted(r['id'] for r in fresh_fv.select(fresh_fv.id).collect()),
+                'fvv': [(4, 42)],
+                'cv': sorted(
+                    (r['id'], r['pos'], r['icol'])
+                    for r in fresh_cv.select(fresh_cv.id, fresh_cv.pos, fresh_cv.icol).collect()
+                ),
+                'cvv': [(1, 0, 0), (2, 0, 0), (2, 1, 10), (3, 0, 0), (4, 0, 0), (4, 1, 10)],
+            }
+            for fresh in (fresh_v, fresh_fv, fresh_cv):
+                pxt.drop_table(fresh)
+        else:
+            assert status.cascade_row_count_stats == RowCountStats(inserted_rows=8)
+            assert contents() == {
+                'v': [(1, 2), (2, 4), (3, 16), (4, 80)],
+                'vv': [(1, 3), (2, 5), (3, 17), (4, 81)],
+                'fv': [3, 4],
+                'fvv': [(4, 42)],
+                'cv': [(1, 0, 0), (2, 0, 0), (2, 1, 1), (3, 0, 0), (4, 0, 0), (4, 1, 1)],
+                'cvv': [(1, 0, 0), (2, 0, 0), (2, 1, 10), (3, 0, 0), (4, 0, 0), (4, 1, 10)],
+            }
+
+        t.revert()
+        assert contents() == contents_before
+        assert [len(tbl.get_versions()) for tbl in tbls] == num_versions_before
+
+    def test_upsert_doesnt_copy_unaffected_view_rows(self, db_root: DatabaseRoot) -> None:
+        """An upsert whose update changes no column a view depends on records only the inserted rows in the view."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('tbl'), {'id': pxt.Int, 'x': pxt.Int | None, 'note': pxt.String | None}, primary_key='id'
+        )
+        t.insert([{'id': i, 'x': i} for i in range(10)])
+        v = pxt.create_view(p('v'), t, additional_columns={'y': t.x + 1})
+        vv = pxt.create_view(p('vv'), v, additional_columns={'z': v.y + 1})
+
+        validate_update_status(
+            t.batch_update(
+                [{'id': 1, 'note': 'a'}, {'id': 2, 'note': 'b'}, {'id': 10, 'note': 'c'}], if_not_exists='insert'
+            ),
+            expected_row_counts=RowCountStats(inserted_rows=1, updated_rows=2),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=2),
+        )
+        for view, inserts in ((v, 2), (vv, 1)):
+            version = view.get_versions()[0]
+            assert (version['inserts'], version['updates']) == (inserts, 0)
+        assert sorted((r['id'], r['z']) for r in vv.select(vv.id, vv.z).collect()) == [
+            *((i, i + 2) for i in range(10)),
+            (10, None),
+        ]
+
+    def test_upsert_error_if_not_exists(self, db_root: DatabaseRoot) -> None:
+        """if_not_exists='error' leaves the table and its views unchanged."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'x': pxt.Int}, primary_key='id')
+        t.insert([{'id': 1, 'x': 1}])
+        v = pxt.create_view(p('v'), t, additional_columns={'x2': t.x * 2})
+        num_versions = (len(t.get_versions()), len(v.get_versions()))
+
+        with pxt_raises(pxt.ErrorCode.ROW_NOT_FOUND, match=r'batch_update\(\): 1 row\(s\) not found'):
+            t.batch_update([{'id': 1, 'x': 5}, {'id': 2, 'x': 2}], if_not_exists='error')
+        assert (len(t.get_versions()), len(v.get_versions())) == num_versions
+        assert list(v.select(v.id, v.x2).collect()) == [{'id': 1, 'x2': 2}]
+
+        t.batch_update([{'id': 1, 'x': 5}, {'id': 2, 'x': 2}], if_not_exists='insert')
+        assert list(v.select(v.id, v.x2).order_by(v.id).collect()) == [{'id': 1, 'x2': 10}, {'id': 2, 'x2': 4}]
+
     def test_recompute_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
