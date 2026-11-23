@@ -131,6 +131,14 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> ts.ColumnType 
     if isinstance(pd_dtype, pd.StringDtype):
         return ts.StringType(nullable=nullable)
     if is_extension_array_dtype(pd_dtype):
+        # Nullable and pyarrow-backed numeric/boolean extension dtypes (Int64, Float64, boolean, ...)
+        kind = getattr(pd_dtype, 'kind', None)
+        if kind == 'b':
+            return ts.BoolType(nullable=nullable)
+        if kind in ('i', 'u'):
+            return ts.IntType(nullable=nullable)
+        if kind == 'f':
+            return ts.FloatType(nullable=nullable)
         return None
     # Most other pandas dtypes are directly NumPy compatible
     assert isinstance(pd_dtype, np.dtype)
@@ -219,6 +227,9 @@ def _df_prepare_column(data: pd.Series, col_type: ts.ColumnType) -> Iterable[Any
 
 
 def _df_convert_value(val: Any, col_type: ts.ColumnType, col_name: str) -> Any:
+    if val is None or val is pd.NA or val is pd.NaT:
+        # Missing values in object and nullable extension columns; float('nan') is handled below.
+        return None
     if col_type.is_float_type():
         return float(val)
     if isinstance(val, float) and np.isnan(val):
