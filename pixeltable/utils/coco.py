@@ -7,6 +7,7 @@ import PIL
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable import exprs
 from pixeltable.io.export import null_image_error
 
 format_msg = """
@@ -108,7 +109,11 @@ def _write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     input_dict_expr = query._compiled_select_list()[0]
     input_dict_slot_idx = input_dict_expr.slot_idx
     # the slot idx of the image used in the input dict tells us whether we already have a local path for it
-    image_expr = next((e for e in input_dict_expr.dependencies() if e.col_type.is_image_type()), None)
+    image_expr = (
+        input_dict_expr.components[input_dict_expr.keys.index('image')]
+        if isinstance(input_dict_expr, exprs.InlineDict) and 'image' in input_dict_expr.keys
+        else None
+    )
     for img_id, input_row in enumerate(query._exec()):
         input_dict = input_row[input_dict_slot_idx]
         if isinstance(input_dict, dict) and 'image' in input_dict and input_dict['image'] is None:

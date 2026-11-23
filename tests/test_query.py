@@ -1406,6 +1406,19 @@ class TestQuery:
         path = t_null.where(t_null.image != None).select({'image': t_null.image, 'annotations': []}).to_coco_dataset()
         assert len(COCO(path).imgs) == 1
 
+        # the image is the value under the key 'image', not the first image in the dict
+        thumb = t_null.image.resize([8, 8])
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=re.escape("from 'image.rotate(90)'")):
+            _ = t_null.select({'thumb': thumb, 'image': t_null.image.rotate(90), 'annotations': []}).to_coco_dataset()
+        path = (
+            t_null.where(t_null.image != None)
+            .select({'thumb': thumb, 'image': t_null.image, 'annotations': []})
+            .to_coco_dataset()
+        )
+        coco_img = next(iter(COCO(path).imgs.values()))
+        with PIL.Image.open(coco_img['file_name']) as f:
+            assert f.size == (coco_img['width'], coco_img['height']) != (8, 8)
+
     def test_distinct(self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {
