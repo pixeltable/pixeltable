@@ -119,7 +119,9 @@ docs.delete(where=docs.id == 3)
 | A removed column | destructive | Applied only with `--allow-destructive`; the column's data is dropped |
 | Any other change to a column: its type, `primary_key`, `stored`, `media_validation`, `destination`, `comment` or `custom_metadata` | unsupported | Refused |
 
-If `pxt schema update` refuses one change, it applies nothing, not even the additive changes.
+If `pxt schema update` refuses one change, it applies none of the changes of that `pxt.model_base()`; in an app file
+with several bases, the bases before it stay updated. Each table changes in its own transaction: an error while
+applying leaves the earlier tables changed, and running the command again applies the rest.
 
 A computed column that references a non-nullable column is non-nullable unless its expression can return null, so it
 blocks making that column nullable.
