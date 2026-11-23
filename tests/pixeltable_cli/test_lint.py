@@ -1,5 +1,6 @@
 """Tests for 'pxt lint', with a script in place of a coding agent as the reviewer."""
 
+import contextlib
 import json
 import os
 import pathlib
@@ -8,6 +9,7 @@ import shutil
 import stat
 import sys
 
+import psutil
 import pytest
 
 from pixeltable_cli.client import utils
@@ -87,6 +89,7 @@ def fake_claude(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     return bin_dir
 
 
+_SKIP_REVIEW = 'PXT_LINT_REVIEWER=none skips the review and prints the rules and the files for you to review.\n'
 _FINDING = {'rule': 'R05', 'file': 'reports/report.py', 'line': 3, 'why': 'loops over rows', 'fix': 'use group_by()'}
 
 
@@ -176,7 +179,7 @@ class TestLint:
 
     def test_reviewer_failures(self, cli: PxtRunner, project: pathlib.Path) -> None:
         """A reviewer that fails, answers without the JSON, is missing, cannot be parsed or cannot run is an error,
-        exit 1; a blank PXT_LINT_REVIEWER counts as unset."""
+        exit 1, that offers PXT_LINT_REVIEWER=none; a blank PXT_LINT_REVIEWER counts as unset."""
         not_executable = project / 'reviewer'
         not_executable.write_text('#!/bin/sh\n', encoding='utf-8')
         cases = [
@@ -199,20 +202,31 @@ class TestLint:
             r = cli('lint', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': command})
             assert r.returncode == 1
             assert message in r.stderr
+            assert r.stderr.endswith(_SKIP_REVIEW)
         assert cli('lint', cwd=project, env_overrides={'PXT_LINT_REVIEWER': '  '}).stdout.startswith('No reviewer ran')
 
     def test_reviewer_timeout(
         self, project: pathlib.Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A reviewer that does not answer within the timeout is an error, exit 1."""
+        """A reviewer that does not answer within the timeout is an error, exit 1, and its child processes are
+        stopped."""
         # in-process: only a patched REVIEWER_TIMEOUT_SECS shortens the wait
         monkeypatch.chdir(project)
-        monkeypatch.setattr(lint, 'REVIEWER_TIMEOUT_SECS', 1)
-        monkeypatch.setenv('PXT_LINT_REVIEWER', reviewer(project, 'time.sleep(10)'))
+        monkeypatch.setattr(lint, 'REVIEWER_TIMEOUT_SECS', 3)
+        child_pid = project / 'child.pid'
+        body = (
+            'import subprocess\n'
+            'child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])\n'
+            f'pathlib.Path({str(child_pid)!r}).write_text(str(child.pid))\n'
+            'time.sleep(60)\n'
+        )
+        monkeypatch.setenv('PXT_LINT_REVIEWER', reviewer(project, body))
         with pytest.raises(SystemExit) as exc:
             lint.run([])
         assert exc.value.code == 1
-        assert 'did not answer within 1 s' in capsys.readouterr().err
+        assert 'did not answer within 3 s' in capsys.readouterr().err
+        with contextlib.suppress(psutil.NoSuchProcess):
+            psutil.Process(int(child_pid.read_text())).wait(timeout=10)
 
     def test_agent_reviewer(
         self, cli: PxtRunner, project: pathlib.Path, tmp_path_factory: pytest.TempPathFactory

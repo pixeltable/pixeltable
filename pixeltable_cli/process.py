@@ -107,3 +107,19 @@ def terminate_and_wait(proc: psutil.Process, timeout: float) -> None:
         # Gone, exiting or still unreaped after the second wait. On Linux, psutil re-raises FileNotFoundError when
         # /proc/<pid>/stat is gone before /proc/<pid>, as during an exit.
         pass
+
+
+def kill_process_tree(pid: int) -> None:
+    """Kill the process pid and its descendants, and wait for them to exit."""
+    try:
+        parent = psutil.Process(pid)
+        # collected before any kill: a killed process's children no longer list it as their parent
+        processes = [*parent.children(recursive=True), parent]
+    except psutil.NoSuchProcess:
+        return
+    for proc in processes:
+        try:
+            proc.kill()
+        except psutil.NoSuchProcess:
+            pass
+    psutil.wait_procs(processes, timeout=10)

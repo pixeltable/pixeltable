@@ -23,8 +23,9 @@ import shlex
 import shutil
 import subprocess
 import sys
-from typing import Any, NamedTuple, TypedDict
+from typing import Any, NamedTuple, NoReturn, TypedDict
 
+from pixeltable_cli.process import kill_process_tree
 from pixeltable_cli.utils import find_project_root
 
 from ..parser import Parser
@@ -263,53 +264,53 @@ def _review(
     try:
         argv = shlex.split(reviewer)
     except ValueError as e:
-        fail('pxt lint', f'the reviewer command cannot be parsed ({e}): {reviewer}', 'REVIEWER_FAILED', as_json)
-    # on Windows, which() also finds npm's .cmd shims; subprocess.run() finds only .exe files
+        _reviewer_failed(f'the reviewer command cannot be parsed ({e}): {reviewer}', as_json)
+    # on Windows, which() also finds npm's .cmd shims; Popen() finds only .exe files
     executable = shutil.which(argv[0])
     if executable is not None:
         argv[0] = executable
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             argv,
-            input=prompt,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             # not the locale's code page, which on Windows lacks most characters
             encoding='utf-8',
             errors='replace',
-            timeout=REVIEWER_TIMEOUT_SECS,
             cwd=root,
             # opencode takes the project root from PWD, which cwd= leaves unchanged
             env={**os.environ, 'PWD': str(root)},
-            check=False,
         )
     except FileNotFoundError:
-        fail('pxt lint', f'the reviewer command was not found: {reviewer}', 'REVIEWER_FAILED', as_json)
+        _reviewer_failed(f'the reviewer command was not found: {reviewer}', as_json)
     except OSError as e:
-        fail('pxt lint', f'the reviewer command cannot run ({e.strerror or e}): {reviewer}', 'REVIEWER_FAILED', as_json)
+        _reviewer_failed(f'the reviewer command cannot run ({e.strerror or e}): {reviewer}', as_json)
+    try:
+        stdout, stderr = proc.communicate(prompt, timeout=REVIEWER_TIMEOUT_SECS)
     except subprocess.TimeoutExpired:
-        fail(
-            'pxt lint',
-            f'the reviewer did not answer within {REVIEWER_TIMEOUT_SECS} s: {reviewer}',
-            'REVIEWER_FAILED',
-            as_json,
-        )
-    if result.returncode != 0:
-        tail = result.stderr.strip()[-500:]
-        fail(
-            'pxt lint',
-            f'the reviewer exited {result.returncode}: {tail if tail != "" else reviewer}',
-            'REVIEWER_FAILED',
-            as_json,
-        )
-    findings = _parse_findings(result.stdout)
+        # killing only proc leaves its children running, such as the reviewer behind a .cmd shim on Windows
+        kill_process_tree(proc.pid)
+        proc.communicate()
+        _reviewer_failed(f'the reviewer did not answer within {REVIEWER_TIMEOUT_SECS} s: {reviewer}', as_json)
+    if proc.returncode != 0:
+        tail = stderr.strip()[-500:]
+        _reviewer_failed(f'the reviewer exited {proc.returncode}: {tail if tail != "" else reviewer}', as_json)
+    findings = _parse_findings(stdout)
     if findings is None:
-        fail(
-            'pxt lint',
-            f'the reviewer\'s answer has no valid {{"findings": [...]}} object: {result.stdout.strip()[:300]}',
-            'REVIEWER_FAILED',
-            as_json,
+        _reviewer_failed(
+            f'the reviewer\'s answer has no valid {{"findings": [...]}} object: {stdout.strip()[:300]}', as_json
         )
     return findings
+
+
+def _reviewer_failed(message: str, as_json: bool) -> NoReturn:
+    fail(
+        'pxt lint',
+        f'{message}\n{REVIEWER_ENV_VAR}=none skips the review and prints the rules and the files for you to review.',
+        'REVIEWER_FAILED',
+        as_json,
+    )
 
 
 def _parse_findings(answer: str) -> list[Finding] | None:

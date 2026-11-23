@@ -1,15 +1,13 @@
 # Review
 
-Rules for reviewing a project's Python code, which `pxt lint` applies: Python code that redoes Pixeltable's work, or
-that uses Pixeltable wrongly.
+Rules that `pxt lint` applies: Python code that redoes Pixeltable's work, or that uses Pixeltable wrongly.
 
 Each rule says what to look for, why it matters, what to write instead, and which cases are not findings. A place
 in the code is a finding only if it matches what a rule looks for and none of its exceptions.
 
-A spec or design document that describes the flagged design does not make it an exception: it describes how the
-project would be built without Pixeltable. A spec fixes only its external contracts, such as the format of an input
-file and the fields of an API response or a report. Store the data in its Pixeltable form, and convert it at that
-boundary.
+The user's stated requirements override the rules. The rules apply only to the data and logic that the project
+implements with Pixeltable, not to its interfaces with external systems, such as a Redis store that other services
+read or the format of an input file. Keep the data in its Pixeltable form, and convert it at the interface.
 
 ## R01 A provider's SDK called directly
 
@@ -144,8 +142,8 @@ Guide: serving
 Look for: a `@pxt.udf` whose body only indexes into a dict or list argument, filters or counts a list, or does
 arithmetic or string concatenation.
 
-Why: `pxt schema diff` does not see a change to a UDF's body, so stored values keep the old logic; an expression is
-part of the column's definition.
+Why: Pixeltable cannot see into a UDF, but it can parallelize an expression, which is part of the column's
+definition. A UDF is also more code to maintain.
 
 Instead: Json paths and Json methods with lambdas (`pxt guide json`), operators, and the built-in functions
 (`pxt functions --on String`).
