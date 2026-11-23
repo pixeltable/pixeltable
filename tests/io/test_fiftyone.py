@@ -103,20 +103,16 @@ class TestFiftyone:
         import fiftyone as fo  # type: ignore[import-not-found]
 
         num_datasets = len(fo.list_datasets())
-        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Cannot export a null image from 'image'; exclude rows"):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="images must not be null, but 'image' has a null value"):
             pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications)
-        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Cannot export a null image from'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='images must not be null'):
             pxt.io.export_images_as_fo_dataset(t, t.image.rotate(180))
         assert len(fo.list_datasets()) == num_datasets
 
-        ds = pxt.io.export_images_as_fo_dataset(t.where(t.image != None), t.image, classifications=t.classifications)
+        t.where(t.image == None).delete()
+        ds = pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications)
         assert len(ds) == 2
         assert ds.count('classifications') == 1
-        ds = pxt.io.export_images_as_fo_dataset(t.where(t.image != None).order_by(t.id).limit(1), t.image.rotate(180))
-        assert len(ds) == 1
-
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='the query must not have a select list'):
-            pxt.io.export_images_as_fo_dataset(t.select(t.image), t.image)
 
     @pytest.mark.xdist_group('fiftyone')
     def test_export_images_errors(self, uses_db: None) -> None:

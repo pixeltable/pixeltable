@@ -1397,7 +1397,8 @@ class TestQuery:
         t_null.insert([{'image': image_files[0]}, {'image': None}])
         for _ in range(2):
             with pxt_raises(
-                pxt.ErrorCode.MISSING_REQUIRED, match=re.escape("Cannot export a null image from 'image'; exclude rows")
+                pxt.ErrorCode.MISSING_REQUIRED,
+                match=re.escape("Cannot export a null image from 'image'; rows without an image can be excluded"),
             ):
                 _ = t_null.select({'image': t_null.image, 'annotations': []}).to_coco_dataset()
         path = t_null.where(t_null.image != None).select({'image': t_null.image, 'annotations': []}).to_coco_dataset()

@@ -11,7 +11,6 @@ import puremagic
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import exprs
-from pixeltable.io.export import null_image_error
 from pixeltable.utils.local_store import TempStore
 
 
@@ -29,7 +28,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
 
     def __init__(
         self,
-        tbl: pxt.Table | pxt.Query,
+        tbl: pxt.Table,
         image: exprs.Expr,
         image_format: str,
         classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
@@ -103,7 +102,11 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         row = next(self.__row_iter)
         img = row[self.__image_idx]
         if img is None:
-            raise null_image_error(self.__image_expr)
+            image_str = str(self.__image_expr)
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED,
+                f'export_images_as_fo_dataset(): images must not be null, but {image_str!r} has a null value',
+            )
         assert isinstance(img, PIL.Image.Image)
         if self.__localpath_idx is not None:
             # Use the existing localpath of the stored image

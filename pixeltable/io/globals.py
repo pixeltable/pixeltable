@@ -10,14 +10,14 @@ from pixeltable.env import Env
 
 
 def export_images_as_fo_dataset(
-    tbl: pxt.Table | pxt.Query,
+    tbl: pxt.Table,
     images: exprs.Expr,
     image_format: str = 'webp',
     classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
     detections: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
 ) -> 'fo.Dataset':  # type: ignore[name-defined]  # noqa: F821
     """
-    Export images from a Pixeltable table or query as a Voxel51 dataset. The data must consist of a single column
+    Export images from a Pixeltable table as a Voxel51 dataset. The data must consist of a single column
     (or expression) containing image data, along with optional additional columns containing labels. Currently, only
     classification and detection labels are supported.
 
@@ -30,8 +30,7 @@ def export_images_as_fo_dataset(
     [`frame_iterator`][pixeltable.functions.video.frame_iterator]) will first be written to disk in the specified
     `image_format`.
 
-    Every exported row must have an image: a null image raises an error and no dataset is created. To export only
-    the rows that have one, pass a query such as `tbl.where(tbl.image != None)`.
+    Every row must have an image: a null image raises an error and no dataset is created.
 
     The label parameters accept one or more sets of labels of each type. If a single `Expr` is provided, then it will
     be exported as a single set of labels with a default name such as `classifications`.
@@ -45,8 +44,7 @@ def export_images_as_fo_dataset(
     - `pip install fiftyone`
 
     Args:
-        tbl: The table or query from which to export data. A query can filter, order or limit the rows, but must not
-            have a select list: the images and labels are selected by the other arguments.
+        tbl: The table from which to export data.
         images: A column or expression that contains the images to export.
         image_format: The format to use when writing out images for export.
         classifications: Optional image classification labels. If a single `Expr` is provided, it must be a table
@@ -97,13 +95,6 @@ def export_images_as_fo_dataset(
         raise excs.RequestError(
             excs.ErrorCode.TYPE_MISMATCH,
             f'`images` must be an expression of type Image (got {images.col_type._to_base_str()})',
-        )
-
-    if isinstance(tbl, pxt.Query) and tbl.select_list is not None:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            'export_images_as_fo_dataset(): the query must not have a select list; '
-            'pass the images and labels as arguments instead',
         )
 
     importer = PxtImageDatasetImporter(

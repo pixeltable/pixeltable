@@ -958,8 +958,8 @@ class Query(QueryBase):
         }
         ```
 
-        Every row must have an image: a null image raises an error and no dataset is created. Exclude such rows
-        first, for example with `.where(t.image != None)`.
+        Every row must have an image: a null image raises an error and no dataset is created. Rows without an image
+        can be excluded with `where()`.
 
         Returns:
             Path to the COCO dataset file.
@@ -1009,8 +1009,8 @@ class Query(QueryBase):
             (and have your model handle it). Or, if these are not meaningful values within a minibtach, you can
             modify or remove any such values through selections and filters prior to calling to_pytorch_dataset().
 
-            Images are the exception: a null image raises an error and no dataset is created. Exclude such rows
-            first, for example with `.where(t.image != None)`.
+            Images are the exception: a null image raises an error and no dataset is created. Rows without an image
+            can be excluded with `where()`.
         """
         # check dependencies
         Env.get().require_package('pyarrow', [13])

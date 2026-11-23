@@ -7,12 +7,11 @@ from pixeltable.exprs.expr import Expr
 
 
 def null_image_error(image: Expr | str) -> excs.RequestError:
-    """The error that image dataset exporters raise for a row whose image is null."""
+    """The error that the COCO and PyTorch dataset exporters raise for a row whose image is null."""
     image_str = str(image)
     return excs.RequestError(
         excs.ErrorCode.MISSING_REQUIRED,
-        f'Cannot export a null image from {image_str!r}; '
-        f'exclude rows without an image first, for example with `.where({image_str} != None)`',
+        f'Cannot export a null image from {image_str!r}; rows without an image can be excluded with `.where()`',
     )
 
 
