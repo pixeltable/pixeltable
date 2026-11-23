@@ -61,5 +61,5 @@ case. Code in a rule is indented rather than fenced, since the tests run fenced 
 - `tests/test_agent_guides.py` runs the `python` blocks of each guide in order, as one module, against a new
   catalog, and then calls `create_all()` on each `TableModel` base in the module. Blocks can define UDFs,
   application classes and notebook tables. They must not insert rows into a column that calls a provider: the test
-  has no keys. A guide that imports a package missing from the environment is skipped.
+  has no keys. A guide whose examples need a package missing from the environment is skipped.
 - The same test checks every `pxt` line of a `bash` block: the command exists, and so does each flag on the line.

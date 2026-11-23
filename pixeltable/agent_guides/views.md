@@ -33,7 +33,7 @@ class Chunks(
     TableModel,
     name='chunks',
     base=Docs,
-    iterator=document_splitter(Docs.doc, separators='page,char_limit', limit=2000, metadata='page'),
+    iterator=document_splitter(Docs.doc, separators='page,token_limit', limit=300, metadata='page'),
 ):
     n_chars = text.len()
 ```

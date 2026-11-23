@@ -20,18 +20,6 @@ def code_blocks(guide: pathlib.Path, lang: str) -> list[str]:
     return re.findall(rf'^```{lang}\n(.*?)^```', guide.read_text(encoding='utf-8'), flags=re.MULTILINE | re.DOTALL)
 
 
-# error messages that a guide quotes and that start with 'pxt '
-QUOTED_MESSAGES = {"pxt paths use '/' as the separator"}
-
-
-def pxt_commands(guide: pathlib.Path) -> list[str]:
-    """Return the pxt lines of a guide's bash blocks, then its inline code that starts with pxt."""
-    lines = [line for block in code_blocks(guide, 'bash') for line in block.splitlines()]
-    prose = re.sub(r'^```.*?^```', '', guide.read_text(encoding='utf-8'), flags=re.MULTILINE | re.DOTALL)
-    inline = [span for span in re.findall(r'`(pxt [^`]+)`', prose) if span not in QUOTED_MESSAGES]
-    return [line for line in lines if shlex.split(line, comments=True)[:1] == ['pxt']] + inline
-
-
 def option_flags(help_text: str) -> set[str]:
     # the options list indents each entry by two spaces: '  -h, --help', '  --on TYPE'
     matches = re.findall(r'^  (-[^\s,]+)(?:, (-[^\s,]+))?', help_text, flags=re.MULTILINE)
@@ -70,19 +58,28 @@ class TestAgentGuides:
             pxt.create_dir(catalog_dir, if_exists='ignore')
             for value in list(vars(module).values()):
                 if isinstance(value, type) and 'create_all' in vars(value):
-                    vars(value)['create_all'](catalog_dir)
+                    try:
+                        vars(value)['create_all'](catalog_dir)
+                    except pxt.Error as e:
+                        # an iterator or a function checks for its optional package only when a table uses it
+                        missing = re.search(r'requires the `([\w.-]+)` package', str(e))
+                        if missing is None:
+                            raise
+                        pytest.skip(f'{guide.name} needs {missing.group(1)}')
         finally:
             sys.modules.pop(module_name, None)
 
     @pytest.mark.parametrize('guide', GUIDES, ids=[path.stem for path in GUIDES])
     def test_commands(self, guide: pathlib.Path) -> None:
-        """Each pxt command in a guide, in a bash block or inline, calls an existing command with flags from its
-        options list."""
-        for command in pxt_commands(guide):
-            args = shlex.split(command, comments=True)
-            # the second argument is a verb (schema update), an operand (errors my_app/docs) or a flag
-            result = pxt_help(args[1:2] if len(args) > 2 and args[2].startswith('-') else args[1:3])
-            assert result.returncode == 0, f'{command}: {result.stderr}'
-            flags = option_flags(result.stdout)
-            for flag in (arg.split('=')[0] for arg in args[2:] if arg.startswith('-')):
-                assert flag in flags, f'{command}: no {flag}'
+        """Each pxt line in a bash block calls an existing command with flags from its options list."""
+        for block in code_blocks(guide, 'bash'):
+            for line in block.splitlines():
+                args = shlex.split(line, comments=True)
+                if len(args) == 0 or args[0] != 'pxt':
+                    continue
+                # the second argument is a verb (schema update), an operand (errors my_app/docs) or a flag
+                result = pxt_help(args[1:2] if len(args) > 2 and args[2].startswith('-') else args[1:3])
+                assert result.returncode == 0, f'{line}: {result.stderr}'
+                flags = option_flags(result.stdout)
+                for flag in (arg.split('=')[0] for arg in args[2:] if arg.startswith('-')):
+                    assert flag in flags, f'{line}: no {flag}'

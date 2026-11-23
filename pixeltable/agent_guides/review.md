@@ -5,9 +5,8 @@ Rules that `pxt lint` applies: Python code that redoes Pixeltable's work, or tha
 Each rule says what to look for, why it matters, what to write instead, and which cases are not findings. A place
 in the code is a finding only if it matches what a rule looks for and none of its exceptions.
 
-The user's stated requirements override the rules. The rules apply only to the data and logic that the project
-implements with Pixeltable, not to its interfaces with external systems, such as a Redis store that other services
-read or the format of an input file. Keep the data in its Pixeltable form, and convert it at the interface.
+The rules apply only to the data and logic that the project implements with Pixeltable, not to its interfaces with
+external systems, such as a Redis store that other services read or the format of an input file.
 
 ## R01 A provider's SDK called directly
 

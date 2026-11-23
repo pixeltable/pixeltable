@@ -305,12 +305,7 @@ def _review(
 
 
 def _reviewer_failed(message: str, as_json: bool) -> NoReturn:
-    fail(
-        'pxt lint',
-        f'{message}\n{REVIEWER_ENV_VAR}=none skips the review and prints the rules and the files for you to review.',
-        'REVIEWER_FAILED',
-        as_json,
-    )
+    fail('pxt lint', message, 'REVIEWER_FAILED', as_json)
 
 
 def _parse_findings(answer: str) -> list[Finding] | None:

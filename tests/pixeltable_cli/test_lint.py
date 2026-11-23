@@ -89,7 +89,6 @@ def fake_claude(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     return bin_dir
 
 
-_SKIP_REVIEW = 'PXT_LINT_REVIEWER=none skips the review and prints the rules and the files for you to review.\n'
 _FINDING = {'rule': 'R05', 'file': 'reports/report.py', 'line': 3, 'why': 'loops over rows', 'fix': 'use group_by()'}
 
 
@@ -179,7 +178,7 @@ class TestLint:
 
     def test_reviewer_failures(self, cli: PxtRunner, project: pathlib.Path) -> None:
         """A reviewer that fails, answers without the JSON, is missing, cannot be parsed or cannot run is an error,
-        exit 1, that offers PXT_LINT_REVIEWER=none; a blank PXT_LINT_REVIEWER counts as unset."""
+        exit 1; a blank PXT_LINT_REVIEWER counts as unset."""
         not_executable = project / 'reviewer'
         not_executable.write_text('#!/bin/sh\n', encoding='utf-8')
         cases = [
@@ -202,7 +201,6 @@ class TestLint:
             r = cli('lint', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': command})
             assert r.returncode == 1
             assert message in r.stderr
-            assert r.stderr.endswith(_SKIP_REVIEW)
         assert cli('lint', cwd=project, env_overrides={'PXT_LINT_REVIEWER': '  '}).stdout.startswith('No reviewer ran')
 
     def test_reviewer_timeout(
