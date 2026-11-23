@@ -958,6 +958,9 @@ class Query(QueryBase):
         }
         ```
 
+        Every row must have an image: a null image raises an error and no dataset is created. Exclude such rows
+        first, for example with `.where(t.image != None)`.
+
         Returns:
             Path to the COCO dataset file.
         """
@@ -1005,6 +1008,9 @@ class Query(QueryBase):
             If you have them, you can work around None values by providing your custom collate_fn to the DataLoader
             (and have your model handle it). Or, if these are not meaningful values within a minibtach, you can
             modify or remove any such values through selections and filters prior to calling to_pytorch_dataset().
+
+            Images are the exception: a null image raises an error and no dataset is created. Exclude such rows
+            first, for example with `.where(t.image != None)`.
         """
         # check dependencies
         Env.get().require_package('pyarrow', [13])
@@ -1025,6 +1031,6 @@ class Query(QueryBase):
                 tvps=self._from_clause.tvps, tbl_keys=self.referenced_tbl_keys()
             ):
                 # we need the metadata for PixeltablePytorchDataset
-                export_parquet(self, dest_path, inline_images=True, _write_md=True)
+                export_parquet(self, dest_path, inline_images=True, _write_md=True, _reject_null_images=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)

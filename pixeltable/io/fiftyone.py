@@ -1,6 +1,5 @@
 # type: ignore  # fiftyone is currently not included in the dev environment, so turn off mypy for this file
 
-import logging
 import os
 from typing import Any, Iterator
 
@@ -12,9 +11,8 @@ import puremagic
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import exprs
+from pixeltable.io.export import null_image_error
 from pixeltable.utils.local_store import TempStore
-
-_logger = logging.getLogger(__name__)
 
 
 class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
@@ -26,12 +24,12 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     __labels: dict[str, tuple[exprs.Expr, type[fo.Label]]]  # label_name -> (expr, label_cls)
     __image_idx: int  # index of the image expr in the select list
     __localpath_idx: int | None  # index of the image localpath in the select list, if present
+    __image_expr: exprs.Expr
     __row_iter: Iterator[list]  # iterator over the table rows, to be convered to FiftyOne samples
-    __num_null_images: int  # number of rows skipped because their image is None
 
     def __init__(
         self,
-        tbl: pxt.Table,
+        tbl: pxt.Table | pxt.Query,
         image: exprs.Expr,
         image_format: str,
         classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
@@ -88,6 +86,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
 
         selection = [expr for expr, _ in self.__labels.values()]
         self.__image_idx = len(selection)
+        self.__image_expr = image
         selection.append(image)
 
         if isinstance(image, exprs.ColumnRef) and image.col.is_stored:
@@ -99,20 +98,12 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
 
         query = tbl.select(*selection)
         self.__row_iter = query._output_row_iterator()
-        self.__num_null_images = 0
 
     def __next__(self) -> tuple[str, fo.ImageMetadata | None, dict[str, fo.Label] | None]:
-        while True:
-            try:
-                row = next(self.__row_iter)
-            except StopIteration:
-                if self.__num_null_images > 0:
-                    _logger.info(f'Skipped {self.__num_null_images} row(s) with a null image')
-                raise
-            img = row[self.__image_idx]
-            if img is not None:
-                break
-            self.__num_null_images += 1
+        row = next(self.__row_iter)
+        img = row[self.__image_idx]
+        if img is None:
+            raise null_image_error(self.__image_expr)
         assert isinstance(img, PIL.Image.Image)
         if self.__localpath_idx is not None:
             # Use the existing localpath of the stored image
@@ -188,4 +179,4 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         pass
 
     def close(self, *args: Any) -> None:
-        pass
+        self.__row_iter.close()

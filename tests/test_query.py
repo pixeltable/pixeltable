@@ -17,6 +17,8 @@ from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
 from .conftest import SampleFileServer
+from pixeltable.env import Env
+
 from .utils import (
     DatabaseRoot,
     ReloadTester,
@@ -1311,10 +1313,17 @@ class TestQuery:
         assert ds2.path == ds1.path, 'result should be cached'
         assert ds2_mtimes == ds1_mtimes, 'no extra file system work should have occurred'
 
-        # check invalidation on insert
+        # a row without an image is rejected, and leaves no cached dataset behind
         t_size = t.count()
         t.insert(row_id=t_size)
-        ds3 = t.to_pytorch_dataset(image_format='pt')
+        cache_dir = Env.get().dataset_cache_dir
+        cached = {p.name for p in cache_dir.iterdir() if not p.name.startswith('.')}
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Cannot export a null image from 'c_image'"):
+            _ = t.to_pytorch_dataset(image_format='pt')
+        assert {p.name for p in cache_dir.iterdir() if not p.name.startswith('.')} == cached
+
+        # check invalidation on insert
+        ds3 = t.where(t.c_image != None).to_pytorch_dataset(image_format='pt')
         assert isinstance(ds3, PixeltablePytorchDataset)
         assert ds3.path != ds1.path, 'different path should be used'
 
@@ -1382,6 +1391,17 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:
             _ = t.select(t.annotations[0]).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
+
+        # a row without an image is rejected, also on retry (no partial dataset is cached)
+        t_null = pxt.create_table('images_null', {'image': pxt.Image | None})
+        t_null.insert([{'image': image_files[0]}, {'image': None}])
+        for _ in range(2):
+            with pxt_raises(
+                pxt.ErrorCode.MISSING_REQUIRED, match=re.escape("Cannot export a null image from 'image'; exclude rows")
+            ):
+                _ = t_null.select({'image': t_null.image, 'annotations': []}).to_coco_dataset()
+        path = t_null.where(t_null.image != None).select({'image': t_null.image, 'annotations': []}).to_coco_dataset()
+        assert len(COCO(path).imgs) == 1
 
     def test_distinct(self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
