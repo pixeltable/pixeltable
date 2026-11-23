@@ -34,7 +34,11 @@ def transactional_directory(folder_path: Path, replace: bool = False) -> Generat
     # Remove the temporary folder if it already exists, eg if the previous run crashed
     shutil.rmtree(str(tmp_folder), ignore_errors=True)
     tmp_folder.mkdir(parents=True)
-    yield tmp_folder
+    try:
+        yield tmp_folder
+    except BaseException:
+        shutil.rmtree(str(tmp_folder), ignore_errors=True)
+        raise
     # If everything succeeds, `commit' the changes by moving the temporary folder
     if replace and folder_path.exists():
         old_folder = folder_path.parent / f'.old_{folder_path.name}_{uuid.uuid4().hex}'

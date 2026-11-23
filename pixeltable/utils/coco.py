@@ -107,22 +107,15 @@ def _write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     # Query's own _select_list_exprs no longer carry slot_idx.
     input_dict_expr = query._compiled_select_list()[0]
     input_dict_slot_idx = input_dict_expr.slot_idx
+    # the slot idx of the image used in the input dict tells us whether we already have a local path for it
     image_expr = next((e for e in input_dict_expr.dependencies() if e.col_type.is_image_type()), None)
-    img_slot_idx: int | None = None
     for img_id, input_row in enumerate(query._exec()):
         input_dict = input_row[input_dict_slot_idx]
         if isinstance(input_dict, dict) and 'image' in input_dict and input_dict['image'] is None:
             raise null_image_error(image_expr if image_expr is not None else 'image')
-        if img_slot_idx is None:
-            _verify_input_dict(input_dict)
-
-            # we want to know the slot idx of the image used in the input dict, so that we can check whether we
-            # already have a local path for it
-            input_dict_dependencies = input_dict_expr.dependencies()
-            img_slot_idx = next((e.slot_idx for e in input_dict_dependencies if e.col_type.is_image_type()), None)
-            assert img_slot_idx is not None
-        else:
-            _verify_input_dict(input_dict)
+        _verify_input_dict(input_dict)
+        assert image_expr is not None
+        img_slot_idx = image_expr.slot_idx
 
         # get a local path for the image
         img = input_dict['image']

@@ -41,3 +41,4 @@ class TestTransactionalDirectory:
             pass
 
         assert not final.exists()
+        assert not folder.exists()
