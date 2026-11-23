@@ -64,10 +64,8 @@ class TestAgentGuides:
                 args = shlex.split(line, comments=True)
                 if len(args) == 0 or args[0] != 'pxt':
                     continue
-                # the second argument is a verb (schema update) or an operand (errors my_app/docs)
-                result = pxt_help(args[1:3])
-                if result.returncode != 0:
-                    result = pxt_help(args[1:2])
+                # the second argument is a verb (schema update), an operand (errors my_app/docs) or a flag
+                result = pxt_help(args[1:2] if len(args) > 2 and args[2].startswith('-') else args[1:3])
                 assert result.returncode == 0, f'{line}: {result.stderr}'
                 for flag in (arg.split('=')[0] for arg in args[2:] if arg.startswith('-')):
                     assert re.search(rf'(?<![\w-]){re.escape(flag)}(?![\w-])', result.stdout), f'{line}: no {flag}'

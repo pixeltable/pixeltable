@@ -25,7 +25,8 @@ class Docs(TableModel, name='docs'):
 ```
 
 - An annotation declares an input column; an assignment declares a computed column.
-- `pxt.String` declares a non-nullable column: an insert without a value fails with `expected non-None value`.
+- `pxt.String` declares a non-nullable column: an insert that omits it fails with `Missing required column(s)`, and
+  an explicit null fails with `expected non-None value`.
 - `pxt.String | None` declares a nullable column.
 - `pxt.Column()` takes what an annotation cannot express: `primary_key=True`, `stored=False` (computed when a query
   reads it, never stored), `media_validation='on_read'` (the default is `'on_write'`), `destination=` (where media
@@ -87,7 +88,8 @@ docs.delete(where=docs.id == 3)
 - `batch_update()` recomputes the dependent computed columns of every matched row, even when the new values equal the
   old ones; a column that calls a paid model runs again.
 - `delete()` without `where` deletes every row.
-- Known issue (PXT-1760): a write that changes 0 rows still creates a table version.
+- Known issue (PXT-1760): an insert or an update that changes 0 rows still creates a table version; a delete that
+  matches no row does not.
 - Each `insert()`, `update()`, `batch_update()` and `delete()` is atomic.
 - Writes to one table run one at a time.
 - `status.num_rows` counts the changed rows.

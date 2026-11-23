@@ -494,7 +494,8 @@ Pixeltable's work, such as a loop that scores similarity or rebuilds a summary, 
 separate model reads the files and the command prints its findings; it exits 2 when there are any. The reviewer is the
 command in the environment variable `PXT_LINT_REVIEWER`. Without it, a run under Claude Code, Codex, Cursor, Gemini CLI,
 Augment or OpenCode reviews with that agent's CLI, so reviews run on the agent's account. The value `none` turns the
-review off; the command then prints the rules and the files for the coding agent that ran it to review.
+review off; the command then prints the rules and the files for the coding agent that ran it to review. A review takes
+several minutes: give the command a timeout of 10 minutes.
 
 ### Reporting a gap
 

@@ -19,7 +19,7 @@ pytestmark = pytest.mark.db_roots('local', reason='reviews files on the filesyst
 
 _APP = 'import pixeltable as pxt\n\nTableModel = pxt.model_base()\n'
 _REPORT = 'import app\n\nrows = app.Signups.collect()\nseen = set()\n'
-_CLAUDE = 'claude -p --tools Read,Grep,Glob --allowedTools Read,Grep,Glob'
+_CLAUDE = 'claude -p --tools Read,Grep,Glob --allowedTools Read,Grep,Glob --strict-mcp-config --setting-sources user'
 
 
 @pytest.fixture
@@ -88,6 +88,7 @@ class TestLint:
 
         assert cli('lint', 'reports', '--json', cwd=project).json == {
             'reviewer': None,
+            'findings': None,
             'files': ['reports/report.py'],
             'rules': rules,
         }
@@ -97,8 +98,9 @@ class TestLint:
 
     def test_review(self, cli: PxtRunner, project: pathlib.Path) -> None:
         """A reviewer gets the rules and the numbered lines of each file, and the command prints its findings with the
-        rule's title and guide, and exits 2. A non-integer line becomes null, and an answer that repeats the prompt's
-        example first counts only its last findings object. With no findings, the command exits 0."""
+        rule's title and guide, and exits 2. A non-integer line becomes null, a finding without a rule, file, why or
+        fix string is skipped with a notice, and an answer that repeats the prompt's example first counts only its
+        last findings object. With no findings, the command exits 0."""
         r = cli(
             'lint', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': reviewer(project, answer(_FINDING))}
         )
@@ -120,6 +122,11 @@ class TestLint:
         r = cli('lint', '--json', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': bad_lines})
         assert r.returncode == 2
         assert r.json == {'findings': [_FINDING, {**_FINDING, 'line': None}, {**_FINDING, 'line': None}]}
+
+        malformed = reviewer(project, answer({'rule': 'R05'}, _FINDING, {**_FINDING, 'fix': None}))
+        r = cli('lint', '--json', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': malformed})
+        assert (r.returncode, r.json) == (2, {'findings': [_FINDING]})
+        assert r.stderr == "pxt lint: skipped 2 malformed findings in the reviewer's answer.\n"
 
         example = {'rule': 'R05', 'file': 'report.py', 'line': 14, 'why': '...', 'fix': '...'}
         echoing = reviewer(project, f'print({json.dumps({"findings": [example]})!r})\n' + answer(_FINDING))
@@ -143,8 +150,14 @@ class TestLint:
         not_executable.write_text('#!/bin/sh\n', encoding='utf-8')
         cases = [
             (reviewer(project, 'sys.stderr.write("no credits")\nsys.exit(3)'), 'the reviewer exited 3: no credits'),
-            (reviewer(project, 'print("Looks fine to me.")'), 'has no {"findings": [...]} object: Looks fine to me.'),
-            (reviewer(project, 'print(\'{"findings": [{"rule": "R05"}]}\')'), 'has no {"findings": [...]} object'),
+            (
+                reviewer(project, 'print("Looks fine to me.")'),
+                'has no valid {"findings": [...]} object: Looks fine to me.',
+            ),
+            (
+                reviewer(project, 'print(\'{"findings": [{"rule": "R05"}]}\')'),
+                'has no valid {"findings": [...]} object',
+            ),
             ('no-such-reviewer --flag', 'the reviewer command was not found'),
             ('claude "-p', 'the reviewer command cannot be parsed (No closing quotation)'),
         ]
@@ -161,7 +174,7 @@ class TestLint:
         self, project: pathlib.Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A reviewer that does not answer within the timeout is an error, exit 1."""
-        # in-process: only a patched REVIEWER_TIMEOUT_SECS shortens the 600 s wait
+        # in-process: only a patched REVIEWER_TIMEOUT_SECS shortens the wait
         monkeypatch.chdir(project)
         monkeypatch.setattr(lint, 'REVIEWER_TIMEOUT_SECS', 1)
         monkeypatch.setenv('PXT_LINT_REVIEWER', reviewer(project, 'time.sleep(10)'))
@@ -191,8 +204,8 @@ class TestLint:
 
         with_claude: dict[str, str | None] = {'CLAUDECODE': '1', 'PATH': search_path(fake_claude(tmp_path_factory))}
         notice = (
-            f'pxt lint: reviewing with {_CLAUDE}. Each review runs that model on your account; '
-            'PXT_LINT_REVIEWER=none turns it off.\n'
+            f'pxt lint: reviewing with {_CLAUDE}. A review takes several minutes: give pxt lint a timeout of 10 '
+            'minutes. Each review runs that model on your account; PXT_LINT_REVIEWER=none turns it off.\n'
         )
         for _ in range(2):
             r = cli('lint', cwd=project, env_overrides=with_claude)
@@ -205,8 +218,8 @@ class TestLint:
         assert r.stdout.startswith('No reviewer ran')
 
     def test_usage_errors(self, cli: PxtRunner, project: pathlib.Path) -> None:
-        """A missing path, no Python files, or more source than a review takes is an error, exit 1; the checklist
-        takes any amount of source."""
+        """A missing path, no Python files, more source than a review takes, or a file that cannot be read is an error,
+        exit 1; the checklist takes any amount of source."""
         r = cli('lint', 'missing.py', cwd=project, check=False)
         assert r.returncode == 1
         assert 'missing.py does not exist' in r.stderr
@@ -220,4 +233,18 @@ class TestLint:
         assert '  big.py\n' in cli('lint', cwd=project).stdout
         r = cli('lint', cwd=project, check=False, env_overrides={'PXT_LINT_REVIEWER': reviewer(project, answer())})
         assert r.returncode == 1
-        assert 'more than 400000 characters; explicitly list the files to review' in r.stderr
+        assert 'more than 400000 characters; review fewer at a time, such as one directory' in r.stderr
+
+        # Windows needs a privilege to create a symlink
+        if sys.platform != 'win32':
+            (project / 'moved').mkdir()
+            (project / 'moved' / 'report.py').symlink_to(project / 'deleted.py')
+            r = cli(
+                'lint',
+                'moved',
+                cwd=project,
+                check=False,
+                env_overrides={'PXT_LINT_REVIEWER': reviewer(project, answer())},
+            )
+            assert r.returncode == 1
+            assert 'cannot read deleted.py: No such file or directory' in r.stderr

@@ -41,7 +41,11 @@ class ReviewerPreset(NamedTuple):
 
 # keyed by the agent names in AGENT_MARKERS
 REVIEWER_PRESETS = {
-    'claude': ReviewerPreset('claude', 'claude -p --tools Read,Grep,Glob --allowedTools Read,Grep,Glob'),
+    # without MCP servers, and without the project's settings, such as its hooks
+    'claude': ReviewerPreset(
+        'claude',
+        'claude -p --tools Read,Grep,Glob --allowedTools Read,Grep,Glob --strict-mcp-config --setting-sources user',
+    ),
     'codex': ReviewerPreset('codex', 'codex exec --sandbox read-only --skip-git-repo-check -'),
     # Cursor's agent takes the prompt only as an argument
     'cursor': ReviewerPreset('agent', 'sh -c \'exec agent -p --mode ask --trust --output-format text "$(cat)"\''),
@@ -52,7 +56,8 @@ REVIEWER_PRESETS = {
     'opencode': ReviewerPreset('opencode', 'opencode run --agent plan'),
 }
 REVIEWER_ENV_VAR = 'PXT_LINT_REVIEWER'
-REVIEWER_TIMEOUT_SECS = 600
+# below the 10-minute command timeout in EPILOG, so the caller gets the timeout error
+REVIEWER_TIMEOUT_SECS = 540
 
 SKIPPED_DIRS = {'__pycache__', 'node_modules', 'site-packages', 'venv', 'build', 'dist'}
 # caps the sources so the prompt fits the reviewer's context window (400,000 characters: ~100,000 tokens)
@@ -147,11 +152,16 @@ def run(argv: list[str]) -> None:
         _print_checklist(names, rules_path, args.as_json)
         return
 
-    sources = {name: path.read_text(encoding='utf-8', errors='replace') for name, path in zip(names, files)}
+    sources: dict[str, str] = {}
+    for name, path in zip(names, files):
+        try:
+            sources[name] = path.read_text(encoding='utf-8', errors='replace')
+        except OSError as e:
+            fail('pxt lint', f'cannot read {name}: {e.strerror or e}', 'FILE_UNREADABLE', args.as_json)
     if sum(len(source) for source in sources.values()) > MAX_SOURCE_CHARS:
         fail(
             'pxt lint',
-            f'the files have more than {MAX_SOURCE_CHARS} characters; explicitly list the files to review',
+            f'the files have more than {MAX_SOURCE_CHARS} characters; review fewer at a time, such as one directory',
             'TOO_LARGE',
             args.as_json,
         )
@@ -192,8 +202,8 @@ def _agent_reviewer() -> str | None:
         cause = f'{preset.executable} is not on PATH'
     else:
         print(
-            f'pxt lint: reviewing with {preset.command}. Each review runs that model on your account; '
-            f'{REVIEWER_ENV_VAR}=none turns it off.',
+            f'pxt lint: reviewing with {preset.command}. A review takes several minutes: give pxt lint a timeout of '
+            f'10 minutes. Each review runs that model on your account; {REVIEWER_ENV_VAR}=none turns it off.',
             file=sys.stderr,
         )
         return preset.command
@@ -224,7 +234,7 @@ def _print_findings(findings: list[Finding], rules_path: pathlib.Path, as_json: 
 def _print_checklist(files: list[str], rules_path: pathlib.Path, as_json: bool) -> None:
     rules = rules_path.read_text(encoding='utf-8')
     if as_json:
-        print(json.dumps({'reviewer': None, 'files': files, 'rules': rules}, indent=2))
+        print(json.dumps({'reviewer': None, 'findings': None, 'files': files, 'rules': rules}, indent=2))
         return
     print(CHECKLIST.format(files='\n'.join(f'  {f}' for f in files), rules=rules), end='')
 
@@ -285,7 +295,7 @@ def _review(
     if findings is None:
         fail(
             'pxt lint',
-            f'the reviewer\'s answer has no {{"findings": [...]}} object: {result.stdout.strip()[:300]}',
+            f'the reviewer\'s answer has no valid {{"findings": [...]}} object: {result.stdout.strip()[:300]}',
             'REVIEWER_FAILED',
             as_json,
         )
@@ -293,7 +303,9 @@ def _review(
 
 
 def _parse_findings(answer: str) -> list[Finding] | None:
-    """Parse the findings out of the reviewer's answer; None if the answer has no valid {"findings": [...]} object."""
+    """Parse the findings out of the reviewer's answer, skipping a finding without a rule, file, why or fix string.
+
+    Returns None if the answer has no {"findings": [...]} object, or if every finding in it is skipped."""
     # a model may wrap the object in prose or a code fence, and the prose may contain braces
     decoder = json.JSONDecoder()
     parsed: Any = None
@@ -310,12 +322,17 @@ def _parse_findings(answer: str) -> list[Finding] | None:
     findings: list[Finding] = []
     for f in parsed['findings']:
         if not isinstance(f, dict) or not all(isinstance(f.get(key), str) for key in ('rule', 'file', 'why', 'fix')):
-            return None
+            continue
         line = f.get('line')
         # bool is a subclass of int, but a JSON true is not a line number
         if not isinstance(line, int) or isinstance(line, bool):
             line = None
         findings.append(Finding(rule=f['rule'], file=f['file'], line=line, why=f['why'], fix=f['fix']))
+    skipped = len(parsed['findings']) - len(findings)
+    if skipped > 0 and len(findings) == 0:
+        return None
+    if skipped > 0:
+        print(f"pxt lint: skipped {plural(skipped, 'malformed finding')} in the reviewer's answer.", file=sys.stderr)
     return findings
 
 

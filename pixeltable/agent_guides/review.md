@@ -98,7 +98,7 @@ Instead: compute the per-group value with a `group_by()` query, then look it up 
     duplicates = [r['signup_id'] for r in rows if r['signed_up_at'] > first_at[r['email_key']]]
 
 A window aggregate, such as `pxtf.min(t.at, group_by=t.key)` in `select()`, is not the fix: in this release it
-returns a running value (`pxt guide queries`).
+returns a running value (PXT-1801, `pxt guide queries`).
 
 A value that is fixed once the row arrives, such as an earlier near-duplicate found with `similarity()`, does not need
 a query per row on every read: make the `@pxt.query` call a column, which runs once per row, on insert.
