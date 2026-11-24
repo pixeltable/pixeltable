@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -6,6 +7,7 @@ import PIL
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.io.export import null_image_error
 
 format_msg = """
 
@@ -86,6 +88,14 @@ def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     # create output dir
     assert not dest_path.exists()
     dest_path.mkdir(parents=False)
+    try:
+        return _write_coco_dataset(query, dest_path)
+    except BaseException:
+        shutil.rmtree(dest_path, ignore_errors=True)
+        raise
+
+
+def _write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     images_dir = dest_path / 'images'
     images_dir.mkdir()
 
@@ -99,8 +109,11 @@ def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     input_dict_slot_idx = input_dict_expr.slot_idx
     img_slot_idx: int | None = None
     for img_id, input_row in enumerate(query._exec()):
+        input_dict = input_row[input_dict_slot_idx]
+        if isinstance(input_dict, dict) and 'image' in input_dict and input_dict['image'] is None:
+            image_expr = next((e for e in input_dict_expr.dependencies() if e.col_type.is_image_type()), None)
+            raise null_image_error(image_expr if image_expr is not None else 'image')
         if img_slot_idx is None:
-            input_dict = input_row[input_dict_slot_idx]
             _verify_input_dict(input_dict)
 
             # we want to know the slot idx of the image used in the input dict, so that we can check whether we
@@ -109,7 +122,6 @@ def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
             img_slot_idx = next((e.slot_idx for e in input_dict_dependencies if e.col_type.is_image_type()), None)
             assert img_slot_idx is not None
         else:
-            input_dict = input_row[input_dict_slot_idx]
             _verify_input_dict(input_dict)
 
         # get a local path for the image

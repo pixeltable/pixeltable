@@ -6,6 +6,15 @@ from pixeltable.exprs.column_ref import ColumnRef
 from pixeltable.exprs.expr import Expr
 
 
+def null_image_error(image: Expr | str) -> excs.RequestError:
+    """The error that the COCO and PyTorch dataset exporters raise for a row whose image is null."""
+    image_str = str(image)
+    return excs.RequestError(
+        excs.ErrorCode.MISSING_REQUIRED,
+        f'Cannot export a null image from {image_str!r}; rows without an image can be excluded with `.where()`',
+    )
+
+
 def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
     """Return a new select list where media ColumnRefs are replaced with their .fileurl property.
 

@@ -1313,7 +1313,7 @@ class TestQuery:
 
         # check invalidation on insert
         t_size = t.count()
-        t.insert(row_id=t_size)
+        t.insert(row_id=t_size, c_image=get_image_files()[0])
         ds3 = t.to_pytorch_dataset(image_format='pt')
         assert isinstance(ds3, PixeltablePytorchDataset)
         assert ds3.path != ds1.path, 'different path should be used'

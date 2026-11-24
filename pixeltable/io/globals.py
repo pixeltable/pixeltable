@@ -30,6 +30,8 @@ def export_images_as_fo_dataset(
     [`frame_iterator`][pixeltable.functions.video.frame_iterator]) will first be written to disk in the specified
     `image_format`.
 
+    Every row must have an image: a null image raises an error and no dataset is created.
+
     The label parameters accept one or more sets of labels of each type. If a single `Expr` is provided, then it will
     be exported as a single set of labels with a default name such as `classifications`.
     (The single set of labels may still containing multiple individual labels; see below.)
@@ -95,6 +97,13 @@ def export_images_as_fo_dataset(
             f'`images` must be an expression of type Image (got {images.col_type._to_base_str()})',
         )
 
-    return fo.Dataset.from_importer(
-        PxtImageDatasetImporter(tbl, images, image_format, classifications=classifications, detections=detections)
+    importer = PxtImageDatasetImporter(
+        tbl, images, image_format, classifications=classifications, detections=detections
     )
+    dataset = fo.Dataset()
+    try:
+        dataset.add_importer(importer)
+    except BaseException:
+        dataset.delete()
+        raise
+    return dataset

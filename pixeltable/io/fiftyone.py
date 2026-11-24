@@ -99,6 +99,10 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     def __next__(self) -> tuple[str, fo.ImageMetadata | None, dict[str, fo.Label] | None]:
         row = next(self.__row_iter)
         img = row[self.__image_idx]
+        if img is None:
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, 'export_images_as_fo_dataset(): images must not be null'
+            )
         assert isinstance(img, PIL.Image.Image)
         if self.__localpath_idx is not None:
             # Use the existing localpath of the stored image
@@ -174,4 +178,4 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         pass
 
     def close(self, *args: Any) -> None:
-        pass
+        self.__row_iter.close()

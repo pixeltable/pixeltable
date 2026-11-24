@@ -85,6 +85,32 @@ class TestFiftyone:
         assert all(sample.filepath.endswith(('.jpeg', '.JPEG')) for sample in ds)
 
     @pytest.mark.xdist_group('fiftyone')
+    def test_export_images_null(self, uses_db: None) -> None:
+        skip_test_if_not_installed('fiftyone')
+
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'image': pxt.Image | None, 'classifications': pxt.Json | None})
+        imgs = get_image_files()[:2]
+        sample_cls = [{'label': 'cat', 'confidence': 0.5}]
+        t.insert(
+            [
+                {'id': 0, 'image': imgs[0], 'classifications': sample_cls},
+                {'id': 1, 'image': None, 'classifications': sample_cls},
+                {'id': 2, 'image': imgs[1]},
+                {'id': 3, 'image': None},
+            ]
+        )
+
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='images must not be null'):
+            pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications)
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='images must not be null'):
+            pxt.io.export_images_as_fo_dataset(t, t.image.rotate(180))
+
+        t.where(t.image == None).delete()
+        ds = pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications)
+        assert len(ds) == 2
+        assert ds.count('classifications') == 1
+
+    @pytest.mark.xdist_group('fiftyone')
     def test_export_images_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fiftyone')
 

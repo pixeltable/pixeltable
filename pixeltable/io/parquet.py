@@ -9,6 +9,7 @@ from typing import Any, Literal, cast
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.io.export import null_image_error
 from pixeltable.utils.transactional_directory import transactional_directory
 
 if typing.TYPE_CHECKING:
@@ -22,6 +23,7 @@ def export_parquet(
     inline_images: bool = False,
     if_exists: Literal['error', 'replace'] = 'error',
     _write_md: bool = False,
+    _reject_null_images: bool = False,
 ) -> None:
     """
     Exports a query result or table to one or more Parquet files. Requires pyarrow to be installed.
@@ -112,7 +114,15 @@ def export_parquet(
             type_dict = {k: v.as_dict() for k, v in schema.items()}
             json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
+        image_exprs = (
+            {name: expr for expr, name in query._effective_select_list if expr.col_type.is_image_type()}
+            if _reject_null_images
+            else {}
+        )
         for batch_num, record_batch in enumerate(to_record_batches(query, partition_size_bytes)):
+            for name, expr in image_exprs.items():
+                if record_batch.column(name).null_count > 0:
+                    raise null_image_error(expr)
             output_path = temp_path / f'part-{batch_num:05d}.parquet'
             arrow_tbl = pa.Table.from_batches([record_batch])
             pa.parquet.write_table(arrow_tbl, str(output_path))
