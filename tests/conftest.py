@@ -131,7 +131,7 @@ def pytest_collection_modifyitems(config: PytestConfig, items: list[pytest.Item]
             marker = item.get_closest_marker('db_roots')
             if marker is None or marker.args != ('local',):
                 offenders.append(item.nodeid)
-    if offenders:
+    if len(offenders) > 0:
         raise pytest.UsageError(
             "tests using the 'uses_db' fixture must be marked @pytest.mark.db_roots('local', reason='...'):\n  "
             + '\n  '.join(offenders)
@@ -142,7 +142,7 @@ def pytest_collection_modifyitems(config: PytestConfig, items: list[pytest.Item]
         for item in items
         if 'large_model' in _xdist_group_names(item) and item.get_closest_marker('resource_intensive') is None
     ]
-    if offenders:
+    if len(offenders) > 0:
         raise pytest.UsageError(
             "tests in the 'large_model' xdist group must be marked @pytest.mark.resource_intensive, so that they run "
             'only on the large runner:\n  ' + '\n  '.join(offenders)
