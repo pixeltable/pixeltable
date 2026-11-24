@@ -17,7 +17,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path, TableMetadata, fold_identifier
 from pixeltable.catalog.model import schema
-from pixeltable.config import VAR_SECTION, Config
+from pixeltable.config import VAR_SECTION, Config, DatabaseConfig
 from pixeltable.env import Env
 from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache, trial
 from pixeltable.service.management_protocol import (
@@ -95,6 +95,13 @@ def status(req: Request) -> models.StatusResponse:
     )
 
 
+def _redact_db_vars(db: DatabaseConfig) -> DatabaseConfig:
+    """db with its config var values redacted, as the vars section reports them."""
+    if db.vars is None:
+        return db
+    return db.model_copy(update={'vars': dict.fromkeys(db.vars, '<redacted>')})
+
+
 @router.get('/api/config', checks_env=False)
 def config(_req: Request) -> models.ConfigResponse:
     # Three-layer redaction so a new sensitive key never silently leaks:
@@ -119,6 +126,8 @@ def config(_req: Request) -> models.ConfigResponse:
             # for types.GenericAlias; collapse to the origin (eg list) for the lookup.
             coerce_type = typing.get_origin(ck.expected_type) or ck.expected_type
             raw: Any = Config.get().get_value(ck.key, coerce_type, section=ck.section)
+            if ck.section == 'pixeltable' and ck.key == 'database' and raw is not None:
+                raw = [_redact_db_vars(db) for db in raw]
             value = None if raw is None else str(raw)
         entries.append(
             models.ConfigEntry(

@@ -326,8 +326,10 @@ class TestConfig:
         assert daemon_pid(cli) != pid
         assert _A_KEY not in r.stdout + r.stderr
 
-        # the restarted daemon serves with what the file now says
-        entries = cli('config', '--json', env_overrides=own_config).json['entries']
+        # the restarted daemon serves with what the file now says, and no entry shows the var's value
+        resp = cli('config', '--json', env_overrides=own_config)
+        assert _A_KEY not in resp.stdout
+        entries = resp.json['entries']
         test_key = next(e for e in entries if (e['section'], e['key']) == ('pixeltable.database.vars', 'pxt_test_key'))
         assert test_key['source'] == str(config_file)
 
