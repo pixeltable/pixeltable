@@ -550,8 +550,6 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
             return
         elif self.is_std_agg_fn_call:
-            if self.aggregator is None:
-                pass
             data_row[self.slot_idx] = self.aggregator.value()
             return
 
