@@ -24,6 +24,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.catalog import fold_identifier, fold_mapping_keys
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_prepare_columns, _df_rows, df_infer_schema
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.pydantic import is_json_convertible
 
@@ -244,6 +245,7 @@ class QueryTableDataAdapter(TableDataAdapter):
         self._plan.ctx.ignore_errors = self.ignore_errors
 
     async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
+        assert get_runtime().in_xact
         assert self._plan is not None
         col_exprs = list(zip(self._plan.select_list_schema, self._plan.select_list_exprs))
         async with contextlib.aclosing(self._plan.aexec({})) as rows:
