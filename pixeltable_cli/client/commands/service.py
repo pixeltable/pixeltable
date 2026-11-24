@@ -133,8 +133,8 @@ Examples:
   pxt service update app.py pxt://acme:main              # start them in a hosted database
 
 Confirmation:
-  Starting services, as on a first deploy, needs no confirmation. Restarting a running service or a
-  destructive change asks [y/N] on a terminal; without one, it exits 3 unless given -f.
+  Starting services, as on a first deploy, needs no confirmation. Redeploying a service that is running,
+  for any reason, asks [y/N] on a terminal; without one, it exits 3 unless given -f.
 
 Ports:
   A restarted service keeps its previous port, so its callers keep their address; a service that was not
@@ -511,11 +511,10 @@ def _update(
             force=force,
             on_refusal=lambda error: _print_plan(plan, as_json=as_json, error=error),
         )
-    # like an additive schema update, a plan that interrupts nothing running applies without asking
-    if s.restarts > 0 or s.destructive > 0:
-        restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
+    interrupted = s.update_additive + s.update_destructive
+    if interrupted > 0:
         confirm_or_exit(
-            f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
+            f'start or restart {s.create + interrupted} service(s), interrupting {interrupted} running service(s)?',
             force,
             on_refusal=lambda error: _print_plan(plan, as_json=as_json, error=error),
         )

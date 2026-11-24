@@ -74,8 +74,8 @@ Running `pxt` in a project: the project root, the daemon, application files, pro
 - `pxt schema`, `pxt service` and `pxt db` exit 0 when done or when nothing is pending, and exit 1 on an error.
 - A `diff`, or an `update` or `prune` with `-n`, exits 2 when changes are pending.
 - Every command exits 3 on a refusal.
-- These commands ask for confirmation: `pxt service update` when it restarts a running service or makes a destructive
-  change; `pxt schema update` with a destructive change; the `prune` subcommands, `pxt drop`, `pxt drop-dir`,
+- These commands ask for confirmation: `pxt service update` when it redeploys a service that is running, for any
+  reason; `pxt schema update` with a destructive change; the `prune` subcommands, `pxt drop`, `pxt drop-dir`,
   `pxt recompute`, `pxt revert`, `pxt db update` and `pxt db delete`.
 - `-f` skips the confirmation.
 - An additive `pxt schema update` runs without asking, and so does a `pxt service update` that only starts services,
