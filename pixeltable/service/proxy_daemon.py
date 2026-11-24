@@ -220,15 +220,16 @@ def reinitialize(db: str) -> None:
 def delete(db: str) -> bool:
     """Stop the daemon, drop its database, and remove its home directory.
 
-    Returns False if there was nothing to delete: neither a home directory nor a database.
+    Returns False if there is no local proxy for db: without its home directory, a database of that name in the
+    shared postmaster belongs to something else and is left alone.
     """
-    stop(db)
-    dropped = _drop_database(db)
     home = proxy_home(db)
     if home.exists():
+        stop(db)
+        _drop_database(db)
         shutil.rmtree(home)
         return True
-    return dropped
+    return False
 
 
 def _reinitialize() -> None:
@@ -239,12 +240,11 @@ def _reinitialize() -> None:
     pxt.init()
 
 
-def _drop_database(db_name: str) -> bool:
-    """Drop the database, and return whether it existed."""
+def _drop_database(db_name: str) -> None:
     env = Env.get()
     env.ensure_connected()
     if env._db_server is None:
-        return False  # not running against the embedded postmaster (e.g. external DB); nothing to drop
+        return  # not running against the embedded postmaster (e.g. external DB); nothing to drop
     engine = sql.create_engine(env._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
     preparer = engine.dialect.identifier_preparer
     try:
@@ -255,9 +255,8 @@ def _drop_database(db_name: str) -> bool:
                 if target_db_name != db_name and _db_exists(conn, db_name):
                     target_db_name = db_name
                 else:
-                    return False
+                    return
             conn.execute(sql.text(env._dbms.drop_db_stmt(preparer.quote(target_db_name))))
-            return True
     finally:
         engine.dispose()
 

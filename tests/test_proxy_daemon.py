@@ -25,6 +25,7 @@ import PIL.Image
 import psutil
 import pytest
 import requests
+import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -1120,6 +1121,23 @@ class TestProxyDaemon:
             code, _, err = run(action, 'neverexisted')
             assert code == 1
             assert "no local proxy named 'neverexisted'" in err
+
+        # a database with no proxy home is not a proxy's to drop, even in the shared postmaster
+        env = Env.get()
+        orphan = 'localproxy_orphan'
+        engine = sql.create_engine(env._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
+        try:
+            with engine.connect() as conn:
+                if not env._store_db_exists(orphan):
+                    conn.execute(sql.text(f'CREATE DATABASE {orphan}'))
+            code, _, err = run('delete', orphan)
+            assert code == 1
+            assert f"no local proxy named '{orphan}'" in err
+            assert env._store_db_exists(orphan)
+        finally:
+            with engine.connect() as conn:
+                conn.execute(sql.text(f'DROP DATABASE IF EXISTS {orphan}'))
+            engine.dispose()
 
         # a proxy that exists but is not running stops as a no-op, and deletes once
         db = 'localproxy_idle'
