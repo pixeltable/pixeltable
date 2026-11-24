@@ -136,12 +136,8 @@ class TableDataConduit:
     def infer_schema(self) -> dict[str, ts.ColumnType]:
         raise NotImplementedError
 
-    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+    def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
         """Yield normalized input rows. Exception values represent failed source cells."""
-        for row in self._rows():
-            yield row
-
-    def _rows(self) -> Iterator[dict[str, Any]]:
         raise NotImplementedError
 
     async def collect_rows(self) -> list[dict[str, Any]]:
@@ -333,9 +329,10 @@ class RowDataTableDataConduit(TableDataConduit):
             output_row[col_name] = checked_val
         return output_row
 
-    def _rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
         assert self.valid_rows is not None
-        yield from self.valid_rows
+        for row in self.valid_rows:
+            yield row
 
 
 class PandasTableDataConduit(TableDataConduit):
@@ -382,9 +379,10 @@ class PandasTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pd_df.columns)
         self.prepared_columns = _df_prepare_columns(self.pd_df, self.src_schema, self.source_column_map)
 
-    def _rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
         assert self.prepared_columns is not None
-        yield from _df_rows(self.prepared_columns, len(self.pd_df))
+        for row in _df_rows(self.prepared_columns, len(self.pd_df)):
+            yield row
 
 
 class CSVTableDataConduit(TableDataConduit):
@@ -694,23 +692,26 @@ class HFTableDataConduit(TableDataConduit):
         # Return as list of array views (shares memory with reshaped)
         return list(reshaped)
 
-    def _rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
         import datasets
 
         for split_name, split_dataset in self.dataset_dict.items():
             features = split_dataset.features
             if isinstance(split_dataset, datasets.Dataset):
                 table = split_dataset.data  # the underlying Arrow table
-                yield from self._process_arrow_table(table, split_name, features)
+                for row in self._process_arrow_table(table, split_name, features):
+                    yield row
             else:
                 # we're getting batches of Arrow tables, since we did set_format('arrow');
                 # use a trial batch to determine the target batch size
                 first_batch = next(split_dataset.iter(batch_size=16))
                 bytes_per_row = int(first_batch.nbytes / len(first_batch))
                 batch_size = self._K_BATCH_SIZE_BYTES // bytes_per_row
-                yield from self._process_arrow_table(first_batch, split_name, features)
+                for row in self._process_arrow_table(first_batch, split_name, features):
+                    yield row
                 for batch in split_dataset.skip(16).iter(batch_size=batch_size):
-                    yield from self._process_arrow_table(batch, split_name, features)
+                    for row in self._process_arrow_table(batch, split_name, features):
+                        yield row
 
     def _process_arrow_table(
         self, table: 'pa.Table', split_name: str, features: dict[str, Any]
@@ -787,7 +788,7 @@ class ParquetTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pq_ds.schema.names)
         self.total_rows = 0
 
-    def _rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
         from pixeltable.utils.arrow import iter_tuples2
 
         try:
@@ -843,9 +844,10 @@ class PydanticTableDataConduit(TableDataConduit):
                     )
             self.dumped_rows[i] = self._convert_row(i, raw_row)
 
-    def _rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
         """Yield the normalized dicts prepared from the Pydantic models."""
-        yield from self.dumped_rows
+        for row in self.dumped_rows:
+            yield row
 
     def _convert_row(self, i: int, raw_row: dict[str, Any]) -> dict[str, Any]:
         # Coerce each cell to its column's stored representation, exactly as the dict path does
