@@ -169,7 +169,7 @@ class TestConfig:
         resp = cli('config', '--json', env_overrides=supplied).json
         entries = {(e['section'], e['key']): e for e in resp['entries']}
 
-        # users name config vars, so a name that looks harmless can still hold a credential
+        # users choose config var keys, so a key that looks harmless can still hold a credential
         for key in ('pxt_test_key', 'pxt_test_auth_header'):
             var = entries['pixeltable.database.vars', key]
             assert (var['value'], var['source']) == ('<redacted>', 'env')
