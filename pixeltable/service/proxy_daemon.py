@@ -225,10 +225,10 @@ def delete(db: str) -> bool:
     stop(db)
     dropped = _drop_database(db)
     home = proxy_home(db)
-    if not home.exists():
-        return dropped
-    shutil.rmtree(home)
-    return True
+    if home.exists():
+        shutil.rmtree(home)
+        return True
+    return dropped
 
 
 def _reinitialize() -> None:

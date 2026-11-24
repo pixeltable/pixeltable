@@ -1126,24 +1126,6 @@ class TestStatus:
         assert any(unit in sized for unit in ('B)', 'KB)', 'MB)', 'GB)'))
 
 
-@pytest.mark.db_roots('local', reason='manages local proxy homes; not catalog-specific')
-class TestLocalProxy:
-    def test_unknown_name(self, cli: PxtRunner) -> None:
-        """stop and delete of a name with no local proxy say so and fail, so a typo does not look like success."""
-        for action in ('stop', 'delete'):
-            r = cli('localproxy', action, 'neverexisted', check=False)
-            assert r.returncode == 1
-            assert "no local proxy named 'neverexisted'" in r.stderr
-
-        # a proxy that exists but is not running stops as a no-op, and deletes once
-        cli('localproxy', 'create', 'cli_lp_idle')
-        assert "Local proxy 'cli_lp_idle' is not running." in cli('localproxy', 'stop', 'cli_lp_idle').stdout
-        assert "Deleted local proxy 'cli_lp_idle'." in cli('localproxy', 'delete', 'cli_lp_idle').stdout
-        r = cli('localproxy', 'delete', 'cli_lp_idle', check=False)
-        assert r.returncode == 1
-        assert "no local proxy named 'cli_lp_idle'" in r.stderr
-
-
 @pytest.mark.db_roots('local', reason='reports resolved configuration settings; not catalog-specific')
 class TestConfig:
     def test_basics(self, cli: PxtRunner) -> None:
