@@ -181,3 +181,47 @@ def test_rate_limit_is_retried(rate_limited_service: list[tuple[str, int]]) -> N
     validate_update_status(t.insert(query=_QUERY), 1)
     assert rate_limited_service == [('/v1/search/public', 429), ('/v1/search/public', 200)]
     assert t.select(t.sources).collect()['sources'][0]['results'][0]['url'] == _URL
+
+
+
+def test_fetch_posts_urls(uses_db: None, tmp_path: Path) -> None:
+    """The fetch UDF POSTs {urls, content} and returns results[0], not the GET query-string form."""
+    served: list[tuple[str, str, dict[str, Any]]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            raw = self.rfile.read(int(self.headers['Content-Length']))
+            payload = json.loads(raw.decode())
+            served.append((self.path, self.command, payload))
+            page = {
+                'url': _URL,
+                'title': 'Pixeltable',
+                'content': 'Hello',
+                'truncated': False,
+                'total_chars': 5,
+            }
+            status = 200
+            if self.headers.get('X-Keenable-Title') is None:
+                status = 400
+                body = json.dumps({'error': 'missing title'}).encode()
+            else:
+                body = json.dumps({'results': [page]}).encode()
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    with _serving(Handler) as port, _configure(tmp_path, None) as mp:
+        mp.setattr(keenable, '_BASE_URL', f'http://127.0.0.1:{port}')
+        t = pxt.create_table('test_tbl', {'url': pxt.String | None})
+        t.add_computed_column(page=keenable.fetch(t.url, max_chars=2000))
+        validate_update_status(t.insert(url=_URL), 1)
+
+    assert served == [('/v1/fetch/public', 'POST', {'urls': [_URL], 'content': {'max_chars': 2000}})]
+    page = t.select(t.page).collect()['page'][0]
+    assert page['content'] == 'Hello'
+    assert page['url'] == _URL

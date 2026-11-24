@@ -109,10 +109,8 @@ class _KeenableClient:
     async def search(self, request: dict[str, Any]) -> dict[str, Any]:
         return await self._request('POST', '/v1/search', json=request)
 
-    async def fetch(self, params: dict[str, Any]) -> dict[str, Any]:
-        # aiohttp accepts only str, int and float query values
-        query = {name: str(value).lower() if isinstance(value, bool) else value for name, value in params.items()}
-        return await self._request('GET', '/v1/fetch', params=query)
+    async def fetch(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self._request('POST', '/v1/fetch', json=request)
 
 
 @register_client('keenable', credential_param='api_key')
@@ -226,7 +224,7 @@ async def fetch(url: str, *, max_chars: int | None = None, live: bool | None = N
     """Fetch a web page and return its main content as markdown.
 
     Equivalent to the Keenable Fetch API endpoint.
-    For additional details, see: <https://docs.keenable.ai/api-reference>
+    For additional details, see: <https://docs.keenable.ai/api-reference/fetch-post>
 
     Request throttling:
     Applies the rate limit set in the config (section `keenable`, key `rate_limit`). If no rate
@@ -235,7 +233,7 @@ async def fetch(url: str, *, max_chars: int | None = None, live: bool | None = N
     Args:
         url: The URL of the page to fetch.
         max_chars: Cut the content to this many characters. `truncated` then says whether it was cut.
-        live: Read the page from the site, rather than from the service's index.
+        live: Read the page from the site (`retrieval.max_age_hours: 0`), rather than from the service's index.
 
     Returns:
         A dictionary with the following entries:
@@ -258,8 +256,30 @@ async def fetch(url: str, *, max_chars: int | None = None, live: bool | None = N
 
         >>> tbl.select(tbl.page.content).collect()
     """
-    params = _only_set(url=url, max_chars=max_chars, live=live)
-    return cast(KeenableFetchResponse, await _client().fetch(params))
+    request: dict[str, Any] = {'urls': [url]}
+    content = _only_set(max_chars=max_chars)
+    if content:
+        request['content'] = content
+    if live:
+        request['retrieval'] = {'max_age_hours': 0}
+    response = await _client().fetch(request)
+    results = response.get('results') if isinstance(response, dict) else None
+    page = results[0] if isinstance(results, list) and results else None
+    if not isinstance(page, dict):
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            'Keenable /v1/fetch returned no page in results[0].',
+            provider='keenable',
+        )
+    if 'error' in page:
+        err = page['error']
+        if isinstance(err, dict):
+            status = int(err.get('status') or 502)
+            body = err.get('message') or err.get('error') or str(err)
+        else:
+            status, body = 502, str(err)
+        raise _status_error(status, str(body))
+    return cast(KeenableFetchResponse, page)
 
 
 __all__ = ['fetch', 'search']
