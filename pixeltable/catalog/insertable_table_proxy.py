@@ -177,8 +177,7 @@ class InsertableTableProxy(TableProxy):
         )
 
     def _dispatch_insert(self, method: str, args: dict[str, Any]) -> UpdateStatus:
-        """Dispatch an insert, then report it like a local insert does: the daemon logs its summary to its own
-        console, which the caller doesn't see."""
+        """Dispatch an insert and log its summary."""
         start_ts = time.perf_counter()
         status = self._dispatch(method, args)
         Env.get().console_logger.info(status.insert_msg(start_ts))
