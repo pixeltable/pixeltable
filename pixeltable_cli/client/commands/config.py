@@ -18,7 +18,8 @@ Notes:
   Source 'env' means an environment variable supplies the value.
   A file path means the value came from the config file of this Pixeltable instance.
   Source 'unset' means neither supplies the value; pixeltable falls back to its own default.
-  Credential values (api_key, api_token, api_secret, auth_token) show '<redacted>' when set;
+  Credential values (api_key, api_token, api_secret, auth_token) and all config vars
+  (section pixeltable.database.vars) show '<redacted>' when set;
   use the source field to tell set from unset for sensitive keys.
   The daemon resolves values from the environment it was started with. `pxt config` lists the variables
   whose values differ between your shell and the daemon. The next command that reads or changes table data

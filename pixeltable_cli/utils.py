@@ -284,10 +284,14 @@ def _packages_fingerprint() -> str:
 # Env-var keys whose values may contain credentials and must not be returned verbatim
 _SENSITIVE_NAME_PARTS: tuple[str, ...] = ('KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'CONNECT_STR')
 
+# Mirrors pixeltable.config.VAR_ENV_PREFIX (duplicated so this module stays stdlib-only)
+_VAR_ENV_PREFIX = 'PIXELTABLE_VAR_'
+
 
 def _is_sensitive_env_name(name: str) -> bool:
     upper = name.upper()
-    return any(part in upper for part in _SENSITIVE_NAME_PARTS)
+    # config var names are chosen by users, so their values are treated as sensitive whatever the name
+    return upper.startswith(_VAR_ENV_PREFIX) or any(part in upper for part in _SENSITIVE_NAME_PARTS)
 
 
 def _redact_env_value(name: str, value: str) -> str:

@@ -17,7 +17,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path, TableMetadata, fold_identifier
 from pixeltable.catalog.model import schema
-from pixeltable.config import Config
+from pixeltable.config import VAR_SECTION, Config
 from pixeltable.env import Env
 from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache, trial
 from pixeltable.service.management_protocol import (
@@ -97,15 +97,18 @@ def status(req: Request) -> models.StatusResponse:
 
 @router.get('/api/config', checks_env=False)
 def config(_req: Request) -> models.ConfigResponse:
-    # Two-layer redaction so a new sensitive key never silently leaks:
+    # Three-layer redaction so a new sensitive key never silently leaks:
     # - params from registered API client factories
     # - name-suffix match for keys that aren't tied to an Env-registered client (eg, azure.storage_account_key)
+    # - every config var, since users name them and a name says nothing reliable about the value
     client_creds: set[str] = set(Env.get().get_client_credential_params().values())
     sensitive_suffixes = ('key', 'token', 'secret', 'password', 'otlp_headers')
     entries: list[models.ConfigEntry] = []
     for ck in Config.get().config_keys():
         source = Config.get().get_value_source(ck.key, section=ck.section)
-        is_sensitive = ck.key in client_creds or any(ck.key.endswith(s) for s in sensitive_suffixes)
+        is_sensitive = (
+            ck.section == VAR_SECTION or ck.key in client_creds or any(ck.key.endswith(s) for s in sensitive_suffixes)
+        )
         if source == 'unset':
             value: str | None = None
         elif is_sensitive:
