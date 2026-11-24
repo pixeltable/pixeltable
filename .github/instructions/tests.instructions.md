@@ -22,7 +22,9 @@ applyTo: "tests/**"
   `standard+`/`standard++`), or `very_expensive` (for example, video generation; `standard++` only). Tests
   that exceed a standard GitHub-hosted runner's memory or disk, or run for tens of minutes on its CPU, take
   `resource_intensive`. Neither `very_expensive` nor `resource_intensive` runs on PRs or in the merge queue, so
-  neither needs `skip_merge_queue`. Register new markers in `pyproject.toml`; put new markers on classes/methods.
+  neither needs `skip_merge_queue`. Tests in the `large_model` xdist group, which includes every test requesting
+  `clip_embed`, `e5_embed` or `all_mpnet_embed`, must be `resource_intensive`; `tests/conftest.py` fails those that
+  aren't. Register new markers in `pyproject.toml`; put new markers on classes/methods.
   A notebook under `docs/release` takes the markers of the unit tests for the providers and UDFs it calls, or
   `skip` if CI never runs it, with a reason, in `NOTEBOOK_MARKERS` in `tests/notebook_markers.py`.
 - Scope backend restrictions with `db_roots`; gate a single parametrization inside the test instead of
