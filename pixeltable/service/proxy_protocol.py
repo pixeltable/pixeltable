@@ -1006,14 +1006,38 @@ def encode_dir_tree(dir_path: pathlib.Path) -> list[dict[str, Any]]:
 
 def decode_dir_tree(files: list[dict[str, Any]], root: pathlib.Path) -> pathlib.Path:
     """Inverse of encode_dir_tree(): rebuild the entries under root and return the reassembled tree's top-level
-    directory (named after the original source directory). The caller owns root and removes it to clean up."""
-    for entry in files:
-        dest = root / entry['relpath']
+    directory (named after the original source directory). The caller owns root and removes it to clean up.
+
+    The entries come off the wire, so every relpath is validated before anything is written: each must stay under
+    root, and all must share one top-level directory.
+    """
+    relpaths = [_dir_tree_relpath(entry['relpath']) for entry in files]
+    tops = {relpath.parts[0] for relpath in relpaths}
+    if len(tops) != 1:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'A sent directory tree must have exactly one top-level directory, got {sorted(tops)}',
+        )
+    for entry, relpath in zip(files, relpaths):
+        dest = root.joinpath(*relpath.parts)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(entry['file'], dest)
-    tops = {pathlib.PurePosixPath(entry['relpath']).parts[0] for entry in files}
-    assert len(tops) == 1, tops
     return root / next(iter(tops))
+
+
+def _dir_tree_relpath(relpath: Any) -> pathlib.PurePosixPath:
+    """Return relpath as a path that cannot leave the directory it is joined onto, or raise RequestError.
+
+    Rejected: non-strings, absolute paths, drive prefixes, backslashes, and empty, '.' or '..' components.
+    """
+    if (
+        isinstance(relpath, str)
+        and '\\' not in relpath
+        and not pathlib.PureWindowsPath(relpath).drive
+        and all(part not in ('', '.', '..') for part in relpath.split('/'))
+    ):
+        return pathlib.PurePosixPath(relpath)
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid path in a sent directory tree: {relpath!r}')
 
 
 _U32 = struct.Struct('>I')

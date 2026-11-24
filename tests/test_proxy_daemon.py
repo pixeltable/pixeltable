@@ -414,6 +414,56 @@ class TestProxyDaemon:
         ):
             proxy_protocol.collect_remote_keys({'rows': [bad_member]})
 
+    def test_dir_tree_round_trip(self, tmp_path: pathlib.Path) -> None:
+        src = tmp_path / 'src' / 'data.parquet'
+        (src / 'sub').mkdir(parents=True)
+        (src / 'a.bin').write_bytes(b'a')
+        (src / 'sub' / 'b.bin').write_bytes(b'b')
+        staged = tmp_path / 'staged'
+        staged.mkdir()
+        files: list[dict[str, Any]] = []
+        for entry in proxy_protocol.encode_dir_tree(src):
+            copy = staged / str(len(files))
+            shutil.copy(entry['file'].path, copy)
+            files.append({'relpath': entry['relpath'], 'file': str(copy)})
+        root = tmp_path / 'root'
+        top = proxy_protocol.decode_dir_tree(files, root)
+        assert top == root / 'data.parquet'
+        assert (top / 'a.bin').read_bytes() == b'a'
+        assert (top / 'sub' / 'b.bin').read_bytes() == b'b'
+
+    @pytest.mark.parametrize(
+        'relpaths',
+        [
+            ['/abs/escape.txt'],
+            ['x/../../escape.txt'],
+            ['x/../../../escape.txt'],
+            ['../escape.txt'],
+            ['x/./escape.txt'],
+            ['x//escape.txt'],
+            ['x\\..\\..\\escape.txt'],
+            ['C:escape.txt'],
+            [''],
+            [None],
+            # a valid entry does not get written ahead of an escaping one
+            ['d/ok.txt', 'd/../../escape.txt'],
+            # entries without a single shared top-level directory
+            ['a/x.txt', 'b/y.txt'],
+            [],
+        ],
+    )
+    def test_dir_tree_rejects_escaping_relpaths(self, tmp_path: pathlib.Path, relpaths: list[Any]) -> None:
+        root = tmp_path / 'stage' / 'root'
+        files: list[dict[str, Any]] = []
+        for i, relpath in enumerate(relpaths):
+            staged = tmp_path / f'{i}.txt'
+            staged.write_bytes(b'attacker bytes')
+            files.append({'relpath': relpath, 'file': str(staged)})
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
+            proxy_protocol.decode_dir_tree(files, root)
+        assert not root.exists()
+        assert all((tmp_path / f'{i}.txt').exists() for i in range(len(relpaths)))
+
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client = ProxyClient.local('http://127.0.0.1:1')
         prepare_calls = 0

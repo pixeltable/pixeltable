@@ -429,10 +429,10 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
     # tbl.insert() reads a local path or a URL directly; a directory tree is reassembled here.
     source = kwargs['source']
     root: pathlib.Path | None = None
-    if isinstance(source, list):
-        root = TempStore.create_path()
-        source = str(proxy_protocol.decode_dir_tree(source, root))
     try:
+        if isinstance(source, list):
+            root = TempStore.create_path()
+            source = str(proxy_protocol.decode_dir_tree(source, root))
         return tbl.insert(
             source,
             source_format=kwargs['source_format'],
