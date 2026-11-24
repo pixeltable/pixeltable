@@ -432,6 +432,20 @@ class TestProxyDaemon:
         assert (top / 'a.bin').read_bytes() == b'a'
         assert (top / 'sub' / 'b.bin').read_bytes() == b'b'
 
+    def test_dir_tree_resolves_relpaths(self, tmp_path: pathlib.Path) -> None:
+        """A relpath that resolves to a path under root is accepted, however it is spelled."""
+        relpaths = ['top/./a.txt', 'top//b.txt', 'top/x/../c.txt']
+        files: list[dict[str, Any]] = []
+        for i, relpath in enumerate(relpaths):
+            staged = tmp_path / f'{i}.txt'
+            staged.write_bytes(relpath.encode())
+            files.append({'relpath': relpath, 'file': str(staged)})
+        root = tmp_path / 'root'
+        top = proxy_protocol.decode_dir_tree(files, root)
+        assert top == root / 'top'
+        assert sorted(p.name for p in top.iterdir()) == ['a.txt', 'b.txt', 'c.txt']
+        assert (top / 'c.txt').read_bytes() == b'top/x/../c.txt'
+
     @pytest.mark.parametrize(
         'relpaths',
         [
@@ -439,16 +453,16 @@ class TestProxyDaemon:
             ['x/../../escape.txt'],
             ['x/../../../escape.txt'],
             ['../escape.txt'],
-            ['x/./escape.txt'],
-            ['x//escape.txt'],
-            ['x\\..\\..\\escape.txt'],
-            ['C:escape.txt'],
+            # root itself, which is no file
             [''],
+            ['.'],
+            ['x/..'],
             [None],
             # a valid entry does not get written ahead of an escaping one
             ['d/ok.txt', 'd/../../escape.txt'],
-            # entries without a single shared top-level directory
+            # entries without a single shared top-level directory, as written or once resolved
             ['a/x.txt', 'b/y.txt'],
+            ['a/x.txt', 'a/../b/y.txt'],
             [],
         ],
     )
