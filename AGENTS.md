@@ -3,7 +3,8 @@
 Pixeltable is a Python library for incremental multimodal tables, computed columns, views, indexes and queries.
 These rules govern library contributions. Application builders should use the
 [Pixeltable skill](https://github.com/pixeltable/pixeltable-skill) and starter-kit examples.
-Application guidance belongs in that skill repo; `docs/release/skill.md` is only a pointer.
+Design guidance for application builders belongs in that skill repo; how a release behaves belongs in the
+agent guides in `pixeltable/agent_guides/`, which ship with that release. `docs/release/skill.md` is only a pointer.
 
 ## Scope and context
 
@@ -13,6 +14,7 @@ of longer guides; Codex and Claude do not automatically apply Copilot's path-spe
 | Area | Read |
 |---|---|
 | Docs or README | `.github/instructions/docs.instructions.md` |
+| Agent guides, or a change to user-visible behavior | `pixeltable/agent_guides/README.md` |
 | HTTP, CLI, authentication, hosted catalogs, app loading or packaging | `.github/instructions/serving.instructions.md` |
 | Tests or test coverage | `.github/instructions/tests.instructions.md` |
 | User-facing prose | `docs/_guidelines/GUIDELINES_FOR_PROSE.md` |
@@ -32,8 +34,8 @@ When asked to review with structure-review, follow `.claude/skills/structure-rev
   on `install`; in a shared environment use equivalent direct checks instead of reinstalling dependencies.
   `make check` includes mypy, Ruff and notebook checks. Report checks run and any omissions.
 - Review the entire task diff, including new files, before completion. Keep comments only for constraints,
-  non-obvious choices or invariants; update comments, help and docs when their described behavior changes.
-  Use concrete, concise prose, `function()` for function references and ASCII typography in new prose.
+  non-obvious choices or invariants; update comments, help, docs and agent guides when their described behavior
+  changes. Use concrete, concise prose, `function()` for function references and ASCII typography in new prose.
 - Public docstrings generate SDK MDX: use `>>>`/`...` prompts, paired backticks and self-closing void HTML tags.
 
 ## Invariants
@@ -69,5 +71,6 @@ When asked to review with structure-review, follow `.claude/skills/structure-rev
 - For persisted metadata changes, inspect `metadata.VERSION`, converters and compatibility tests before
   claiming a breaking change; a field rename alone does not prove a migration is required.
 - Check affected contracts, not a fixed co-change checklist: public SDK docs (`docs/public_api.opml`,
-  `docs/release/docs.json`), CLI help/docs, dashboard response types/consumers, provider model examples,
-  dependency lockfiles and migration fixtures. Require updates only where the change makes them stale.
+  `docs/release/docs.json`), CLI help/docs, agent guides (`pixeltable/agent_guides/`), dashboard response
+  types/consumers, provider model examples, dependency lockfiles and migration fixtures. Require updates only
+  where the change makes them stale.
