@@ -941,6 +941,15 @@ class Query(QueryBase):
         summary_string = json.dumps(d)
         return hashlib.sha256(summary_string.encode()).hexdigest()
 
+    def _check_local_export(self, method: str) -> None:
+        """Raise if this Query reads a hosted table: method runs the query in this process."""
+        if not self._from_clause.is_local:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{method} is not supported for hosted tables yet; collect() the rows and build the dataset from '
+                'the result instead.',
+            )
+
     def to_coco_dataset(self) -> Path:
         """Convert the Query to a COCO dataset.
         This Query must return a single json-typed output column in the following format:
@@ -963,6 +972,7 @@ class Query(QueryBase):
         """
         from pixeltable.utils.coco import write_coco_dataset
 
+        self._check_local_export('to_coco_dataset()')
         cache_key = self._hash_result_set()
         dest_path = Env.get().dataset_cache_dir / f'coco_{cache_key}'
         if dest_path.exists():
@@ -972,7 +982,6 @@ class Query(QueryBase):
             assert data_file_path.is_file()
             return data_file_path
         else:
-            assert self._from_clause.is_local
             with get_runtime().catalog.begin_data_read_xact(
                 tvps=self._from_clause.tvps, tbl_keys=self.referenced_tbl_keys()
             ):
@@ -1006,6 +1015,7 @@ class Query(QueryBase):
             (and have your model handle it). Or, if these are not meaningful values within a minibtach, you can
             modify or remove any such values through selections and filters prior to calling to_pytorch_dataset().
         """
+        self._check_local_export('to_pytorch_dataset()')
         # check dependencies
         Env.get().require_package('pyarrow', [13])
         Env.get().require_package('torch')
@@ -1020,7 +1030,6 @@ class Query(QueryBase):
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            assert self._from_clause.is_local
             with get_runtime().catalog.begin_data_read_xact(
                 tvps=self._from_clause.tvps, tbl_keys=self.referenced_tbl_keys()
             ):

@@ -94,6 +94,8 @@ def export_images_as_fo_dataset(
             excs.ErrorCode.TYPE_MISMATCH,
             f'`images` must be an expression of type Image (got {images.col_type._to_base_str()})',
         )
+    query = tbl if isinstance(tbl, pxt.Query) else tbl.select()
+    query._check_local_export('export_images_as_fo_dataset()')
 
     return fo.Dataset.from_importer(
         PxtImageDatasetImporter(tbl, images, image_format, classifications=classifications, detections=detections)

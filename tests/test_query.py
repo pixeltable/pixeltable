@@ -1,4 +1,5 @@
 import datetime
+import importlib.util
 import itertools
 import re
 import urllib.request
@@ -1322,6 +1323,26 @@ class TestQuery:
         ds4 = t.select(t.row_id).to_pytorch_dataset(image_format='pt')
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
+
+    @pytest.mark.db_roots('proxy', reason='exports that run the query in-process reject a hosted table')
+    def test_hosted_exports(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('images'), {'image': pxt.Image, 'annotations': pxt.Json})
+        query = t.select({'image': t.image, 'annotations': t.annotations})
+        for export, name in (
+            (t.to_coco_dataset, 'to_coco_dataset()'),
+            (query.to_coco_dataset, 'to_coco_dataset()'),
+            (t.to_pytorch_dataset, 'to_pytorch_dataset()'),
+            (query.to_pytorch_dataset, 'to_pytorch_dataset()'),
+        ):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=rf'{re.escape(name)} is not supported for hosted'
+            ):
+                export()
+
+        if importlib.util.find_spec('fiftyone') is not None:
+            for source in (t, t.where(t.image != None)):
+                with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='export_images_as_fo_dataset'):
+                    pxt.io.export_images_as_fo_dataset(source, t.image)  # type: ignore[arg-type]
 
     @pytest.mark.db_roots('local', reason='exports a COCO dataset to the local filesystem')
     def test_to_coco(self, uses_db: None) -> None:
