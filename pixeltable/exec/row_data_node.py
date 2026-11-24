@@ -1,6 +1,6 @@
 import contextlib
 import logging
-from typing import Any, AsyncGenerator, Iterable
+from typing import Any, AsyncGenerator
 
 from pixeltable import catalog, exprs
 from pixeltable.utils import fault_injection
@@ -25,7 +25,7 @@ class RowDataNode(ExecNode):
 
     tbl: catalog.TableVersionHandle
 
-    input_rows: AsyncGenerator[dict[str, Any], None]
+    input_rows: AsyncGenerator[dict[str, Any], None] | None
     set_pk: bool  # if True, assign synthetic pks (input row position); needed for iterator expansion
     _is_consumed: bool
 
@@ -35,7 +35,7 @@ class RowDataNode(ExecNode):
     def __init__(
         self,
         tbl: catalog.TableVersionHandle,
-        rows: Iterable[dict[str, Any]] | AsyncGenerator[dict[str, Any], None],
+        rows: AsyncGenerator[dict[str, Any], None],
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
     ):
@@ -44,25 +44,21 @@ class RowDataNode(ExecNode):
         super().__init__(row_builder, output_exprs, [], None)
         assert tbl.get().is_insertable
         self.tbl = tbl
-        self.input_rows = rows if isinstance(rows, AsyncGenerator) else self._iter_rows(rows)
+        self.input_rows = rows
         self.set_pk = set_pk
         self._is_consumed = False
-
-    @staticmethod
-    async def _iter_rows(rows: Iterable[dict[str, Any]]) -> AsyncGenerator[dict[str, Any], None]:
-        for row in rows:
-            yield row
 
     def _open(self) -> None:
         assert not self._is_consumed, 'RowDataNode is not reusable'
 
     def _close(self) -> None:
         # Release references to input rows. When images are present, this may free up a significant amount of memory.
-        self.input_rows = self._iter_rows(())
+        self.input_rows = None
         self._is_consumed = True
 
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         assert not self._is_consumed, 'RowDataNode can only be iterated once'
+        assert self.input_rows is not None
         self._is_consumed = True
         fault_injection.process_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ)
         # input rows can only provide values for this table's columns

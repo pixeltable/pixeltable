@@ -331,7 +331,7 @@ class Planner:
     def create_insert_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: Iterable[dict[str, Any]] | AsyncGenerator[dict[str, Any], None] | SqlDataSource,
+        source: AsyncGenerator[dict[str, Any], None] | SqlDataSource,
         ignore_errors: bool,
         skip_existing_keys: bool = False,
     ) -> exec.ExecNode:
@@ -377,7 +377,7 @@ class Planner:
     def _create_input_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: Iterable[dict[str, Any]] | AsyncGenerator[dict[str, Any], None] | SqlDataSource,
+        source: AsyncGenerator[dict[str, Any], None] | SqlDataSource,
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
         skip_existing_keys: bool = False,
@@ -532,8 +532,12 @@ class Planner:
 
         # RowDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
         input_col_names = {e.col_md.name for e in row_builder.input_exprs if isinstance(e, exprs.ColumnRef)}
-        rows = [{name: val for name, val in row.items() if name in input_col_names} for row in rows]
-        plan = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
+
+        async def input_rows() -> AsyncGenerator[dict[str, Any], None]:  # noqa: RUF029
+            for row in rows:
+                yield {name: val for name, val in row.items() if name in input_col_names}
+
+        plan = cls._create_input_plan(base_tv, input_rows(), row_builder, set_pk=True)
         # the plan preserves input row order (all ExprEvalNodes maintain input order), so output rows map
         # positionally to input rows; avail: exprs whose slots are materialized so far
         materialized = exprs.ExprSet(row_builder.input_exprs)

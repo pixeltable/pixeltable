@@ -1294,7 +1294,7 @@ class TableVersion:
 
     def insert(
         self,
-        source: Iterable[dict[str, Any]] | AsyncGenerator[dict[str, Any], None] | SqlDataSource,
+        source: AsyncGenerator[dict[str, Any], None] | SqlDataSource,
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
@@ -1464,8 +1464,13 @@ class TableVersion:
                         excs.ErrorCode.UNSUPPORTED_OPERATION, f'batch_update(): cannot insert into {self.display_str()}'
                     )
                 Planner.check_required_input_columns(self.path, unmatched_rows, None)
+
+                async def insert_rows() -> AsyncGenerator[dict[str, Any], None]:  # noqa: RUF029
+                    for row in unmatched_rows:
+                        yield row
+
                 insert_status = self.insert(
-                    unmatched_rows, print_stats=False, fail_on_exception=False, return_rows=return_rows
+                    insert_rows(), print_stats=False, fail_on_exception=False, return_rows=return_rows
                 )
                 result += insert_status
         return result
