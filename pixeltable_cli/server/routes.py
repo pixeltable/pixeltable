@@ -688,20 +688,41 @@ def dashboard_table_export(req: Request) -> RawResponse:
 _COUNT_POOL_WORKERS = 16
 
 
-_PK_PARSERS: dict[str, Callable[[str], Any]] = {'Int': int, 'Float': float, 'String': str, 'UUID': uuid.UUID}
+def _parse_bool(s: str) -> bool:
+    lowered = s.strip().lower()
+    if lowered not in ('true', 'false'):
+        raise ValueError(s)
+    return lowered == 'true'
+
+
+_PK_PARSERS: dict[str, Callable[[str], Any]] = {
+    'Int': int,
+    'Float': float,
+    'String': str,
+    'UUID': uuid.UUID,
+    'Bool': _parse_bool,
+    'Date': lambda s: datetime.date.fromisoformat(s.strip()),
+    'Timestamp': lambda s: datetime.datetime.fromisoformat(s.strip()),
+}
 
 
 def _coerce_pk(s: str, col_name: str, col_type: str) -> Any:
-    """Parse s as the declared type of column col_name."""
-    parser = _PK_PARSERS.get(col_type)
+    """Parse s as the declared type of column col_name, or raise RequestError if it doesn't parse or pxt get can't
+    look up a value of that type."""
+    base_type = col_type.removesuffix(' | None')
+    parser = _PK_PARSERS.get(base_type)
     if parser is None:
-        return s
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'primary key column {col_name!r} has type {base_type}; row lookup supports only '
+            f'{", ".join(_PK_PARSERS)} primary keys',
+        )
     try:
         return parser(s)
     except ValueError as e:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'{s!r} is not a valid {col_type} value for primary key column {col_name!r}',
+            f'{s!r} is not a valid {base_type} value for primary key column {col_name!r}',
         ) from e
 
 

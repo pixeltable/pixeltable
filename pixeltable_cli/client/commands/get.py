@@ -14,12 +14,13 @@ Examples:
   pxt get my_dir/my_table 42 --cols id,text     # restrict to listed columns
   pxt get my_dir/my_table 42 --json
   pxt get my_dir/my_table 01a092a5-d30a-779b-96b2-c8eaecac1657   # single-column PK, uuid value
+  pxt get my_dir/my_table 2024-01-02            # single-column PK, date value (ISO 8601)
 
 Notes:
   pxt parses each PK value by its column type: a string column takes '42' as the
-  string '42', an int column as the number 42. For an int, float, or uuid column, a
-  value that does not parse produces an error. Lookup by a PK of another type, such as
-  a date or timestamp, is not supported yet and finds no row.
+  string '42', an int column as the number 42. A bool column takes true or false, a
+  date or timestamp column an ISO 8601 value such as 2024-01-02 or 2024-01-02T03:04:05.
+  A value that does not parse produces an error, as does a PK of any other type.
   Use 'pxt describe <table>' to see the primary_key columns and their order.
   Unstored computed columns are skipped by default; pass them explicitly via --cols to
   include them.

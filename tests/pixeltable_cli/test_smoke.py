@@ -4,6 +4,7 @@ Each class focuses on one cli command. Methods bundle related scenarios so a sin
 table can serve multiple assertions (JSON + text + flag variants) without re-creating it.
 """
 
+import datetime
 import http.client
 import importlib.metadata
 import io
@@ -27,9 +28,10 @@ from pixeltable_cli import types
 from pixeltable_cli.client import hosted, utils
 from pixeltable_cli.client.commands import db as db_cmd
 from pixeltable_cli.client.utils import display_path
+from pixeltable_cli.server import routes
 from pixeltable_cli.types import GenerationReceipt, ReceiptError, ReceiptOutcome, ResourcePhase
 
-from ..utils import DatabaseRoot, get_image_files
+from ..utils import DatabaseRoot, get_image_files, pxt_raises
 from .conftest import PxtRunner
 
 
@@ -1029,6 +1031,35 @@ class TestGet:
         assert cli('get', p('cli_get_coerce/s'), 'alpha', '--json').json['row']['v'] == 1
         assert cli('get', p('cli_get_coerce/s'), '90210', '--json').json['row']['v'] == 2
         assert cli('get', p('cli_get_coerce/s'), '007', '--json').json['row']['v'] == 3
+
+        # bool, date and timestamp PKs parse their values instead of comparing a string to the column
+        t = pxt.create_table(
+            p('cli_get_coerce/b'), {'k': pxt.Bool, 'v': pxt.Int | None}, primary_key='k', if_exists='replace'
+        )
+        t.insert([{'k': True, 'v': 1}, {'k': False, 'v': 0}])
+        assert cli('get', p('cli_get_coerce/b'), 'true', '--json').json['row']['v'] == 1
+        assert cli('get', p('cli_get_coerce/b'), 'False', '--json').json['row']['v'] == 0
+
+        t = pxt.create_table(
+            p('cli_get_coerce/d'), {'k': pxt.Date, 'v': pxt.Int | None}, primary_key='k', if_exists='replace'
+        )
+        t.insert([{'k': datetime.date(2024, 1, 2), 'v': 1}])
+        assert cli('get', p('cli_get_coerce/d'), '2024-01-02', '--json').json['row']['v'] == 1
+
+        t = pxt.create_table(
+            p('cli_get_coerce/ts'), {'k': pxt.Timestamp, 'v': pxt.Int | None}, primary_key='k', if_exists='replace'
+        )
+        t.insert([{'k': datetime.datetime(2024, 1, 2, 3, 4, 5), 'v': 1}])
+        assert cli('get', p('cli_get_coerce/ts'), '2024-01-02T03:04:05', '--json').json['row']['v'] == 1
+
+        for table, value, type_name in (('b', 'yes', 'Bool'), ('d', '01/02/2024', 'Date'), ('ts', 'noon', 'Timestamp')):
+            r = cli('get', p(f'cli_get_coerce/{table}'), value, check=False)
+            assert r.returncode != 0
+            assert f'not a valid {type_name} value' in r.stderr
+
+        # a PK type without a parser is an error rather than a lookup that silently finds nothing
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='has type Json'):
+            routes._coerce_pk('{}', 'k', 'Json | None')
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """No-PK rejection, PK count mismatch, unknown col, empty/whitespace PK, empty --cols token."""

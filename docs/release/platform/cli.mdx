@@ -280,7 +280,7 @@ pxt rows my_dir/my_table --cols id,text,score
 
 ### `pxt get`
 
-Look up a single row by primary key. An `Int`, `Float`, or `UUID` PK column parses its value and rejects one that does not parse. A `String` PK column keeps the value as typed, so `007` stays `007`. Lookup by a PK of any other type, such as `Date` or `Timestamp`, is not supported yet and finds no row. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
+Look up a single row by primary key. An `Int`, `Float`, `UUID`, `Bool` (`true` or `false`), `Date` or `Timestamp` (ISO 8601, such as `2024-01-02` or `2024-01-02T03:04:05`) PK column parses its value and rejects one that does not parse. A `String` PK column keeps the value as typed, so `007` stays `007`. Lookup by a PK of any other type is an error. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
 
 | Flag | Description |
 |---|---|
