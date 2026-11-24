@@ -17,10 +17,11 @@ Examples:
   pxt get my_dir/my_table 2024-01-02            # single-column PK, date value (ISO 8601)
 
 Notes:
-  pxt parses each PK value by its column type: a string column takes '42' as the
-  string '42', an int column as the number 42. A bool column takes true or false, a
-  date or timestamp column an ISO 8601 value such as 2024-01-02 or 2024-01-02T03:04:05.
-  A value that does not parse produces an error, as does a PK of any other type.
+  pxt get supports String, Int, Float, UUID, Bool, Date and Timestamp PK columns; a PK
+  of any other type produces an error. pxt parses each PK value by its column type: a
+  string column takes '42' as the string '42', an int column as the number 42. A bool
+  column takes true or false, a date or timestamp column an ISO 8601 value such as
+  2024-01-02 or 2024-01-02T03:04:05. A value that does not parse produces an error.
   Use 'pxt describe <table>' to see the primary_key columns and their order.
   Unstored computed columns are skipped by default; pass them explicitly via --cols to
   include them.
