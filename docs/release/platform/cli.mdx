@@ -1058,7 +1058,7 @@ A dry run (`-n`) of `update` or `prune` leaves each operation's `status` null in
 | `--since`, `--tail` | `logs`, `spans` | How far back, how many lines or spans |
 | `--include-health` | `logs` | Keep the health probe lines |
 | `--trace` | `spans` | Read the spans of one trace |
-| `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
+| `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt. `update` prompts only when it restarts a running service or makes a destructive change; starting services, as on a first deploy, needs no confirmation |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
 | `--keep-release` | `update` | Keep a hosted service on its current code, which must match the local project files; without it, `update` moves the service onto the database's latest code, including an image rebuilt by `pxt db build-image` |

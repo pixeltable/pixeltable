@@ -337,7 +337,8 @@ class TestService:
         }
         assert get_services(cli, target) == {}
 
-        cli('service', 'update', app, target, '-f')
+        # starting a service interrupts nothing, so it needs no -f, even without a terminal
+        cli('service', 'update', app, target)
         running = assert_serving(cli, app, target, 'ingest')
         assert running['ingest']['app_module'] == 'apps.basic'  # the app corpus sits at <project>/apps
         assert running['ingest']['catalog_path'] == target
@@ -460,6 +461,13 @@ class TestService:
         assert r.returncode == 2
         if not db_root.is_cloud:
             # pid is only available for local
+            assert get_services(cli, target)['ingest']['pid'] == before['pid']
+
+        # restarting a running service interrupts its callers, so without a terminal it needs -f
+        r = cli('service', 'update', str(app_file), target, '--json', check=False)
+        assert r.returncode == 3
+        assert [n['command'] for n in r.json['next']] == [f'pxt service update {app_file} {target} --json -f']
+        if not db_root.is_cloud:
             assert get_services(cli, target)['ingest']['pid'] == before['pid']
 
         r = cli('service', 'update', str(app_file), target, '-f', '--json')

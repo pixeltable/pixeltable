@@ -74,13 +74,14 @@ Running `pxt` in a project: the project root, the daemon, application files, pro
 - `pxt schema`, `pxt service` and `pxt db` exit 0 when done or when nothing is pending, and exit 1 on an error.
 - A `diff`, or an `update` or `prune` with `-n`, exits 2 when changes are pending.
 - Every command exits 3 on a refusal.
-- These commands ask for confirmation: `pxt service update` when it starts or restarts a service, including the first
-  start; `pxt schema update` with a destructive change; the `prune` subcommands, `pxt drop`, `pxt drop-dir`,
+- These commands ask for confirmation: `pxt service update` when it restarts a running service or makes a destructive
+  change; `pxt schema update` with a destructive change; the `prune` subcommands, `pxt drop`, `pxt drop-dir`,
   `pxt recompute`, `pxt revert`, `pxt db update` and `pxt db delete`.
 - `-f` skips the confirmation.
-- An additive `pxt schema update` runs without asking.
+- An additive `pxt schema update` runs without asking, and so does a `pxt service update` that only starts services,
+  such as the first one.
 - Without a terminal, a command that would ask exits 3 and prints a `next:` line on stderr with the command to rerun:
-  `next: pxt service update app.py my_app -f  # start or restart 1 service(s)`.
+  `next: pxt service update app.py my_app -f  # start or restart 1 service(s), interrupting 1 running service(s)`.
 - `pxt schema update` refuses to drop a column or an index, and `pxt service update` refuses to change or remove a
   route, unless given `--allow-destructive`.
 - On that refusal, the command exits 3 and applies nothing, not even the additive changes; its `next:` line repeats
