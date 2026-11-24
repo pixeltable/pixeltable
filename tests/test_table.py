@@ -41,6 +41,7 @@ from .utils import (
     ReloadTester,
     assert_resultset_eq,
     assert_table_metadata_eq,
+    capture_console_output,
     check_media_store_count,
     check_temp_store_count,
     create_table_data,
@@ -2807,6 +2808,24 @@ class TestTable:
         status = t.insert(c1='abc')
         assert status.num_rows == 1
         assert status.num_excs == 0
+
+    def test_insert_prints_summary(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        """Every insert path reports its summary to the caller's console once, local or hosted."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('summary'), {'c1': pxt.Int, 'c2': pxt.String | None})
+        csv_path = tmp_path / 'rows.csv'
+        csv_path.write_text('c1,c2\n3,c\n4,d\n5,e\n', encoding='utf-8')
+        cases: list[tuple[Callable[[], pxt.UpdateStatus], str]] = [
+            (lambda: t.insert([{'c1': 1, 'c2': 'a'}, {'c1': 2, 'c2': 'b'}]), 'Inserted 2 rows with 0 errors'),
+            (lambda: t.insert(c1=0), 'Inserted 1 row with 0 errors'),
+            (lambda: t.insert(csv_path), 'Inserted 3 rows with 0 errors'),
+            (lambda: t.insert(t.where(t.c1 < 2).select(t.c1)), 'Inserted 2 rows with 0 errors'),
+        ]
+        for insert, expected in cases:
+            with capture_console_output() as out:
+                insert()
+            assert out.getvalue().count('Inserted ') == 1, out.getvalue()
+            assert expected in out.getvalue()
 
     def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool, fault_injection: None) -> None:
         p = db_root.make_catalog_path
