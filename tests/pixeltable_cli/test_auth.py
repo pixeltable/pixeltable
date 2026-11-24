@@ -891,6 +891,7 @@ _USAGE: dict[str, Any] = {
     'past_included_usd': 0.0,
     'stops_at_limit': True,
     'limit_reached_at': '2026-11-22T06:30:00Z',
+    'running': {'cpu': 2.5, 'memory_mb': 5120, 'monthly_usd': 125.0},
     'meters': [
         {'meter': 'pxt_vcpu_hours', 'label': 'Compute, vCPU-hours', 'unit': 'vCPU-hour', 'quantity': 120.5, 'usd': 4.22}
     ],
@@ -932,7 +933,8 @@ class TestUsage:
         assert capsys.readouterr().out == (
             'Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left\n'
             '$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC), '
-            'around November 22 at this rate\n' + _METERS_AND_RESOURCES
+            'around November 22 at this rate\n'
+            'Running now: 2.5 vCPU, 5,120 MB\n' + _METERS_AND_RESOURCES
         )
 
     def test_pro(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -952,7 +954,8 @@ class TestUsage:
         assert capsys.readouterr().out == (
             'Pro plan, 2026-11-01 to 2026-11-30 (UTC), 1 day left\n'
             'Usage counts from 2026-11-15 (UTC).\n'
-            '$132.10 of $100 used; past included (estimate): $32.10\n' + _METERS_AND_RESOURCES
+            '$132.10 of $100 used; past included (estimate): $32.10\n'
+            'Running now: 2.5 vCPU, 5,120 MB, $125 a month at this rate\n' + _METERS_AND_RESOURCES
         )
 
     def test_enterprise(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -964,7 +967,16 @@ class TestUsage:
 
         lines = capsys.readouterr().out.splitlines()
         assert lines[1] == 'Usage is billed under your contract.'
+        assert lines[2] == 'Running now: 2.5 vCPU, 5,120 MB, $125 a month at this rate'
         assert lines[-1] == 'Media Store  12.3 GB / -'
+
+    def test_without_running(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """An answer from a control plane that predates `running` prints no line for it."""
+        older = {k: v for k, v in _USAGE.items() if k != 'running'}
+
+        usage.print_usage(older, datetime.datetime(2026, 11, 18, 13, tzinfo=datetime.timezone.utc))
+
+        assert 'Running now' not in capsys.readouterr().out
 
 
 _CREATED_ORG = {'org_id': 'org_01NEW', 'org': _ORG, 'default_db': 'main'}
