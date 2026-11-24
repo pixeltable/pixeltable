@@ -165,7 +165,10 @@ class InsertableTable(LocalTable):
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
         start_ts = time.perf_counter()
-        query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
+        query = None
+        if isinstance(data_source, QueryTableDataConduit):
+            query = data_source.pxt_query
+            data_source.ignore_errors = not fail_on_exception
         read_tbl_keys = query.referenced_tbl_keys() if query is not None else None
         # ON CONFLICT DO NOTHING skips a concurrent writer's key only under READ COMMITTED, not REPEATABLE READ
         read_committed = skip_existing_keys and not self._tbl_version_path.is_data_versioned()
@@ -180,7 +183,7 @@ class InsertableTable(LocalTable):
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
                 status = self._tbl_version.get().insert(
-                    source=data_source.rows(ignore_errors=not fail_on_exception),
+                    source=data_source.rows(),
                     print_stats=print_stats,
                     fail_on_exception=fail_on_exception,
                     return_rows=return_rows,

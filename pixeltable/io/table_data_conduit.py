@@ -136,7 +136,7 @@ class TableDataConduit:
     def infer_schema(self) -> dict[str, ts.ColumnType]:
         raise NotImplementedError
 
-    def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+    def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         """Yield normalized input rows. Exception values represent failed source cells."""
         raise NotImplementedError
 
@@ -208,6 +208,7 @@ class TableDataConduit:
 
 class QueryTableDataConduit(TableDataConduit):
     pxt_query: pxt.Query = None
+    ignore_errors: bool = False
     _plan: ExecPlan | None = None
 
     @classmethod
@@ -240,10 +241,10 @@ class QueryTableDataConduit(TableDataConduit):
         assert sql_node is not None
         sql_node.set_stream_results(True)
         self._plan.ctx.batch_size = 1024
+        self._plan.ctx.ignore_errors = self.ignore_errors
 
-    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         assert self._plan is not None
-        self._plan.ctx.ignore_errors = ignore_errors
         col_exprs = list(zip(self._plan.select_list_schema, self._plan.select_list_exprs))
         async with contextlib.aclosing(self._plan.aexec({})) as rows:
             async for row in rows:
@@ -329,7 +330,7 @@ class RowDataTableDataConduit(TableDataConduit):
             output_row[col_name] = checked_val
         return output_row
 
-    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         assert self.valid_rows is not None
         for row in self.valid_rows:
             yield row
@@ -379,7 +380,7 @@ class PandasTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pd_df.columns)
         self.prepared_columns = _df_prepare_columns(self.pd_df, self.src_schema, self.source_column_map)
 
-    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         assert self.prepared_columns is not None
         for row in _df_rows(self.prepared_columns, len(self.pd_df)):
             yield row
@@ -692,7 +693,7 @@ class HFTableDataConduit(TableDataConduit):
         # Return as list of array views (shares memory with reshaped)
         return list(reshaped)
 
-    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         import datasets
 
         for split_name, split_dataset in self.dataset_dict.items():
@@ -788,7 +789,7 @@ class ParquetTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pq_ds.schema.names)
         self.total_rows = 0
 
-    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         from pixeltable.utils.arrow import iter_tuples2
 
         try:
@@ -844,7 +845,7 @@ class PydanticTableDataConduit(TableDataConduit):
                     )
             self.dumped_rows[i] = self._convert_row(i, raw_row)
 
-    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         """Yield the normalized dicts prepared from the Pydantic models."""
         for row in self.dumped_rows:
             yield row
