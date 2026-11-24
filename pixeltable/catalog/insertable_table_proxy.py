@@ -10,6 +10,7 @@ from uuid import UUID
 import pyarrow.parquet as pq
 
 from pixeltable import exceptions as excs
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import arrow, parse_local_file_path
 
 from .globals import is_hf_dataset
@@ -95,7 +96,7 @@ class InsertableTableProxy(TableProxy):
                 data_source.prepare_for_insert_into_table()
                 # TODO: this materializes all rows of the source to send them in one request; streaming them to the
                 # daemon would bound the client's memory
-                rows = self._convert_local_paths(data_source.rows())
+                rows = self._convert_local_paths(get_runtime().run_coro(data_source.collect_rows()))
                 return self._dispatch(
                     'insert',
                     {
@@ -156,7 +157,7 @@ class InsertableTableProxy(TableProxy):
             data_source.prepare_for_insert_into_table()
             # TODO: this materializes all rows of the source to send them in one request; streaming them to the
             # daemon would bound the client's memory
-            rows = list(data_source.rows())
+            rows = get_runtime().run_coro(data_source.collect_rows())
         else:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

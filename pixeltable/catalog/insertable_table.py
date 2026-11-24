@@ -180,8 +180,7 @@ class InsertableTable(LocalTable):
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
                 status = self._tbl_version.get().insert(
-                    source=data_source.rows() if query is None else None,
-                    query=query,
+                    source=data_source.rows(ignore_errors=not fail_on_exception),
                     print_stats=print_stats,
                     fail_on_exception=fail_on_exception,
                     return_rows=return_rows,
@@ -227,11 +226,7 @@ class InsertableTable(LocalTable):
         start_ts = time.perf_counter()
         with get_runtime().catalog.begin_data_write_xact(tvps=[self._tbl_version_path]):
             status = self._tbl_version.get().insert(
-                source=sql_source,
-                query=None,
-                print_stats=print_stats,
-                fail_on_exception=fail_on_exception,
-                return_rows=return_rows,
+                source=sql_source, print_stats=print_stats, fail_on_exception=fail_on_exception, return_rows=return_rows
             )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))

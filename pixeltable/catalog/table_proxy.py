@@ -10,6 +10,7 @@ from typing_extensions import TypeForm
 
 import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.object_stores import warn_if_pxtfs_destination
 
@@ -404,7 +405,7 @@ class TableProxy(Table):
         converter.prepare_for_insert_into_table()
         # TODO: this materializes all rows to send them in one request; streaming them to the daemon would bound the
         # client's memory
-        return list(converter.rows())
+        return get_runtime().run_coro(converter.collect_rows())
 
     def update(
         self,

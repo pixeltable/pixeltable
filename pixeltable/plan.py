@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import copy
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Sequence, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Literal, NamedTuple, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
 
-import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
@@ -332,7 +331,7 @@ class Planner:
     def create_insert_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: Iterable[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | AsyncGenerator[dict[str, Any], None] | SqlDataSource,
         ignore_errors: bool,
         skip_existing_keys: bool = False,
     ) -> exec.ExecNode:
@@ -378,7 +377,7 @@ class Planner:
     def _create_input_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: Iterable[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | AsyncGenerator[dict[str, Any], None] | SqlDataSource,
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
         skip_existing_keys: bool = False,
@@ -570,36 +569,6 @@ class Planner:
         if num_rowid_cols is None:
             num_rowid_cols = target.get().num_rowid_columns()
         return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
-
-    @classmethod
-    def create_query_insert_plan(
-        cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool, skip_existing_keys: bool = False
-    ) -> exec.ExecNode:
-        assert not tbl.is_view
-        # The compiled plan owns the planner-mutated select-list exprs (with slot_idx assigned).
-        # Read schema and exprs from the plan, not from the Query (whose _select_list_exprs are
-        # the pre-compile copies and don't carry slot_idx).
-        compiled = query._create_query_plan()
-        plan: exec.ExecNode = compiled.exec_root
-        # The query result can have an arbitrary number of rows; stream it so that it isn't held in memory at once.
-        sql_node = plan.get_node(exec.SqlNode)
-        assert sql_node is not None
-        sql_node.set_stream_results(True)
-        output_cols = [tbl.cols_by_name.get(col_name) for col_name in compiled.select_list_schema]
-        assert all(col is not None for col in output_cols)
-        plan.row_builder.set_table_output(
-            tbl, expr_cols=[(col, e.slot_idx) for col, e in zip(output_cols, compiled.select_list_exprs)]
-        )
-        if skip_existing_keys:
-            plan = exec.AntiJoinNode(tbl.handle, plan.row_builder, plan)
-        needs_cell_materialization = any(col.col_type.needs_cell_materialization() for col in output_cols)
-
-        if needs_cell_materialization:
-            plan = exec.CellMaterializationNode(plan)
-
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=cls._ROW_BATCH_SIZE, ignore_errors=ignore_errors))
-
-        return plan
 
     @classmethod
     def _build_update_columns(

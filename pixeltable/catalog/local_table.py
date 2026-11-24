@@ -290,7 +290,7 @@ class LocalTable(Table):
                 data_source.prepare_for_insert_into_table()
                 # TODO: this materializes all input rows; streaming them into the compute plan (RowDataNode accepts a
                 # stream) would bound memory, but create_compute_plan() currently validates and filters a list
-                input_rows = list(data_source.rows())
+                input_rows = get_runtime().run_coro(data_source.collect_rows())
 
                 output_cols = path.columns()
                 if output_md is not None:

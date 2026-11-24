@@ -6,7 +6,7 @@ import itertools
 import logging
 import time
 import warnings
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Sequence
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Iterator, Literal, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -50,7 +50,6 @@ from .utils import generate_idx_name, validate_idxs
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
-    from pixeltable._query import Query
     from pixeltable.catalog.table_version_handle import TableVersionHandle
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.plan import SampleClause, UpdatePlan
@@ -1295,32 +1294,24 @@ class TableVersion:
 
     def insert(
         self,
-        source: Iterable[dict[str, Any]] | SqlDataSource | None,
-        query: Query | None,
+        source: Iterable[dict[str, Any]] | AsyncGenerator[dict[str, Any], None] | SqlDataSource,
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
         skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """
-        Insert rows into this table from a stream of row dicts, a Query, or a SqlDataSource.
+        Insert rows into this table from a stream of row dicts or a SqlDataSource.
 
         With skip_existing_keys, a row whose primary key is already in the table is not inserted.
         """
         from pixeltable.plan import Planner
 
         assert self.is_insertable
-        # Exactly one of source / query must be specified
-        assert (source is None) != (query is None)
         with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
-            if query is not None:
-                plan = Planner.create_query_insert_plan(
-                    self, query, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
-                )
-            else:
-                plan = Planner.create_insert_plan(
-                    self, source, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
-                )
+            plan = Planner.create_insert_plan(
+                self, source, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
+            )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
 
         rowid_gen: Iterator[int] | None = None
@@ -1474,7 +1465,7 @@ class TableVersion:
                     )
                 Planner.check_required_input_columns(self.path, unmatched_rows, None)
                 insert_status = self.insert(
-                    unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
+                    unmatched_rows, print_stats=False, fail_on_exception=False, return_rows=return_rows
                 )
                 result += insert_status
         return result

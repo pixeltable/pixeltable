@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import enum
 import json
 import logging
@@ -7,7 +8,7 @@ import os
 import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Iterator, Literal, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
     from pixeltable.api import RowData, TableDataSource
+    from pixeltable.exec import ExecPlan
 
 
 class TableDataConduitFormat(str, enum.Enum):
@@ -127,9 +129,6 @@ class TableDataConduit:
             return False
         return all(isinstance(row, dict) for row in d)
 
-    def is_direct_query(self) -> bool:
-        return isinstance(self.source, pxt.Query) and self.source_column_map is None
-
     def normalize_pxt_schema_types(self) -> None:
         for name, coltype in self.pxt_schema.items():
             self.pxt_schema[name] = ts.ColumnType.normalize_type(coltype)
@@ -137,9 +136,29 @@ class TableDataConduit:
     def infer_schema(self) -> dict[str, ts.ColumnType]:
         raise NotImplementedError
 
-    def rows(self) -> Iterator[dict[str, Any]]:
-        """Yield the rows of the source, converted for insertion into the target table."""
+    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+        """Yield normalized input rows. Exception values represent failed source cells."""
+        for row in self._rows():
+            yield row
+
+    def _rows(self) -> Iterator[dict[str, Any]]:
         raise NotImplementedError
+
+    async def collect_rows(self) -> list[dict[str, Any]]:
+        """Materialize rows for callers that need to send or compute a complete batch."""
+        async with contextlib.aclosing(self.rows()) as rows:
+            return [row async for row in rows]
+
+    def _create_literal(self, col_name: str, val: Any, *, row: dict[str, Any] | None = None) -> Any:
+        try:
+            return self.pxt_schema[col_name].create_literal(val)
+        except TypeError as e:
+            msg = str(e)
+            row_context = f'\nRow: {row}' if row is not None else ''
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Error in column {col_name}: {msg[0].lower() + msg[1:]}{row_context}',
+            ) from e
 
     def prepare_for_insert_into_table(self) -> None:
         """Validate the source against the target table, before the insert plan runs."""
@@ -193,6 +212,7 @@ class TableDataConduit:
 
 class QueryTableDataConduit(TableDataConduit):
     pxt_query: pxt.Query = None
+    _plan: ExecPlan | None = None
 
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> 'QueryTableDataConduit':
@@ -215,7 +235,38 @@ class QueryTableDataConduit(TableDataConduit):
     def prepare_for_insert_into_table(self) -> None:
         if self.source_column_map is None:
             self.source_column_map = {}
-        self.check_source_columns_are_insertable(self.pxt_query.schema.keys())
+        # Compile before the destination's version is bumped, including when inserting from the table itself.
+        from pixeltable import exec
+
+        self._plan = self.pxt_query._create_query_plan()
+        self.check_source_columns_are_insertable(self._plan.select_list_schema)
+        sql_node = self._plan.exec_root.get_node(exec.SqlNode)
+        assert sql_node is not None
+        sql_node.set_stream_results(True)
+        self._plan.ctx.batch_size = 1024
+
+    async def rows(self, *, ignore_errors: bool = False) -> AsyncGenerator[dict[str, Any], None]:
+        assert self._plan is not None
+        self._plan.ctx.ignore_errors = ignore_errors
+        col_exprs = list(zip(self._plan.select_list_schema, self._plan.select_list_exprs))
+        async with contextlib.aclosing(self._plan.aexec({})) as rows:
+            async for row in rows:
+                output_row: dict[str, Any] = {}
+                for col_name, e in col_exprs:
+                    if row.has_exc(e.slot_idx):
+                        output_row[col_name] = row.get_exc(e.slot_idx)
+                        continue
+                    # Non-image media values can be cache paths; keep their original URLs instead.
+                    # Images pass as values so the destination saves its own copy.
+                    val = (
+                        row.file_urls[e.slot_idx]
+                        if e.col_type.is_media_type()
+                        and not e.col_type.is_image_type()
+                        and row.file_urls[e.slot_idx] is not None
+                        else row[e.slot_idx]
+                    )
+                    output_row[col_name] = self._create_literal(col_name, val)
+                yield output_row
 
 
 class RowDataTableDataConduit(TableDataConduit):
@@ -278,18 +329,11 @@ class RowDataTableDataConduit(TableDataConduit):
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Value for computed column {col_name} in row {row}'
                 )
             # basic sanity checks here
-            try:
-                checked_val = self.pxt_schema[col_name].create_literal(val)
-            except TypeError as e:
-                msg = str(e)
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}',
-                ) from e
+            checked_val = self._create_literal(col_name, val, row=row)
             output_row[col_name] = checked_val
         return output_row
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    def _rows(self) -> Iterator[dict[str, Any]]:
         assert self.valid_rows is not None
         yield from self.valid_rows
 
@@ -338,7 +382,7 @@ class PandasTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pd_df.columns)
         self.prepared_columns = _df_prepare_columns(self.pd_df, self.src_schema, self.source_column_map)
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    def _rows(self) -> Iterator[dict[str, Any]]:
         assert self.prepared_columns is not None
         yield from _df_rows(self.prepared_columns, len(self.pd_df))
 
@@ -650,7 +694,7 @@ class HFTableDataConduit(TableDataConduit):
         # Return as list of array views (shares memory with reshaped)
         return list(reshaped)
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    def _rows(self) -> Iterator[dict[str, Any]]:
         import datasets
 
         for split_name, split_dataset in self.dataset_dict.items():
@@ -743,7 +787,7 @@ class ParquetTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pq_ds.schema.names)
         self.total_rows = 0
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    def _rows(self) -> Iterator[dict[str, Any]]:
         from pixeltable.utils.arrow import iter_tuples2
 
         try:
@@ -799,7 +843,7 @@ class PydanticTableDataConduit(TableDataConduit):
                     )
             self.dumped_rows[i] = self._convert_row(i, raw_row)
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    def _rows(self) -> Iterator[dict[str, Any]]:
         """Yield the normalized dicts prepared from the Pydantic models."""
         yield from self.dumped_rows
 

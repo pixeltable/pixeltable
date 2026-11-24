@@ -21,7 +21,7 @@ from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.catalog.model.resolution import resolve_query_calls
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
+from pixeltable.io.table_data_conduit import RowDataTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, FunctionList, TableKind, TableNode, TreeNode
 from pixeltable.utils.http import fetch_url
@@ -222,9 +222,6 @@ def create_table(
         data_source.infer_schema()
         schema = data_source.pxt_schema  # type: ignore[assignment]
         primary_key = data_source.pxt_pk
-        is_direct_query = data_source.is_direct_query()
-    else:
-        is_direct_query = False
 
     if len(schema) == 0 or not isinstance(schema, dict):
         raise excs.RequestError(
@@ -281,14 +278,7 @@ def create_table(
     if was_created and data_source is not None:
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
         if isinstance(tbl, catalog.InsertableTable):
-            if isinstance(data_source, QueryTableDataConduit):
-                query = data_source.pxt_query
-                with get_runtime().catalog.begin_data_write_xact(
-                    read_tbl_keys=query.referenced_tbl_keys(), tvps=[tbl._tbl_version_path]
-                ):
-                    tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-            elif not is_direct_query:
-                tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+            tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
         else:
             # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
             # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
