@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from pixeltable import exprs
     from pixeltable.api import TableDataSource
     from pixeltable.io.data_sources import SqlDataSource
-    from pixeltable.io.table_data_conduit import TableDataConduit
+    from pixeltable.io.table_data_adapter import TableDataAdapter
 
     from .table import Table
 
@@ -122,7 +122,7 @@ class InsertableTable(LocalTable):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.table_data_conduit import TableDataConduit
+        from pixeltable.io.table_data_adapter import TableDataAdapter
 
         self._validate_insert_source(source)
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
@@ -139,7 +139,7 @@ class InsertableTable(LocalTable):
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         with telemetry.span('pixeltable.data_source.prepare'):
-            data_source = TableDataConduit.create(
+            data_source = TableDataAdapter.create(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
             )
 
@@ -155,18 +155,18 @@ class InsertableTable(LocalTable):
 
     def _insert_table_data_source(
         self,
-        data_source: TableDataConduit,
+        data_source: TableDataAdapter,
         fail_on_exception: bool,
         print_stats: bool = False,
         return_rows: bool = False,
         skip_existing_keys: bool = False,
     ) -> pxt.UpdateStatus:
-        """Insert the rows of a `TableDataConduit` into this table."""
-        from pixeltable.io.table_data_conduit import QueryTableDataConduit
+        """Insert the rows of a `TableDataAdapter` into this table."""
+        from pixeltable.io.table_data_adapter import QueryTableDataAdapter
 
         start_ts = time.perf_counter()
         query = None
-        if isinstance(data_source, QueryTableDataConduit):
+        if isinstance(data_source, QueryTableDataAdapter):
             query = data_source.pxt_query
             data_source.ignore_errors = not fail_on_exception
         read_tbl_keys = query.referenced_tbl_keys() if query is not None else None

@@ -57,12 +57,12 @@ class InsertableTableProxy(TableProxy):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.table_data_conduit import (
-            PandasTableDataConduit,
-            PydanticTableDataConduit,
-            QueryTableDataConduit,
-            RowDataTableDataConduit,
-            TableDataConduit,
+        from pixeltable.io.table_data_adapter import (
+            PandasTableDataAdapter,
+            PydanticTableDataAdapter,
+            QueryTableDataAdapter,
+            RowDataTableDataAdapter,
+            TableDataAdapter,
         )
 
         self._validate_insert_source(source)
@@ -85,7 +85,7 @@ class InsertableTableProxy(TableProxy):
                 # parse the source into rows client-side (to upload its media files), honoring the same
                 # schema_overrides and reader options (extra_fields) the local/non-media paths receive.
                 # Normalize the overrides to ColumnType (schema inference requires instances, not type markers).
-                data_source = TableDataConduit.create(
+                data_source = TableDataAdapter.create(
                     source,
                     source_format=source_format,
                     src_schema_overrides=self._normalize_schema_overrides(schema_overrides),
@@ -132,11 +132,11 @@ class InsertableTableProxy(TableProxy):
             )
 
         # source classification/error conditions are shared with the local insert path
-        data_source = TableDataConduit.create(
+        data_source = TableDataAdapter.create(
             source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
         )
 
-        if isinstance(data_source, QueryTableDataConduit):
+        if isinstance(data_source, QueryTableDataAdapter):
             return self._insert_query(
                 data_source.pxt_query,
                 on_error=on_error,
@@ -146,12 +146,12 @@ class InsertableTableProxy(TableProxy):
             )
 
         # in-memory data sources are sent as row dicts
-        if isinstance(data_source, PydanticTableDataConduit):
+        if isinstance(data_source, PydanticTableDataAdapter):
             rows = self._pydantic_to_rows(data_source)
-        elif isinstance(data_source, RowDataTableDataConduit):
+        elif isinstance(data_source, RowDataTableDataAdapter):
             assert data_source.raw_rows is not None
             rows = data_source.raw_rows
-        elif isinstance(data_source, PandasTableDataConduit):
+        elif isinstance(data_source, PandasTableDataAdapter):
             data_source.src_pk = []
             data_source.infer_schema()
             data_source.prepare_for_insert_into_table()
