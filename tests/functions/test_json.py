@@ -596,7 +596,7 @@ class TestJson:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'merge\(\) is only defined for two JSON objects'):
             tn.where(tn.a != None).select(o=tn.a.merge(tn.b)).collect()
 
-    @pytest.mark.skip_merge_queue  # Downloads a Hugging Face model
+    @pytest.mark.resource_intensive  # Downloads a Hugging Face model
     @pytest.mark.xdist_group('large_model')
     @rerun_on_network_error()
     def test_list_iterator_appl(self, uses_db: None, sample_file_server: SampleFileServer) -> None:

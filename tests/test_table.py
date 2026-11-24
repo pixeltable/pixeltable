@@ -1538,6 +1538,7 @@ class TestTable:
         assert np.array_equal(out['a'], arr * 2)
         assert isinstance(out['rotated'], PIL.Image.Image)
 
+    @pytest.mark.resource_intensive
     def test_compute_with_idx(self, db_root: DatabaseRoot, clip_embed: pxt.Function) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('transformers')

@@ -107,10 +107,6 @@ def pytest_collection_modifyitems(config: PytestConfig, items: list[pytest.Item]
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
             item.add_marker(pytest.mark.skip_merge_queue)
             item.add_marker(pytest.mark.xdist_group('large_model'))
-        if any(
-            (m.args[0] if m.args else m.kwargs.get('name')) == 'large_model' for m in item.iter_markers('xdist_group')
-        ):
-            item.add_marker(pytest.mark.resource_intensive)
 
     for item in items:
         if item.path.suffix == '.ipynb':
@@ -955,13 +951,13 @@ def local_embed() -> pxt.Function:
 
 # Parametrized embedding selectors for tests that assert real-model semantics:
 # - the 'local_embed' param runs the full test body against the download-free embedding
-# - the real-model param is marked 'skip_merge_queue', in the 'large_model' xdist group
+# - the real-model param is marked 'resource_intensive', in the 'large_model' xdist group
 # Each fixture returns (embedding, is_dummy_model); skip model-dependent assertions when is_dummy_model.
 @pytest.fixture(
     params=[
         pytest.param(False, id='local_embed'),
         pytest.param(
-            True, id='clip_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+            True, id='clip_embed', marks=[pytest.mark.resource_intensive, pytest.mark.xdist_group('large_model')]
         ),
     ]
 )
@@ -975,7 +971,7 @@ def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
     params=[
         pytest.param(False, id='local_embed'),
         pytest.param(
-            True, id='mpnet_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+            True, id='mpnet_embed', marks=[pytest.mark.resource_intensive, pytest.mark.xdist_group('large_model')]
         ),
     ]
 )

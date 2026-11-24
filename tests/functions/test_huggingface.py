@@ -35,7 +35,7 @@ def skip_test_if_no_sam3() -> None:
         pytest.skip(f'SAM 3 is not available in transformers {transformers.__version__}')
 
 
-@pytest.mark.skip_merge_queue  # Downloads Hugging Face models
+@pytest.mark.resource_intensive  # Downloads Hugging Face models
 @pytest.mark.xdist_group('large_model')
 @rerun_on_network_error()
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
@@ -199,7 +199,6 @@ class TestHuggingface:
         # Test appropriate typing
         assert t.get_metadata()['columns']['featured_object']['type_'] == 'String | None'
 
-    @pytest.mark.resource_intensive
     def test_detr_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -223,7 +222,6 @@ class TestHuggingface:
         assert len(result['segments_info']) > 0
         assert 'label_text' in result['segments_info'][0]
 
-    @pytest.mark.resource_intensive
     def test_sam3_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()
@@ -315,7 +313,6 @@ class TestHuggingface:
                 seg=sam3_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
             )
 
-    @pytest.mark.resource_intensive  # 24-45 minutes on a standard runner
     def test_sam3_for_video_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()
@@ -360,7 +357,6 @@ class TestHuggingface:
         )
         assert v_fps.count() == 4
 
-    @pytest.mark.resource_intensive
     def test_sam3_for_segmentation_no_detections(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()
@@ -693,7 +689,6 @@ class TestHuggingface:
         assert img.size == (res['width'], res['height'])
         assert np.asarray(img).std() > 0
 
-    @pytest.mark.resource_intensive
     def test_image_to_video(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
