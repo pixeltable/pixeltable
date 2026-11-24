@@ -107,7 +107,7 @@ def config(_req: Request) -> models.ConfigResponse:
     # Three-layer redaction so a new sensitive key never silently leaks:
     # - params from registered API client factories
     # - name-suffix match for keys that aren't tied to an Env-registered client (eg, azure.storage_account_key)
-    # - every config var, since users name them and a name says nothing reliable about the value
+    # - every config var: users choose the keys, and a key says nothing reliable about its value
     client_creds: set[str] = set(Env.get().get_client_credential_params().values())
     sensitive_suffixes = ('key', 'token', 'secret', 'password', 'otlp_headers')
     entries: list[models.ConfigEntry] = []
