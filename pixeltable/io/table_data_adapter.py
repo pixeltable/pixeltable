@@ -22,8 +22,10 @@ from pyarrow.parquet import ParquetDataset
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable import exec
 from pixeltable.catalog import fold_identifier, fold_mapping_keys
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_prepare_columns, _df_rows, df_infer_schema
+from pixeltable.plan import Planner
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.pydantic import is_json_convertible
@@ -233,15 +235,14 @@ class QueryTableDataAdapter(TableDataAdapter):
     def prepare_for_insert_into_table(self) -> None:
         if self.source_column_map is None:
             self.source_column_map = {}
-        # Compile before the destination's version is bumped, including when inserting from the table itself.
-        from pixeltable import exec
-
         self._plan = self.pxt_query._create_query_plan()
         self.check_source_columns_are_insertable(self._plan.select_list_schema)
         sql_node = self._plan.exec_root.get_node(exec.SqlNode)
         assert sql_node is not None
+        # For self-insertion, the source cursor opens before any destination rows are written, so its snapshot
+        # excludes the rows produced by this insert.
         sql_node.set_stream_results(True)
-        self._plan.ctx.batch_size = 1024
+        self._plan.ctx.batch_size = Planner._ROW_BATCH_SIZE
         self._plan.ctx.ignore_errors = self.ignore_errors
 
     async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
