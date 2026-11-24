@@ -942,9 +942,7 @@ class Query(QueryBase):
         return hashlib.sha256(summary_string.encode()).hexdigest()
 
     def _require_local(self, method: str) -> None:
-        """Raise if this Query reads a hosted table. For methods that run the query locally through the exec plan
-        (and its slot indices or local table versions) rather than through cursor() or collect(), which also serve
-        hosted tables."""
+        """Raise unless this Query reads a local table."""
         if not self._from_clause.is_local:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
