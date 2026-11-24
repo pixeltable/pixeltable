@@ -259,13 +259,14 @@ class QueryTableDataAdapter(TableDataAdapter):
                     # Keep original URLs for non-image media and images that have not been downloaded.
                     # All media uses normal insertion storage handling, which can unnecessarily copy existing files.
                     # Images with local files are unnecessarily re-encoded; their format and pixels can change.
-                    val = (
-                        row.file_urls[e.slot_idx]
-                        if e.col_type.is_media_type()
+                    if (
+                        e.col_type.is_media_type()
                         and (not e.col_type.is_image_type() or row.file_paths[e.slot_idx] is None)
                         and row.file_urls[e.slot_idx] is not None
-                        else row[e.slot_idx]
-                    )
+                    ):
+                        val = row.file_urls[e.slot_idx]
+                    else:
+                        val = row[e.slot_idx]
                     output_row[col_name] = self._create_literal(col_name, val)
                 yield output_row
 
