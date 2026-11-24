@@ -82,8 +82,7 @@ def _spend(usage: dict[str, Any]) -> str:
 
 
 def _running(usage: dict[str, Any]) -> str | None:
-    """What runs now, and on a plan that bills past included, what that costs a month. A plan that stops at its
-    limit says when it gets there in the spend line instead."""
+    """What runs now, and on a plan that bills past included, what that costs a month."""
     running = usage.get('running')
     if running is None:
         return None

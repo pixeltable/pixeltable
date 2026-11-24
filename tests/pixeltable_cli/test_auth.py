@@ -961,13 +961,14 @@ class TestUsage:
     def test_enterprise(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Enterprise's money and included amounts are its contract's, so the answer has none."""
         enterprise = {**_USAGE, 'plan': 'enterprise', 'included_usd': None, 'used_usd': None, 'stops_at_limit': False}
+        enterprise['running'] = {**_USAGE['running'], 'monthly_usd': None}
         enterprise['resources'] = [{**r, 'limit': None} for r in _USAGE['resources']]
 
         usage.print_usage(enterprise, datetime.datetime(2026, 11, 18, tzinfo=datetime.timezone.utc))
 
         lines = capsys.readouterr().out.splitlines()
         assert lines[1] == 'Usage is billed under your contract.'
-        assert lines[2] == 'Running now: 2.5 vCPU, 5,120 MB, $125 a month at this rate'
+        assert lines[2] == 'Running now: 2.5 vCPU, 5,120 MB'
         assert lines[-1] == 'Media Store  12.3 GB / -'
 
     def test_without_running(self, capsys: pytest.CaptureFixture[str]) -> None:
