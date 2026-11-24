@@ -5,6 +5,7 @@ stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 
 import contextlib
 import http.client
+import io
 import json
 import os
 import platform
@@ -37,6 +38,30 @@ from pixeltable_cli.utils import (
 )
 
 _IS_WINDOWS = platform.system() == 'Windows'
+
+# Set by coding agents in the environment of the commands they run, as @vercel/detect-agent reads
+# them: variable -> agent. Left out: CURSOR_TRACE_ID and REPL_ID, which every Cursor terminal and
+# Replit shell carries, and the COPILOT_* settings, which a person's shell profile can export.
+AGENT_MARKERS = {
+    'CURSOR_AGENT': 'cursor',
+    'GEMINI_CLI': 'gemini',
+    'CODEX_SANDBOX': 'codex',
+    'CODEX_CI': 'codex',
+    'CODEX_THREAD_ID': 'codex',
+    'ANTIGRAVITY_AGENT': 'antigravity',
+    'AUGMENT_AGENT': 'augment',
+    'OPENCODE_CLIENT': 'opencode',
+    'CLAUDECODE': 'claude',
+    'CLAUDE_CODE': 'claude',
+}
+
+
+def coding_agent() -> str | None:
+    """Return the name of the coding agent whose marker is set in the environment, if any."""
+    if os.environ.get('CURSOR_EXTENSION_HOST_ROLE') == 'agent-exec':
+        return 'cursor'
+    return next((agent for marker, agent in AGENT_MARKERS.items() if os.environ.get(marker, '') != ''), None)
+
 
 # shared exit codes for all commands
 EXIT_IN_AGREEMENT = 0
@@ -727,12 +752,36 @@ def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: 
     sys.exit(EXIT_REFUSED)
 
 
+def fail(
+    prog: str,
+    message: str,
+    error_code: str,
+    as_json: bool,
+    *,
+    retryable: bool = False,
+    retry_after: int | None = None,
+    exit_code: int = EXIT_ERROR,
+) -> NoReturn:
+    """Report a failure of prog on stderr, and with as_json also as the --json document on stdout; then exit."""
+    if as_json:
+        print_error_document(error_code, message, retryable=retryable, retry_after=retry_after)
+    flush_stdout()
+    print(f'{prog}: {message}', file=sys.stderr)
+    sys.exit(exit_code)
+
+
 def flush_stdout() -> None:
     # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
     try:
         sys.stdout.flush()
     except OSError:
         pass
+
+
+def escape_unencodable_stdout() -> None:
+    # on Windows, stdout to a pipe uses the locale's code page, which lacks most characters
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(errors='backslashreplace')
 
 
 def print_json_schema(adapter: pydantic.TypeAdapter) -> None:

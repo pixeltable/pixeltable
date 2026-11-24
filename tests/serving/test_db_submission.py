@@ -212,15 +212,17 @@ def _receipt(**fields: Any) -> GenerationReceipt:
 
 
 @pytest.fixture
-def project(init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def project(init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     # a released pxt: a development build of an unpinned project is refused before packaging
     monkeypatch.setattr(pxt, '__version__', '0.7.15')
     (tmp_path / 'pixeltable.toml').write_text(f'[[pixeltable.database]]\nname = "{_DB_URI}"\n', encoding='utf-8')
     (tmp_path / 'app.py').write_text('x = 1\n')
     (tmp_path / 'requirements.txt').write_text('pandas\n')
+    original = Config.get().project_root
     Config.init(reinit=True, project_root=tmp_path)
     monkeypatch.setattr(receipts, 'POLL_INTERVAL', 0.0)
-    return tmp_path
+    yield tmp_path
+    Config.init(reinit=True, project_root=original)
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, control_plane: _ControlPlane) -> None:

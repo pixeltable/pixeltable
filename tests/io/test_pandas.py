@@ -128,6 +128,37 @@ class TestPandas:
         t.insert(df)
         assert t.count() == 2 * len(df)
 
+    def test_import_pandas_missing_values(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        df = pd.DataFrame(
+            {
+                'id': [0, 1, 2],
+                'bool_obj': pd.Series([True, False, None], dtype=object),
+                'str_obj': pd.Series(['a', None, 'c'], dtype=object),
+                'int_obj': pd.Series([1, None, 3], dtype=object),
+                'float_obj': pd.Series([1.5, None, 3.0], dtype=object),
+                'str_na': pd.Series(['a', pd.NA, 'c'], dtype='string'),
+                'bool_ext': pd.Series([True, pd.NA, False], dtype='boolean'),
+                'int_ext': pd.Series([1, pd.NA, 3], dtype='Int64'),
+                'float_ext': pd.Series([1.5, pd.NA, 3.0], dtype='Float64'),
+            }
+        )
+        t = pxt.io.import_pandas(p('test_missing'), df)
+        md = t.get_metadata()['columns']
+        assert md['bool_ext']['type_'] == 'Bool | None'
+        assert md['int_ext']['type_'] == 'Int | None'
+        assert md['float_ext']['type_'] == 'Float | None'
+
+        res = t.order_by(t.id).collect()
+        assert res['bool_obj'] == [True, False, None]
+        assert res['str_obj'] == ['a', None, 'c']
+        assert res['int_obj'] == [1, None, 3]
+        assert res['float_obj'] == [1.5, None, 3.0]
+        assert res['str_na'] == ['a', None, 'c']
+        assert res['bool_ext'] == [True, None, False]
+        assert res['int_ext'] == [1, None, 3]
+        assert res['float_ext'] == [1.5, None, 3.0]
+
     def test_pandas_schema_overrides(self, db_root: DatabaseRoot) -> None:
         """Schema overrides convert timestamp columns to dates and UUID strings to UUIDs."""
         uid = uuid.uuid4()
@@ -382,6 +413,20 @@ class TestPandas:
                 primary_key='ts_n',
             )
         assert 'Primary key column `ts_n` cannot contain null values.' in str(exc_info.value)
+
+    def test_import_pandas_lossy_float_to_int(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+
+        # a non-integral float must not be silently truncated when the column is declared as an int
+        df = pd.DataFrame({'pk': [1.9, 2.1], 'v': ['a', 'b']})
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
+            _ = pxt.io.import_pandas(p('lossy'), df, schema_overrides={'pk': ts.IntType()}, primary_key='pk')
+        assert 'cannot be converted to int without loss' in str(exc_info.value)
+
+        # integral floats are still converted losslessly
+        df = pd.DataFrame({'pk': [1.0, 2.0], 'v': ['a', 'b']})
+        t = pxt.io.import_pandas(p('lossless'), df, schema_overrides={'pk': ts.IntType()}, primary_key='pk')
+        assert sorted(r['pk'] for r in t.collect()) == [1, 2]
 
 
 def _assert_equals_with_nans(a: list[float], b: list[float]) -> bool:

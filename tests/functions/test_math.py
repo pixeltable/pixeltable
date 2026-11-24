@@ -1,10 +1,11 @@
 import builtins
 import functools
 import math
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import pytest
+import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
@@ -24,49 +25,81 @@ class TestMath:
         r = t.order_by(t.x).collect()
         assert np.array_equal(r['x'], np.array(values), equal_nan=True), r
 
-        # the bool field indicates functions that are only defined for positive inputs (sqrt/exp/log/log10)
-        test_params: list[tuple[pxt.Function, Callable, bool, list, dict]]
+        # each entry: function, Python reference, domain predicate (None: defined everywhere), whether SQL and Python
+        # results are only approximately equal, args, kwargs; the predicate is applied to both the column expression
+        # and the Python values, which works because & is defined on both Expr and bool
+        test_params: list[tuple[pxt.Function, Callable, Callable | None, bool, list, dict]]
+
+        def positive(x: Any) -> Any:
+            # bounded: some functions overflow on large inputs
+            return (x > 0) & (x <= 100)
+
+        def unit(x: Any) -> Any:
+            return (x >= -1) & (x <= 1)
+
+        def finite(x: Any) -> Any:
+            # sin/cos/tan raise an error for infinity; Postgres can't be given an infinite bound here
+            return (x > -1e100) & (x < 1e100)
 
         if method_type == pxt.Float:
             test_params = [
-                (pxtf.math.abs, builtins.abs, False, [], {}),
-                (pxtf.math.ceil, lambda x: float(math.ceil(x)) if math.isfinite(x) else x, False, [], {}),
-                (pxtf.math.floor, lambda x: float(math.floor(x)) if math.isfinite(x) else x, False, [], {}),
-                (pxtf.math.round, builtins.round, False, [0], {}),
-                (pxtf.math.round, builtins.round, False, [2], {}),
-                (pxtf.math.round, builtins.round, False, [4], {}),
+                (pxtf.math.abs, builtins.abs, None, False, [], {}),
+                (pxtf.math.ceil, lambda x: float(math.ceil(x)) if math.isfinite(x) else x, None, False, [], {}),
+                (pxtf.math.floor, lambda x: float(math.floor(x)) if math.isfinite(x) else x, None, False, [], {}),
+                (pxtf.math.round, builtins.round, None, False, [0], {}),
+                (pxtf.math.round, builtins.round, None, False, [2], {}),
+                (pxtf.math.round, builtins.round, None, False, [4], {}),
                 # round(x) without an explicit digits argument: behaves like round(x, 0)
-                (pxtf.math.round, lambda x: builtins.round(x, 0), False, [], {}),
-                (pxtf.math.sqrt, math.sqrt, True, [], {}),
-                (pxtf.math.exp, math.exp, True, [], {}),
-                (pxtf.math.log, math.log, True, [], {}),
-                (pxtf.math.log10, math.log10, True, [], {}),
+                (pxtf.math.round, lambda x: builtins.round(x, 0), None, False, [], {}),
+                (pxtf.math.sqrt, math.sqrt, positive, True, [], {}),
+                (pxtf.math.exp, math.exp, positive, True, [], {}),
+                (pxtf.math.log, math.log, positive, True, [], {}),
+                (pxtf.math.log10, math.log10, positive, True, [], {}),
+                (pxtf.math.sin, math.sin, finite, True, [], {}),
+                (pxtf.math.cos, math.cos, finite, True, [], {}),
+                (pxtf.math.tan, math.tan, finite, True, [], {}),
+                (pxtf.math.asin, math.asin, unit, True, [], {}),
+                (pxtf.math.acos, math.acos, unit, True, [], {}),
+                (pxtf.math.atan, math.atan, None, True, [], {}),
+                (pxtf.math.degrees, math.degrees, None, True, [], {}),
+                (pxtf.math.radians, math.radians, None, True, [], {}),
+                (pxtf.math.sign, np.sign, None, True, [], {}),
             ]
         else:
             test_params = [
-                (pxtf.math.pow, builtins.pow, False, [2], {}),
-                (pxtf.math.bitwise_and, lambda x, y: x & y, False, [2], {}),
-                (pxtf.math.bitwise_or, lambda x, y: x | y, False, [2], {}),
-                (pxtf.math.bitwise_xor, lambda x, y: x ^ y, False, [2], {}),
-                (pxtf.math.sqrt, math.sqrt, True, [], {}),
-                (pxtf.math.exp, math.exp, True, [], {}),
-                (pxtf.math.log, math.log, True, [], {}),
-                (pxtf.math.log10, math.log10, True, [], {}),
+                (pxtf.math.pow, builtins.pow, None, False, [2], {}),
+                (pxtf.math.bitwise_and, lambda x, y: x & y, None, False, [2], {}),
+                (pxtf.math.bitwise_or, lambda x, y: x | y, None, False, [2], {}),
+                (pxtf.math.bitwise_xor, lambda x, y: x ^ y, None, False, [2], {}),
+                (pxtf.math.sqrt, math.sqrt, positive, True, [], {}),
+                (pxtf.math.exp, math.exp, positive, True, [], {}),
+                (pxtf.math.log, math.log, positive, True, [], {}),
+                (pxtf.math.log10, math.log10, positive, True, [], {}),
+                (pxtf.math.sin, math.sin, finite, True, [], {}),
+                (pxtf.math.cos, math.cos, finite, True, [], {}),
+                (pxtf.math.tan, math.tan, finite, True, [], {}),
+                (pxtf.math.asin, math.asin, unit, True, [], {}),
+                (pxtf.math.acos, math.acos, unit, True, [], {}),
+                (pxtf.math.atan, math.atan, None, True, [], {}),
+                (pxtf.math.degrees, math.degrees, None, True, [], {}),
+                (pxtf.math.radians, math.radians, None, True, [], {}),
+                (pxtf.math.sign, np.sign, None, True, [], {}),
             ]
 
-        for pxt_fn, py_fn, requires_positive, args, kwargs in test_params:
+        for pxt_fn, py_fn, domain, approx, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
             matches: Callable[[list, list], bool]
             base: pxt.Table | pxt.Query
-            if requires_positive:
-                # strictly positive and bounded: some functions overflow on large inputs
-                base = t.where((t.x > 0) & (t.x <= 100))
-                fn_values = [x for x in values if 0 < x <= 100]
-                # exp/log/log10 results aren't guaranteed bit-identical between SQL and Python
-                matches = np.allclose
+            if domain is not None:
+                base = t.where(domain(t.x))
+                fn_values = [x for x in values if domain(x)]
             else:
                 base = t
                 fn_values = values
+            if approx:
+                # results aren't guaranteed to be bit-identical between SQL and Python
+                matches = functools.partial(np.allclose, equal_nan=True)
+            else:
                 matches = functools.partial(np.array_equal, equal_nan=True)
             actualdb = base.select(out=pxt_fn(t.x, *args, **kwargs)).order_by(t.x).collect()['out']
             expected = [py_fn(x, *args, **kwargs) for x in fn_values]
@@ -87,7 +120,7 @@ class TestMath:
             assert matches(actual_py, expected), f'{actual_py} != {expected}'
 
         # Check that they can all be called with method syntax too
-        for pxt_fn, _, _, _, _ in test_params:
+        for pxt_fn, _, _, _, _, _ in test_params:
             mref = getattr(t.x, pxt_fn.name)
             if isinstance(mref, exprs.MethodRef):
                 # method
@@ -97,6 +130,50 @@ class TestMath:
                 assert mref.fn.name == pxt_fn.name, pxt_fn
             else:
                 raise AssertionError()
+
+    def test_trig_and_sign(self, uses_db: None) -> None:
+        """Domain errors, and sign(), trig and conversion functions in where(), update() and delete() filters."""
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'x': pxt.Float})
+        t.insert({'id': i, 'x': x} for i, x in enumerate([-2.0, -0.5, 0.0, 0.5, 2.0]))
+
+        # sign(), trigonometric and conversion functions run in Postgres in where(), update() and delete()
+        assert t.where(t.x.sign() < 0).select(t.id).order_by(t.id).collect()['id'] == [0, 1]
+        assert t.where(t.x.sign() == 0).select(t.id).collect()['id'] == [2]
+        assert t.where(t.x.radians().cos() > 0.99999).select(t.id).collect()['id'] == [2]
+        status = t.update({'x': 10.0}, where=t.x.radians().cos() > 0.99999)
+        assert status.num_rows == 1
+        assert t.where(t.id == 2).select(t.x).collect()['x'] == [10.0]
+        assert t.delete(where=t.x.sign() < 0).num_rows == 2
+        assert t.delete(where=t.x.degrees().atan() > 0).num_rows == 3
+        assert t.count() == 0
+
+        # out-of-domain inputs are errors, not silent NaNs, in both SQL and Python
+        t = pxt.create_table('errors_tbl', {'id': pxt.Int, 'x': pxt.Float})
+        t.insert([{'id': 0, 'x': 2.0}, {'id': 1, 'x': math.inf}])
+        # in Postgres, the error surfaces as a database error
+        with pytest.raises(sql_exc.DataError, match='out of range'):
+            _ = t.where(t.id == 0).select(out=t.x.asin()).collect()
+        with pytest.raises(sql_exc.DataError, match='out of range'):
+            _ = t.where(t.id == 1).select(out=t.x.sin()).collect()
+        # a non-SQLizable identity function forces evaluation in Python
+        ident = t.x.apply(lambda x: x, col_type=pxt.Float)
+        # the wording of the ValueError message differs across Python versions
+        with pytest.raises(pxt.Error, match='ValueError'):
+            _ = t.where(t.id == 0).select(out=ident.asin()).collect()
+        with pytest.raises(pxt.Error, match='ValueError'):
+            _ = t.where(t.id == 1).select(out=ident.sin()).collect()
+
+        # computed columns are evaluated in Python on insert
+        t = pxt.create_table('computed_tbl', {'id': pxt.Int, 'x': pxt.Float})
+        t.add_computed_column(asin=t.x.asin())
+        t.add_computed_column(sin=t.x.sin())
+        status = t.insert([{'id': 0, 'x': 2.0}, {'id': 1, 'x': math.inf}], on_error='ignore')
+        assert status.num_excs == 3
+        res = t.select(t.asin, t.sin, asin_err=t.asin.errortype, sin_err=t.sin.errortype).order_by(t.id).collect()
+        assert res['asin'] == [None, None]
+        assert res['sin'] == [math.sin(2.0), None]
+        assert res['asin_err'][0] == 'ValueError'
+        assert res['sin_err'][1] == 'ValueError'
 
     def test_to_int(self, uses_db: None) -> None:
         """to_int() truncates toward zero and returns the same values from Python and from Postgres."""

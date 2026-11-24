@@ -62,6 +62,7 @@ NOTEBOOK_MARKERS: dict[str, tuple[tuple[str, ...], str | None]] = {
     ),
     'object-detection-in-videos': (('resource_intensive',), 'runs YOLOX on video frames, 6 minutes on ubuntu-large'),
     'llm-tool-calling': (('skip',), 'needs a separately running MCP server'),
+    'working-with-openllm': (('skip',), 'needs a separately running OpenLLM daemon'),
     'working-with-bfl': (('skip',), 'PXT-1111: out of credits'),
     'working-with-fabric': (('skip',), 'PXT-1113: needs a Microsoft Fabric environment'),
     'working-with-fiftyone': (('skip',), 'PXT-1117: Voxel51 is left out of the dev environment for security reasons'),

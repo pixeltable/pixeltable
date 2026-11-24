@@ -134,6 +134,16 @@ def provider_fails(x: int) -> int:
     )
 
 
+@pxt.udf
+def echo_fails(text: str) -> str:
+    raise RuntimeError(f'cannot process {text}')
+
+
+@pxt.udf
+def prompt_fails(text: str, prompt: str) -> str:
+    raise RuntimeError('cannot process')
+
+
 class TestTable:
     # exc for a % 10 == 0
     @staticmethod
@@ -3870,6 +3880,27 @@ class TestTable:
         assert isinstance(err, pxt.ExternalServiceError)
         assert (err.provider, err.provider_http_status_code, err.provider_error_code) == ('gemini', 500, 'X')
         assert err.retry_after == 3
+
+    def test_computed_col_error_truncates_values(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'body': pxt.String})
+        t.add_computed_column(out=echo_fails(t.body))
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'In row 0 the expression echo_fails\(body\) .* RuntimeError'
+        ) as exc:
+            t.insert(body='x' * 10_000)
+        msg = str(exc.value)
+        assert len(msg) < 2_000
+        assert "with 'body' = 'xxx" in msg
+        assert 'more characters]' in msg
+
+        t2 = pxt.create_table(db_root.make_catalog_path('test2'), {'body': pxt.String})
+        t2.add_computed_column(out=prompt_fails(t2.body, 'p' * 10_000))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='RuntimeError') as exc:
+            t2.insert(body='short')
+        msg = str(exc.value)
+        assert len(msg) < 2_000
+        assert "with 'body' = 'short'" in msg
+        assert msg.count("'pppp") == 1
 
     def test_unsaveable_image(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         """A computed image that cannot be saved aborts the operation or, with on_error='ignore', is a cell error."""
