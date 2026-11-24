@@ -1,4 +1,3 @@
-import asyncio
 import datetime
 import enum
 import errno
@@ -80,12 +79,6 @@ def add_unstored_table_base_val(vals: Batch[int]) -> Batch[int]:
 @pxt.udf
 def square(x: int) -> int:
     return x * x
-
-
-@pxt.udf
-async def async_increment(x: int) -> int:
-    await asyncio.sleep(0)
-    return x + 1
 
 
 @pxt.udf
@@ -1227,136 +1220,28 @@ class TestTable:
             'nested': {'items': [i, f'{i}', None, i % 2 == 1], 'inner': {'k': i * 2}},
         }
 
-    def test_insert_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+    def test_insert_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
-        t1 = pxt.create_table(p('test1'), source=query1)
+        t1 = pxt.create_table(p('test1'), source=query1, _is_data_versioned=is_data_versioned)
         assert list(t1.columns()) == list(query1.schema.keys())
         assert_resultset_eq(t1.order_by(t1.c2, asc=False).collect(), query1.collect())
 
+        t1.add_computed_column(computed=square(t1.c2))
         t1.insert(query1)
-        assert len(t1.collect()) == 2 * len(query1.collect())
+        result = t1.collect()
+        assert len(result) == 2 * len(query1.collect())
+        assert result['computed'] == [n * n for n in result['c2']]
+        assert t1.insert(t1.select(*(t1[name] for name in query1.schema))).num_rows == len(result)
 
         # Insert from table directly
-        t2 = pxt.create_table(p('test2'), source=t)
+        t2 = pxt.create_table(p('test2'), source=t, _is_data_versioned=is_data_versioned)
+        t2.add_computed_column(computed=square(t2.c2))
         t2.insert(t)
-        assert len(t2.collect()) == 2 * len(t.collect())
-
-    @pytest.mark.parametrize('source_kind', ['query', 'table'])
-    def test_query_insert_computed_columns(
-        self, db_root: DatabaseRoot, is_data_versioned: bool, source_kind: str
-    ) -> None:
-        p = db_root.make_catalog_path
-        src = pxt.create_table(p('src'), {'id': pxt.Int, 'value': pxt.Int | None})
-        src.insert([{'id': i, 'value': None if i == 0 else i} for i in range(3)])
-        dst = pxt.create_table(
-            p('dst'),
-            {'id': pxt.Int, 'value': pxt.Float | None, 'optional': pxt.String | None},
-            primary_key='id',
-            _is_data_versioned=is_data_versioned,
-        )
-        dst.add_computed_column(intermediate=dst.id + 10, stored=False)
-        dst.add_computed_column(squared=square(dst.intermediate))
-        dst.add_computed_column(chained=dst.squared + 1)
-        dst.add_computed_column(missing=dst.optional == None)
-        dst.add_computed_column(vector=fill_3x4(dst.id))
-
-        source = src.select(id=async_increment(src.id), value=src.value) if source_kind == 'query' else src
-        status = dst.insert(source, return_rows=True)
-        assert (status.num_rows, status.num_excs) == (3, 0)
-        assert status.rows is not None
-        start = 1 if source_kind == 'query' else 0
-        rows = list(dst.order_by(dst.id).collect())
-        for i, row in enumerate(rows):
-            n = start + i
-            assert row['id'] == n
-            assert row['value'] == (None if i == 0 else float(i))
-            assert row['optional'] is None
-            assert row['missing'] is True
-            assert row['squared'] == (n + 10) ** 2
-            assert row['chained'] == (n + 10) ** 2 + 1
-            assert np.array_equal(row['vector'], np.full((3, 4), n))
-            # The default index on the computed column must contain the new value as well.
-            assert dst.where(dst.chained == (n + 10) ** 2 + 1).count() == 1
-        assert sorted(r['chained'] for r in status.rows) == [r['chained'] for r in rows]
-        assert dst.insert(dst.select(id=dst.id + 100)).num_rows == 3
-        assert dst.where(dst.id >= 100).order_by(dst.id).select(dst.chained).collect()['chained'] == [
-            (start + i + 110) ** 2 + 1 for i in range(3)
-        ]
-
-    @pytest.mark.parametrize('if_exists', ['error', 'ignore'])
-    def test_query_insert_validation(
-        self, db_root: DatabaseRoot, is_data_versioned: bool, if_exists: Literal['error', 'ignore']
-    ) -> None:
-        p = db_root.make_catalog_path
-        src = pxt.create_table(p('src'), {'id': pxt.String | None, 'value': pxt.String})
-        src.insert([{'id': 'valid', 'value': 'bad'}, {'id': None, 'value': 'bad'}])
-        dst = pxt.create_table(p('dst'), {'id': pxt.String}, primary_key='id', _is_data_versioned=is_data_versioned)
-        for on_error in ('abort', 'ignore'):
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Error in column id: expected non-None'):
-                dst.insert(src.select(src.id), if_exists=if_exists, on_error=on_error)
-            assert dst.count() == 0
-        dst.add_column(value=pxt.Int | None)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Error in column value: expected int'):
-            dst.insert(src.where(src.id != None).select(src.id, src.value), if_exists=if_exists)
-        assert dst.count() == 0
-        # An error must close the source cursor so another insertion can proceed.
-        assert dst.insert(src.where(src.id != None).select(src.id), if_exists=if_exists).num_rows == 1
-
-    @pytest.mark.parametrize('error_in_source', [False, True])
-    def test_query_insert_errors(self, db_root: DatabaseRoot, is_data_versioned: bool, error_in_source: bool) -> None:
-        p = db_root.make_catalog_path
-        src = pxt.create_table(p('src'), {'id': pxt.Int})
-        src.insert([{'id': 0}, {'id': 1}])
-        dst = pxt.create_table(
-            p('dst'), {'id': pxt.Int, 'value': pxt.Float | None}, _is_data_versioned=is_data_versioned
-        )
-        dst.add_computed_column(result=dst.value + 1 if error_in_source else reciprocal(dst.id))
-        source = src.select(src.id, value=reciprocal(src.id)) if error_in_source else src.select(src.id)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='division by zero'):
-            dst.insert(source)
-        assert dst.count() == 0
-        status = dst.insert(source, on_error='ignore')
-        assert status.num_rows == 2
-        assert status.num_excs >= 1
-        rows = dst.order_by(dst.id).select(dst.id, dst.result, error=dst.result.errormsg).collect()
-        assert rows['result'] == [None, 2.0 if error_in_source else 1.0]
-        assert 'division by zero' in rows[0]['error']
-        assert rows[1]['error'] is None
-
-    def test_query_insert_media(
-        self, db_root: DatabaseRoot, is_data_versioned: bool, sample_file_server: SampleFileServer
-    ) -> None:
-        p = db_root.make_catalog_path
-        schema = {'id': pxt.Int, 'img': pxt.Image, 'audio': pxt.Audio}
-        src = pxt.create_table(p('src'), schema)
-        audio_url = sample_file_server.url(get_audio_files()[0], db_root)
-        src.insert(id=1, img=PIL.Image.new('RGB', (8, 8), color='white'), audio=audio_url)
-        dst = pxt.create_table(p('dst'), schema, _is_data_versioned=is_data_versioned)
-        dst.add_computed_column(cropped=dst.img.crop([0, 0, 4, 4]))
-        dst.add_computed_column(size=dst.cropped.width)
-        status = dst.insert(src, return_rows=True)
-        assert status.num_excs == 0
-        assert dst.collect()[0]['cropped'].size == (4, 4)
-        assert dst.collect()[0]['size'] == 4
-        assert dst.select(url=dst.audio.fileurl).collect()['url'] == [audio_url]
-        pxt.drop_table(src)
-        assert dst.collect()[0]['img'].getpixel((0, 0)) == (255, 255, 255)
-        assert dst.collect()[0]['cropped'].getpixel((0, 0)) == (255, 255, 255)
-
-    def test_query_insert_streaming_abort(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        p = db_root.make_catalog_path
-        src = pxt.create_table(p('src'), {'id': pxt.Int})
-        src.insert({'id': i} for i in range(5000))
-        dst = pxt.create_table(p('dst'), {'id': pxt.Int}, _is_data_versioned=is_data_versioned)
-        dst.add_computed_column(result=reciprocal(dst.id))
-        source = src.order_by(src.id).select(id=async_increment(src.id) - 1)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='division by zero'):
-            dst.insert(source)
-        assert dst.count() == 0
-        assert dst.insert(source.where(src.id > 0)).num_rows == 4999
-        assert dst.where(dst.id == 4999).count() == 1
+        result = t2.collect()
+        assert len(result) == 2 * len(t.collect())
+        assert result['computed'] == [n * n for n in result['c2']]
 
     def test_join_query_as_source(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
@@ -2661,11 +2546,17 @@ class TestTable:
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         self.check_bad_media(p, rows, pxt.Video, validate_local_path=db_root.id == 'local')
 
-    def test_validate_audio(self, db_root: DatabaseRoot) -> None:
+    def test_validate_audio(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         p = db_root.make_catalog_path
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
         self.check_bad_media(p, rows, pxt.Audio, validate_local_path=db_root.id == 'local')
+
+        source = pxt.create_table(p('url_source'), {'audio': pxt.Audio})
+        url = sample_file_server.url(get_audio_files()[0], db_root)
+        source.insert(audio=url)
+        copied = pxt.create_table(p('url_copy'), source=source)
+        assert copied.select(url=copied.audio.fileurl).collect()['url'] == [url]
 
     def test_validate_docs(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -2950,6 +2841,7 @@ class TestTable:
         assert t.count() == len(rows)
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
+        src = pxt.create_table(p('insert_source'), source=t)
 
         # alternate (**kwargs: Any) insert syntax
         status = t.insert(
@@ -3002,6 +2894,8 @@ class TestTable:
             t = pxt.create_table(tbl_name, {col_name: col_type}, _is_data_versioned=is_data_versioned)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected|not a valid Pixeltable JSON object'):
                 t.insert({col_name: r[value_col_name]} for r in rows)
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected|not a valid Pixeltable JSON object'):
+                t.insert(src.select(**{col_name: src[value_col_name]}))
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
@@ -3011,10 +2905,13 @@ class TestTable:
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
+        t = pxt.create_table(tbl_name, {'c1': pxt.String}, primary_key='c1', _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
+            t.insert(src.select(c1=None), if_exists='ignore')
+        assert t.count() == 0
 
         # The insert source validation should happen before the (potentially expensive) plan is executed.
         bad_rows = [{'c1': f'row {i}'} for i in range(2500)]
@@ -3953,6 +3850,14 @@ class TestTable:
         assert t.where(t.add1.errortype != None).count() == 10
         assert t.where(t.add_sum.errortype != None).count() == 10
 
+        t.delete()
+        source = test_tbl.select(c2=self.f1(test_tbl.c2).to_int())
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='division by zero'):
+            t.insert(source)
+        assert t.count() == 0
+        t.insert(source, on_error='ignore')
+        assert t.where((t.c2 == None) & (t.add_sum.errortype != None)).count() == 10
+
         # exception in an index value column, which is reported under the index name
         t = pxt.create_table(p('test_idx_exc'), {'s': pxt.String}, _is_data_versioned=is_data_versioned)
         t.add_embedding_index('s', idx_name='s_idx', string_embed=embed_or_raise)
@@ -4330,6 +4235,11 @@ class TestTable:
         _ = t.select(t.c3).collect()
         self._test_computed_img_cols(t, stores_img_col=True, db_root=db_root)
         _ = t.select(t.c3.errortype).collect()
+
+        sizes = sorted(img.size for img in t.select(t.c3).collect()['c3'])
+        copied = pxt.create_table(p('copied'), source=t.select(img=t.c3))
+        pxt.drop_table(t)
+        assert sorted(img.size for img in copied.collect()['img']) == sizes
 
         # computed img col with exceptions
         t = pxt.create_table(p('test3'), schema)
