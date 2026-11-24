@@ -1324,7 +1324,7 @@ class TestQuery:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    @pytest.mark.db_roots('proxy', reason='exports that run the query in-process reject a hosted table')
+    @pytest.mark.db_roots('proxy', reason='exports that run the query locally reject a hosted table')
     def test_hosted_exports(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(db_root.make_catalog_path('images'), {'image': pxt.Image, 'annotations': pxt.Json})
         query = t.select({'image': t.image, 'annotations': t.annotations})

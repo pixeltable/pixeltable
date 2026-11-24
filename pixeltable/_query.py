@@ -941,13 +941,15 @@ class Query(QueryBase):
         summary_string = json.dumps(d)
         return hashlib.sha256(summary_string.encode()).hexdigest()
 
-    def _check_local_export(self, method: str) -> None:
-        """Raise if this Query reads a hosted table: method runs the query in this process."""
+    def _require_local(self, method: str) -> None:
+        """Raise if this Query reads a hosted table. For methods that run the query locally through the exec plan
+        (and its slot indices or local table versions) rather than through cursor() or collect(), which also serve
+        hosted tables."""
         if not self._from_clause.is_local:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{method} is not supported for hosted tables yet; collect() the rows and build the dataset from '
-                'the result instead.',
+                f'{method} is not supported for hosted tables yet; collect() the rows and build the result from '
+                'them instead.',
             )
 
     def to_coco_dataset(self) -> Path:
@@ -972,7 +974,7 @@ class Query(QueryBase):
         """
         from pixeltable.utils.coco import write_coco_dataset
 
-        self._check_local_export('to_coco_dataset()')
+        self._require_local('to_coco_dataset()')
         cache_key = self._hash_result_set()
         dest_path = Env.get().dataset_cache_dir / f'coco_{cache_key}'
         if dest_path.exists():
@@ -1015,7 +1017,7 @@ class Query(QueryBase):
             (and have your model handle it). Or, if these are not meaningful values within a minibtach, you can
             modify or remove any such values through selections and filters prior to calling to_pytorch_dataset().
         """
-        self._check_local_export('to_pytorch_dataset()')
+        self._require_local('to_pytorch_dataset()')
         # check dependencies
         Env.get().require_package('pyarrow', [13])
         Env.get().require_package('torch')
