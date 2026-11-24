@@ -256,13 +256,13 @@ class QueryTableDataAdapter(TableDataAdapter):
                     if row.has_exc(e.slot_idx):
                         output_row[col_name] = row.get_exc(e.slot_idx)
                         continue
-                    # Keep original URLs for non-image media rather than cache paths.
+                    # Keep original URLs for non-image media and images that have not been downloaded.
                     # All media uses normal insertion storage handling, which can unnecessarily copy existing files.
-                    # File-backed images are unnecessarily re-encoded, potentially changing their format and pixels.
+                    # Images with local files are unnecessarily re-encoded; their format and pixels can change.
                     val = (
                         row.file_urls[e.slot_idx]
                         if e.col_type.is_media_type()
-                        and not e.col_type.is_image_type()
+                        and (not e.col_type.is_image_type() or row.file_paths[e.slot_idx] is None)
                         and row.file_urls[e.slot_idx] is not None
                         else row[e.slot_idx]
                     )

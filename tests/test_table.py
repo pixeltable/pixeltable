@@ -1220,7 +1220,9 @@ class TestTable:
             'nested': {'items': [i, f'{i}', None, i % 2 == 1], 'inner': {'k': i * 2}},
         }
 
-    def test_insert_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+    def test_insert_query(
+        self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool, sample_file_server: SampleFileServer
+    ) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
@@ -1242,6 +1244,12 @@ class TestTable:
         result = t2.collect()
         assert len(result) == 2 * len(t.collect())
         assert result['computed'] == [n * n for n in result['c2']]
+
+        image_source = pxt.create_table(p('image_urls'), {'url': pxt.String})
+        image_source.insert(url=sample_file_server.url(get_image_files()[0], db_root))
+        image_query = image_source.select(img=image_source.url.astype(pxt.Image))
+        copied = pxt.create_table(p('images'), source=image_query, _is_data_versioned=is_data_versioned)
+        validate_update_status(copied.insert(image_query), expected_rows=1)
 
     def test_join_query_as_source(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
