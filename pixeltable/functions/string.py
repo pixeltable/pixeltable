@@ -631,12 +631,13 @@ def rpartition(self: str, sep: str = ' ') -> tuple[str, str, str]:
     """
     This method splits string at the last occurrence of `sep`, and returns a list containing the part before the
     separator, the separator itself, and the part after the separator.
+    If the separator is not found, return 3 elements containing two empty strings, followed by the string itself.
     """
     # the runtime value is a list (json arrays are lists; path expressions index into them); the annotation
     # carries the fixed three-element schema
     idx = self.rfind(sep)
     if idx == -1:
-        return [self, '', '']  # type: ignore[return-value]
+        return ['', '', self]  # type: ignore[return-value]
     return [self[:idx], sep, self[idx + builtins.len(sep) :]]  # type: ignore[return-value]
 
 

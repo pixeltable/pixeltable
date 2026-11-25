@@ -230,14 +230,12 @@ class TestString:
         t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
-        # count() doesn't yet support non-SQL Where clauses
         status = t.add_computed_column(parts=t.s.rpartition('IBM'))
         assert status.num_excs == 0
-        res = t.where(t.s.contains('IBM')).select(t.s, t.parts).collect()
+        res = t.select(t.s, t.parts).collect()
+        assert len(res) == len(self.TEST_STRS)
         for row in res:
-            assert len(row['parts']) == 3
-            assert len(row['parts'][0]) == row['s'].rfind('IBM')
-            assert row['parts'][1] == 'IBM'
+            assert row['parts'] == list(row['s'].rpartition('IBM'))
 
     def test_wrap(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String | None})
