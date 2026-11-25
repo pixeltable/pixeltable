@@ -432,7 +432,7 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
     try:
         if isinstance(source, list):
             root = TempStore.create_path()
-            source = str(proxy_protocol.decode_dir_tree(source, root))
+            source = str(proxy_protocol.decode_dir_tree(source, root, request._uploaded_names))
         return tbl.insert(
             source,
             source_format=kwargs['source_format'],
@@ -456,7 +456,7 @@ def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
     # reassemble the sent save_to_disk() directory tree and load it back
     root = TempStore.create_path()
     try:
-        dataset_dir = proxy_protocol.decode_dir_tree(kwargs['files'], root)
+        dataset_dir = proxy_protocol.decode_dir_tree(kwargs['files'], root, request._uploaded_names)
         dataset = datasets.load_from_disk(str(dataset_dir))
         return tbl.insert(
             dataset,

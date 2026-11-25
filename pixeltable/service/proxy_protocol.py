@@ -21,7 +21,7 @@ import shutil
 import struct
 import tarfile
 from concurrent.futures import FIRST_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
-from typing import IO, TYPE_CHECKING, Any, Callable, Generic, Iterator, TypedDict, TypeVar
+from typing import IO, TYPE_CHECKING, Any, Callable, Collection, Generic, Iterator, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -1004,13 +1004,19 @@ def encode_dir_tree(dir_path: pathlib.Path) -> list[dict[str, Any]]:
     ]
 
 
-def decode_dir_tree(files: list[dict[str, Any]], root: pathlib.Path) -> pathlib.Path:
+def decode_dir_tree(files: list[dict[str, Any]], root: pathlib.Path, uploaded_paths: Collection[str]) -> pathlib.Path:
     """Inverse of encode_dir_tree(): rebuild the entries under root and return the reassembled tree's top-level
     directory (named after the original source directory). The caller owns root and removes it to clean up.
 
-    The entries come off the wire, so every destination is checked before anything is written: each must resolve to
-    a path under root, and all must share one top-level directory.
+    The entries come off the wire, so all of them are checked before anything is moved: each file must be one of
+    uploaded_paths, the temp paths of the files sent with the request, and each destination must resolve to a path
+    under root, all of them sharing one top-level directory.
     """
+    for entry in files:
+        if entry['file'] not in uploaded_paths:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, 'A sent directory tree may only contain files sent with the request'
+            )
     resolved_root = root.resolve()
     dests = [_dir_tree_dest(entry['relpath'], resolved_root) for entry in files]
     tops = {dest.relative_to(resolved_root).parts[0] for dest in dests}
