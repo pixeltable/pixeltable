@@ -5,6 +5,7 @@ import io
 import json
 import math
 import pathlib
+import re
 import shutil
 import socket
 import socketserver
@@ -42,7 +43,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
-from .utils import bystander_process, pxt_raises, reload_env
+from .utils import DatabaseRoot, bystander_process, capture_console_output, pxt_raises, reload_env
 
 _KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
@@ -126,6 +127,25 @@ class _RecordingHttpTransport(httpx.BaseTransport):
 
 
 class TestProxyDaemon:
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='a hosted database runs a released daemon, which may not forward console output yet'
+    )
+    def test_console_output(self, db_root: DatabaseRoot) -> None:
+        """An operation on a hosted table prints the same console messages as on a local one."""
+        p = db_root.make_catalog_path
+        with capture_console_output() as out:
+            pxt.create_dir(p('console'))
+            t = pxt.create_table(p('console/t'), {'c': pxt.Int})
+            t.insert([{'c': 1}, {'c': 2}])
+            t.add_computed_column(d=t.c + 1)
+        expected = (
+            r"Created directory 'console'\.\n"
+            r"Created table 't'\.\n"
+            r'Inserted 2 rows with 0 errors in .*\n'
+            r'Added 2 column values with 0 errors in .*\n'
+        )
+        assert re.fullmatch(expected, out.getvalue()), out.getvalue()
+
     @staticmethod
     def _media_args(tmp_path: pathlib.Path) -> dict[str, Any]:
         """A rows payload with one of each binary-bearing value type."""

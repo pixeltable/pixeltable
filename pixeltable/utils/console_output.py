@@ -1,5 +1,8 @@
+import contextlib
+import contextvars
 import logging
-from typing import TextIO
+import threading
+from typing import Iterator, TextIO
 
 from pixeltable import exceptions as excs
 
@@ -44,3 +47,38 @@ class ConsoleMessageFilter(logging.Filter):
 class ConsoleLogger(logging.LoggerAdapter):
     def __init__(self, logger: logging.Logger):
         super().__init__(logger, extra={'user_visible': True})
+
+
+_captured: contextvars.ContextVar[list[tuple[int, str]] | None] = contextvars.ContextVar(
+    'captured_console', default=None
+)
+
+
+class _CaptureHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        lines = _captured.get()
+        if lines is not None and getattr(record, 'user_visible', False):
+            lines.append((record.levelno, record.getMessage()))
+
+
+_capture_handler = _CaptureHandler()
+_capture_handler_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def capture_console() -> Iterator[list[tuple[int, str]]]:
+    """Collect the (level, message) of each console message logged in the current context.
+
+    Messages still go to the regular handlers. A thread does not inherit the context, so messages logged on a
+    worker thread are not collected.
+    """
+    logger = logging.getLogger('pixeltable')
+    with _capture_handler_lock:
+        if _capture_handler not in logger.handlers:
+            logger.addHandler(_capture_handler)
+    lines: list[tuple[int, str]] = []
+    token = _captured.set(lines)
+    try:
+        yield lines
+    finally:
+        _captured.reset(token)
