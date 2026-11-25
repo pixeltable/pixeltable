@@ -44,6 +44,9 @@ def print_usage(usage: dict[str, Any], now: datetime.datetime) -> None:
     if counts_from > start:
         print(f'Usage counts from {counts_from:%Y-%m-%d} (UTC).')
     print(_spend(usage))
+    running = _running(usage)
+    if running is not None:
+        print(running)
 
     meters = usage.get('meters') or []
     if len(meters) > 0:
@@ -76,6 +79,18 @@ def _spend(usage: dict[str, Any]) -> str:
             line += f', around {at:%B} {at.day} at this rate'
         return line
     return f'{spent}; past included (estimate): {_usd(usage.get("past_included_usd"))}'
+
+
+def _running(usage: dict[str, Any]) -> str | None:
+    """What runs now, and on a plan that bills past included, what that costs a month."""
+    running = usage.get('running')
+    if running is None:
+        return None
+    line = f'Running now: {_number(running.get("cpu") or 0)} vCPU, {_number(running.get("memory_mb") or 0)} MB'
+    monthly = running.get('monthly_usd')
+    if not usage.get('stops_at_limit') and monthly is not None:
+        line += f', {_usd(monthly)} a month at this rate'
+    return line
 
 
 def _number(value: float) -> str:
