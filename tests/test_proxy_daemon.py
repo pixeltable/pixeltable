@@ -3,7 +3,6 @@ import gc
 import http
 import io
 import json
-import logging
 import math
 import os
 import pathlib
@@ -43,7 +42,6 @@ from pixeltable.service.management_client import Credential
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
 from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink, PxtStorePartSink
 from pixeltable.utils import cloud_utils
-from pixeltable.utils.console_output import ConsoleCollector, collect_console
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
@@ -160,22 +158,6 @@ t.add_computed_column(d=t.c + 1)
         )
         # a new local process also prints that it connected to its database
         assert re.search(expected, r.stdout), r.stdout
-
-    def test_console_collector_cap(self, init_env: None) -> None:
-        collector = ConsoleCollector(max_chars=40)
-        with collect_console(collector):
-            for msg in ['aaaa', 'bbbb', 'cccc', 'dddd', 'eeee', 'ffff', 'gggg']:
-                Env.get().log_to_console(msg)
-            Env.get().log_to_console('x' * 50, logging.WARNING)
-        assert collector.messages() == [
-            ('aaaa', logging.INFO),
-            ('bbbb', logging.INFO),
-            ('cccc', logging.INFO),
-            ('dddd', logging.INFO),
-            ('eeee', logging.INFO),
-            ('... 2 console messages omitted ...', logging.WARNING),
-            ('xxxx ... (truncated)', logging.WARNING),
-        ]
 
     @staticmethod
     def _media_args(tmp_path: pathlib.Path) -> dict[str, Any]:

@@ -75,15 +75,14 @@ class ConsoleCollector:
     def add(self, msg: str, level: int) -> None:
         half = self.max_chars // 2
         if len(msg) > half:
-            marker = ' ... (truncated)'
-            msg = msg[: half - len(marker)] + marker if half > len(marker) else msg[:half]
+            msg = msg[:half] + ' ... (truncated)'
         if len(self._tail) == 0 and self._head_chars + len(msg) <= half:
             self._head.append((msg, level))
             self._head_chars += len(msg)
             return
         self._tail.append((msg, level))
         self._tail_chars += len(msg)
-        while self._tail_chars > half:
+        while self._tail_chars > half and len(self._tail) > 1:
             dropped, _ = self._tail.popleft()
             self._tail_chars -= len(dropped)
             self._num_dropped += 1
@@ -99,7 +98,7 @@ class ConsoleCollector:
 _collector: contextvars.ContextVar[ConsoleCollector | None] = contextvars.ContextVar('console_collector', default=None)
 
 
-def current_collector() -> ConsoleCollector | None:
+def get_console_collector() -> ConsoleCollector | None:
     return _collector.get()
 
 

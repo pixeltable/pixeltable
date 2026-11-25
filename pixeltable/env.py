@@ -40,7 +40,7 @@ from pixeltable.utils.console_output import (
     ConsoleLogger,
     ConsoleMessageFilter,
     ConsoleOutputHandler,
-    current_collector,
+    get_console_collector,
     map_level,
 )
 from pixeltable.utils.dbms import Dbms, PostgresqlDbms
@@ -387,7 +387,7 @@ class Env:
 
     def log_to_console(self, msg: str, level: int = logging.INFO) -> None:
         """Log a message for the user. A collector set with collect_console() also receives it."""
-        collector = current_collector()
+        collector = get_console_collector()
         if collector is not None:
             collector.add(msg, level)
         self._console_logger.log(level, msg)
