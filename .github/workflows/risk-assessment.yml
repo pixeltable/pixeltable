@@ -1,0 +1,188 @@
+name: Risk assessment
+
+# On every push to a non-draft PR opened by sergey-mkhitaryan (see the job's `if`), Claude compares the change with the
+# critical components register (docs/design/critical-components.md) and decides whether 1 or 2 humans must be
+# involved. The verdict goes into one PR comment that each run updates. The check is advisory: the job always passes
+# and blocks nothing.
+#
+# Security model:
+# - pull_request_target runs this file, .claude/commands/pxt-risk.md, the register, and every script from the base
+#   branch, so a PR cannot change its own assessment. It also gives fork PRs the API key. Nothing from the PR runs.
+# - The working directory holds the PR head, because pyright must analyze the code after the change. Every agent
+#   instruction file and every symlink in it is removed, and only the base branch's pxt-risk command and register are
+#   copied in. No CLAUDE.md or AGENTS.md is loaded, because they point to guides that the PR can edit. The base branch
+#   itself is in $RUNNER_TEMP/base, which also holds the scripts and pyright that run.
+# - Claude gets read-only tools and no shell: Read, Grep, Glob, and the LSP tool, backed by the pinned pyright that
+#   .github/risk-assessment/.claude-plugin/plugin.json starts. Pyright analyzes code statically. The file tools cannot
+#   read outside the working directory, the base checkout and $RUNNER_TEMP/pr, where an earlier step saves the PR's
+#   metadata and diff. Claude cannot post: the post step publishes its final message.
+# - PR content can at most mislead the verdict or the comment text, which a human reads.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Number of the PR to assess
+        required: true
+
+jobs:
+  assess:
+    name: 'risk #${{ github.event.pull_request.number || inputs.pr }}'
+    # TODO: the check runs only for sergey-mkhitaryan while we test it. pull_request_target ignores the approval gate
+    # for fork PRs, so before opening it up to other authors, decide how to handle untrusted PR authors, and set the
+    # action's allowed_non_write_users and allowed_bots to match.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.actor == 'sergey-mkhitaryan') ||
+      (github.event.pull_request.draft == false && github.event.pull_request.user.login == 'sergey-mkhitaryan')
+    # A new push replaces an assessment that is still running.
+    concurrency:
+      group: risk-assessment-${{ github.event.pull_request.number || inputs.pr }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+      REGISTER: docs/design/critical-components.md
+      ASSESS_MAX_TURNS: '80'
+      ASSESS_MINUTES: '25'
+      # Removes ANTHROPIC_API_KEY and other secrets from the environment of the processes Claude starts.
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1'
+    steps:
+      - id: gate
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          author=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json author --jq .author.login)
+          if [ "$author" != sergey-mkhitaryan ]; then
+            echo "::error::PR #$PR_NUMBER is by $author; the check runs only on PRs by sergey-mkhitaryan."
+            exit 1
+          fi
+      # The post step runs from this copy of the scripts, taken from this workflow's own commit, so that it can replace
+      # an old verdict even when a later setup step fails.
+      - uses: actions/checkout@v6
+        with:
+          path: post-checkout
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - run: mv post-checkout "$RUNNER_TEMP/post"
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "BASE=$RUNNER_TEMP/base" >> "$GITHUB_ENV"
+          echo "PR_DATA=$RUNNER_TEMP/pr" >> "$GITHUB_ENV"
+          mkdir "$RUNNER_TEMP/pr"
+          gh pr view "$PR_NUMBER" --repo "$REPO" --json title,body,baseRefName,baseRefOid,headRefOid,files,commits \
+            > "$RUNNER_TEMP/pr/pr.json"
+          jq -r '"head=" + .headRefOid, "base=" + .baseRefOid' "$RUNNER_TEMP/pr/pr.json" >> "$GITHUB_OUTPUT"
+          # GitHub refuses the diff of a PR over its size limit (300 files or 20,000 lines) with HTTP 406.
+          if ! err=$(gh pr diff "$PR_NUMBER" --repo "$REPO" 2>&1 > "$RUNNER_TEMP/pr/pr.diff"); then
+            echo "$err" >&2
+            echo "$err" | grep -qE 'HTTP 406|exceeded the maximum' || exit 1
+            echo "diff_too_large=true" >> "$GITHUB_OUTPUT"
+          fi
+      # actions/checkout refuses fork PR code in a pull_request_target run without allow-unsafe-pr-checkout. Nothing
+      # from this copy runs; the next steps strip its agent files.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.pr.outputs.head }}
+          fetch-depth: 1
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.pr.outputs.base }}
+          path: base-checkout
+          fetch-depth: 1
+          persist-credentials: false
+      - run: mv base-checkout "$BASE"
+      # Claude loads CLAUDE.md, AGENTS.md, .claude/ and .mcp.json from its working directory, and Read follows symlinks.
+      # Remove the PR's copies and every symlink, then copy in the base branch's pxt-risk command, the register, and the
+      # pyright config, so that the PR can neither instruct Claude nor change what pyright analyzes. CLAUDE.md and
+      # AGENTS.md stay out: they send the agent to guides in the working directory, which the PR can edit.
+      - run: |
+          find . -path ./.git -prune -o -type l -print -exec rm -f {} +
+          find . -path ./.git -prune -o \
+            \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .mcp.json \
+               -o -name pyrightconfig.json \) -prune -exec rm -rf {} +
+          mkdir -p .claude/commands "$(dirname "$REGISTER")"
+          cp "$BASE/.claude/commands/pxt-risk.md" .claude/commands/
+          cp "$BASE/$REGISTER" "$REGISTER"
+          cp "$BASE/.github/risk-assessment/pyrightconfig.json" .
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      # Pinned by hash in package-lock.json; --ignore-scripts runs no install scripts.
+      - run: npm ci --ignore-scripts --no-audit --no-fund --prefix "$BASE/.github/risk-assessment"
+      # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap. Ubuntu 24.04 blocks the unprivileged user namespaces
+      # bubblewrap needs.
+      - continue-on-error: true
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap socat
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - run: echo "ASSESS_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+      - id: claude
+        if: steps.pr.outputs.diff_too_large != 'true'
+        continue-on-error: true
+        timeout-minutes: ${{ fromJSON(env.ASSESS_MINUTES) }}
+        uses: anthropics/claude-code-action@c84e279f859e2591391e95bd309286eb111c345f  # v1.0.284
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          settings: >-
+            {"permissions": {"additionalDirectories": ["${{ env.BASE }}", "${{ env.PR_DATA }}"],
+            "blockReadsOutsideWorkingDirectories": true, "deny": ["Read(//**/.git/**)", "Read(//proc/**)"]}}
+          prompt: >-
+            /pxt-risk https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
+            --pr-data ${{ env.PR_DATA }} --base ${{ env.BASE }} --register ${{ env.REGISTER }}
+          # The working directory holds PR code, so the allowlist must be a hard boundary. dontAsk refuses any tool
+          # calls outside of --allowedTools
+          claude_args: >-
+            --model claude-opus-5-5 --permission-mode dontAsk --max-turns ${{ env.ASSESS_MAX_TURNS }}
+            --tools "Read,Grep,Glob,LSP"
+            --plugin-dir ${{ env.BASE }}/.github/risk-assessment
+            --allowedTools "Read" "Grep" "Glob" "LSP"
+      # The action hides Claude's transcript. Print Claude's final message, each tool call the allowlist refused, the
+      # number of calls per tool, and the cost per model.
+      - if: always()
+        continue-on-error: true
+        env:
+          OUTCOME: ${{ steps.claude.outcome }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          if [ "$OUTCOME" != success ]; then echo "::warning::The Claude step ended with outcome $OUTCOME."; fi
+          if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then exit 0; fi
+          jq -r '.[] | select(.type == "result") | .result // empty' "$EXECUTION_FILE"
+          jq -c '.[] | select(.type == "result") | .permission_denials[]? | {tool_name, tool_input}' "$EXECUTION_FILE"
+          jq -r '[.[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name]
+            | group_by(.) | map("\(.[0]): \(length)") | join(", ") | "Tool calls: " + .' "$EXECUTION_FILE"
+          jq -r '.[] | select(.type == "result") | (.modelUsage // {}) | to_entries[] | [.key,
+            "$\((.value.costUSD * 100 | round) / 100)", "input \(.value.inputTokens)", "output \(.value.outputTokens)",
+            "cache read \(.value.cacheReadInputTokens)", "cache write \(.value.cacheCreationInputTokens)"]
+            | join(", ")' "$EXECUTION_FILE"
+      # Runs from this workflow's own commit: the working directory holds PR code. The job passes even when this fails.
+      - if: always() && !cancelled() && steps.gate.outcome != 'failure'
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/post
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+          DIFF_TOO_LARGE: ${{ steps.pr.outputs.diff_too_large }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ steps.claude.outcome }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: python3 .github/scripts/post_risk_assessment.py

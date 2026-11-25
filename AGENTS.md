@@ -22,8 +22,11 @@ of longer guides; Codex and Claude do not automatically apply Copilot's path-spe
 | Notebooks / new cookbook recipes | `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` / `docs/_guidelines/GUIDELINES_FOR_COOKBOOKS.md` |
 | Dashboard or dashboard-facing server APIs | `dashboard/DESIGN.md` and `dashboard/ARCHITECTURE.md` |
 | Environment setup or PR workflow | `CONTRIBUTING.md` and `Makefile` |
+| Critical components, invariants or PR risk | `docs/design/critical-components.md` |
 
 When asked to review with structure-review, follow `.claude/skills/structure-review/SKILL.md`.
+When a change adds or removes a guarantee in `docs/design/critical-components.md`, or moves its enforcement to
+another module, update that entry in the same change.
 
 ## Development
 
