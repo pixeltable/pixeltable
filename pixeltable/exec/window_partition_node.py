@@ -13,7 +13,6 @@ from .exec_node import ExecNode
 _NAN_KEY = object()
 
 
-# TODO move to a util module?
 def _hashable(val: Any) -> Any:
     """A hashable value that is equal for equal JSON or scalar vals, for use in a dict key."""
     if isinstance(val, float) and math.isnan(val):
