@@ -18,9 +18,20 @@ def log_stmt(logger: logging.Logger, stmt: sql.sql.ClauseElement) -> None:
     logger.debug(f'executing {stmt.compile(dialect=postgresql.dialect())}')
 
 
-def log_explain(logger: logging.Logger, stmt: sql.sql.ClauseElement, conn: sql.engine.Connection) -> None:
+def log_explain(
+    logger: logging.Logger,
+    stmt: sql.sql.ClauseElement,
+    conn: sql.engine.Connection,
+    bound_args: dict[str, Any] | None = None,
+) -> None:
+    assert conn.in_transaction()
     if not logger.isEnabledFor(logging.DEBUG):
         return
+    if bound_args is not None and len(bound_args) > 0:
+        # literal_binds would render the bindparams as NULL
+        logger.debug('no EXPLAIN for a stmt with bind parameters')
+        return
+
     try:
         stmt_str = str(stmt.compile(dialect=conn.dialect, compile_kwargs={'literal_binds': True}))
         # a failed EXPLAIN would abort the enclosing transaction

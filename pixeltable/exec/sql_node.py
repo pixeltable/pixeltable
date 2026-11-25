@@ -463,12 +463,10 @@ class SqlNode(ExecNode):
                 try:
                     literal_binds = not self.bound_args
                     stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': literal_binds}))
-                    _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
+                    _logger.debug(f'SqlNode stmt:\n{stmt_str}')
                 except Exception:
-                    _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt}')
-                # EXPLAIN can't infer the types of bindparams without statement-level values
-                if len(self.bound_args) == 0:
-                    log_explain(_logger, stmt, get_runtime().conn)
+                    _logger.debug(f'SqlNode proto-stmt:\n{stmt}')
+                log_explain(_logger, stmt, get_runtime().conn, self.bound_args)
 
             conn = get_runtime().conn
             execution_options = {'stream_results': True} if self.stream_results else {}
