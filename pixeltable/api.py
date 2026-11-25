@@ -273,9 +273,9 @@ def create_table(
     telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(tbl._id)))
     if was_created:
         _logger.info(f'Created table {tbl._name()!r}; id={tbl._id}')
-        Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
+        Env.get().log_to_console(f'Created table {tbl._name()!r}.')
     else:
-        Env.get().console_logger.info(f'Table {tbl._name()!r} already exists.')
+        Env.get().log_to_console(f'Table {tbl._name()!r} already exists.')
 
     # TODO: combine data loading with table creation into a single transaction
     if was_created and data_source is not None:
@@ -469,10 +469,10 @@ def create_view(
         telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table_id=str(view._id)))
         if was_created:
             _logger.info(f'Created {view._display_str()}, id={view._id}')
-            Env.get().console_logger.info(f'Created {view._display_str()}.')
+            Env.get().log_to_console(f'Created {view._display_str()}.')
         else:
             d = view._display_str()
-            Env.get().console_logger.info(f'{d[0].upper()}{d[1:]} already exists.')
+            Env.get().log_to_console(f'{d[0].upper()}{d[1:]} already exists.')
 
         return view
 

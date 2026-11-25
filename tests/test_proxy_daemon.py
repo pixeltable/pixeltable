@@ -3,6 +3,7 @@ import gc
 import http
 import io
 import json
+import logging
 import math
 import pathlib
 import re
@@ -39,6 +40,7 @@ from pixeltable.service.management_client import Credential
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
 from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink, PxtStorePartSink
 from pixeltable.utils import cloud_utils
+from pixeltable.utils.console_output import ConsoleCollector, collect_console
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
@@ -145,6 +147,14 @@ class TestProxyDaemon:
             r'Added 2 column values with 0 errors in .*\n'
         )
         assert re.fullmatch(expected, out.getvalue()), out.getvalue()
+
+    def test_console_collector_cap(self, init_env: None) -> None:
+        collector = ConsoleCollector(max_chars=10)
+        with collect_console(collector):
+            Env.get().log_to_console('12345')
+            Env.get().log_to_console('123456', logging.WARNING)
+            Env.get().log_to_console('1')
+        assert collector.messages() == [(logging.INFO, '12345'), (logging.WARNING, '2 more console messages omitted')]
 
     @staticmethod
     def _media_args(tmp_path: pathlib.Path) -> dict[str, Any]:

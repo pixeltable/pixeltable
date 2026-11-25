@@ -120,7 +120,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         lines: list[str] = []
         for name, d in diffs.items():
             lines.extend(format_diff(name, d))
-        Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
+        Env.get().log_to_console('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
     def _update_all(catalog_dir: str = '', *, allow_destructive: bool = False) -> dict[str, TableDiff]:
         """Reconcile every registered model with the catalog.
@@ -138,7 +138,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         if len(diffs) == 0:
             # No updates *or* create statements.
-            Env.get().console_logger.info('Catalog is up to date.')
+            Env.get().log_to_console('Catalog is up to date.')
             return diffs
 
         fatal = [(name, d) for name, d in diffs.items() if d.resolution == 'unsupported']

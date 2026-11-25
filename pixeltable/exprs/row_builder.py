@@ -37,7 +37,7 @@ class ExecProfile:
             per_call_time = self.eval_time[i] / self.eval_count[i]
             calls_per_row = self.eval_count[i] / num_rows
             multiple_str = f'({calls_per_row}x)' if calls_per_row > 1 else ''
-            Env.get().console_logger.info(
+            Env.get().log_to_console(
                 f'{self.row_builder.unique_exprs[i]!s}: {utils.print_perf_counter_delta(per_call_time)} {multiple_str}'
             )
 

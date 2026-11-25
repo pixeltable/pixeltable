@@ -746,7 +746,7 @@ class ProxyClient:
         response_head, response_parts = decode_body(self._transport.post(body))
         response: ProxyResponse = json.loads(response_head)
         for level, msg in response.get('console', []):
-            Env.get().console_logger.log(level, msg)
+            Env.get().log_to_console(msg, level)
         return response, response_parts
 
     def send(

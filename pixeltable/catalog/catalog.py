@@ -197,7 +197,7 @@ def _retry_loop(request: LockRequest) -> Callable[[Callable[..., T]], Callable[.
                     ):
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
-                    Env.get().console_logger.debug(f'retry loop: finalizing pending ops for {e.tbl_id}')
+                    Env.get().log_to_console(f'retry loop: finalizing pending ops for {e.tbl_id}', logging.DEBUG)
                     cat._finalize_pending_ops(e.tbl_id)
                 except sql_exc.DBAPIError as e:
                     if _is_retryable_exc(e):
@@ -530,7 +530,9 @@ class Catalog(CatalogBase):
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
         while True:
             if pending_ops_tbl_id is not None:
-                Env.get().console_logger.debug(f'_begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
+                Env.get().log_to_console(
+                    f'_begin_xact(): finalizing pending ops for {pending_ops_tbl_id}', logging.DEBUG
+                )
                 self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
@@ -1165,7 +1167,7 @@ class Catalog(CatalogBase):
                         log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
                     else:
                         log_msg = f'finalize_pending_ops(): retrying ({num_retries}) after {type(e.orig)}'
-                    Env.get().console_logger.debug(log_msg)
+                    Env.get().log_to_console(log_msg, logging.DEBUG)
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
                 else:
@@ -2401,7 +2403,7 @@ class Catalog(CatalogBase):
             return existing
         assert parent is not None
         dir = Dir._create(parent._id, path.name)
-        Env.get().console_logger.info(f'Created directory {path!r}.')
+        Env.get().log_to_console(f'Created directory {path!r}.')
         return dir
 
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:

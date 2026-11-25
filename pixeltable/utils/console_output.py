@@ -1,7 +1,6 @@
 import contextlib
 import contextvars
 import logging
-import threading
 from typing import Iterator, TextIO
 
 from pixeltable import exceptions as excs
@@ -49,36 +48,54 @@ class ConsoleLogger(logging.LoggerAdapter):
         super().__init__(logger, extra={'user_visible': True})
 
 
-_captured: contextvars.ContextVar[list[tuple[int, str]] | None] = contextvars.ContextVar(
-    'captured_console', default=None
-)
+class ConsoleCollector:
+    """Console messages collected in memory, up to max_chars characters of message text.
+
+    Once a message would exceed the cap, it and all later ones are dropped, and messages() ends with a warning
+    that says how many.
+    """
+
+    max_chars: int
+    _messages: list[tuple[int, str]]
+    _num_chars: int
+    _num_dropped: int
+
+    def __init__(self, max_chars: int = 1_000_000):
+        self.max_chars = max_chars
+        self._messages = []
+        self._num_chars = 0
+        self._num_dropped = 0
+
+    def add(self, level: int, msg: str) -> None:
+        if self._num_dropped == 0 and self._num_chars + len(msg) <= self.max_chars:
+            self._messages.append((level, msg))
+            self._num_chars += len(msg)
+        else:
+            self._num_dropped += 1
+
+    def messages(self) -> list[tuple[int, str]]:
+        """The collected (level, message) pairs, in the order they were added."""
+        if self._num_dropped == 0:
+            return list(self._messages)
+        note = f'{self._num_dropped} more console message{"" if self._num_dropped == 1 else "s"} omitted'
+        return [*self._messages, (logging.WARNING, note)]
 
 
-class _CaptureHandler(logging.Handler):
-    def emit(self, record: logging.LogRecord) -> None:
-        lines = _captured.get()
-        if lines is not None and getattr(record, 'user_visible', False):
-            lines.append((record.levelno, record.getMessage()))
+_collector: contextvars.ContextVar[ConsoleCollector | None] = contextvars.ContextVar('console_collector', default=None)
 
 
-_capture_handler = _CaptureHandler()
-_capture_handler_lock = threading.Lock()
+def current_collector() -> ConsoleCollector | None:
+    return _collector.get()
 
 
 @contextlib.contextmanager
-def capture_console() -> Iterator[list[tuple[int, str]]]:
-    """Collect the (level, message) of each console message logged in the current context.
+def collect_console(collector: ConsoleCollector) -> Iterator[ConsoleCollector]:
+    """Make collector receive the console messages logged in the current context.
 
-    Messages still go to the regular handlers. A thread does not inherit the context, so messages logged on a
-    worker thread are not collected.
+    A thread does not inherit the context, so messages logged on a worker thread are not collected.
     """
-    logger = logging.getLogger('pixeltable')
-    with _capture_handler_lock:
-        if _capture_handler not in logger.handlers:
-            logger.addHandler(_capture_handler)
-    lines: list[tuple[int, str]] = []
-    token = _captured.set(lines)
+    token = _collector.set(collector)
     try:
-        yield lines
+        yield collector
     finally:
-        _captured.reset(token)
+        _collector.reset(token)

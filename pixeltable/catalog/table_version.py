@@ -718,7 +718,7 @@ class TableVersion:
             f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"} '
             f'in {duration:.2f} s{rate_str}'
         )
-        Env.get().console_logger.info(msg)
+        Env.get().log_to_console(msg)
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
         return status
 
