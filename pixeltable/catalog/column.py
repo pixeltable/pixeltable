@@ -531,7 +531,8 @@ class Column:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {self.name!r}: window functions without order_by are not supported in computed columns:\n'
                 f'{self.value_expr!s}\n'
-                'Add order_by for a running value, or compute the value over the entire group in a query.',
+                'Add order_by for a running value in a stored computed column, '
+                'or compute the value over the entire group in a query.',
             )
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(

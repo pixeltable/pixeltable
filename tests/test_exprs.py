@@ -2294,6 +2294,17 @@ class TestExprs:
         res = t.select(t.id, m=group_min).order_by(t.id, asc=False).collect()
         assert [(row['id'], row['m']) for row in res] == [(i, expected_min[i]) for i in (6, 5, 4, 3, 2, 1)]
 
+        # two calls with different partition keys
+        res = t.select(t.id, m=group_min, m_by_id=pxtf.min(t.v, group_by=t.id)).collect()
+        assert sorted((row['id'], row['m'], row['m_by_id']) for row in res) == [
+            (1, 5, 9),
+            (2, 5, None),
+            (3, 7, 7),
+            (4, 5, 5),
+            (5, 2, 4),
+            (6, 2, 2),
+        ]
+
         # a partition key that SQL can't sort by
         res = t.select(t.id, m=pxtf.min(t.v, group_by=_is_odd(t.id))).collect()
         assert sorted((row['id'], row['m']) for row in res) == [(1, 4), (2, 2), (3, 4), (4, 2), (5, 4), (6, 2)]
@@ -2324,6 +2335,8 @@ class TestExprs:
         for window_fn in (group_min, pxtf.count(t.v, group_by=t.key, order_by=t.v), pxtf.sum(t.v, order_by=t.v)):
             with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'where\(\) cannot contain window functions'):
                 _ = t.where(window_fn > 1).select(t.v).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'where\(\) cannot contain window functions'):
+            _ = t.where((group_min > 1) & (t.v > 0)).select(t.v).collect()
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid nested window functions'):
             _ = t.select(pxtf.min(t.v - group_min, group_by=t.key)).collect()
         for key in (t.arr, t.img):

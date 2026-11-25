@@ -33,9 +33,9 @@ class WindowPartitionNode(ExecNode):
     exprs because that would clash with sample(), head(), tail(), or order_by(), and SQL can't sort by group_by exprs
     that have no SQL translation.
 
-    Accumulates all input rows in memory, because a partition isn't complete until the last row is read. For collect(),
-    that doesn't add memory pressure, because the query returns its entire result in a single batch anyway. insert() of
-    a query streams its source, but this node still holds all of it.
+    Accumulates all input rows in memory, because a partition isn't complete until the last row is read. limit and
+    offset slice the output after that scan, so collect() with limit() still holds every input row, and so does
+    insert() of a query, which otherwise streams its source.
     """
 
     fn_calls: list[exprs.FunctionCall]

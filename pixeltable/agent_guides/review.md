@@ -94,8 +94,15 @@ Instead: compute the per-group value with a `group_by()` query, then look it up 
     rows = signups.select(signups.signup_id, signups.email_key, signups.signed_up_at).collect()
     duplicates = [r['signup_id'] for r in rows if r['signed_up_at'] > first_at[r['email_key']]]
 
-A window aggregate, such as `pxtf.min(t.at, group_by=t.key)` in `select()`, is not the fix: in this release it
-returns a running value (PXT-1801, `pxt guide queries`).
+For the group's value on each row, select a window aggregate without `order_by=`, which takes one query.
+`where()` cannot contain it, so filter its results in Python (`pxt guide queries`):
+
+    rows = signups.select(
+        signups.signup_id,
+        signups.signed_up_at,
+        first_at=pxtf.min(signups.signed_up_at, group_by=signups.email_key),
+    ).collect()
+    duplicates = [r['signup_id'] for r in rows if r['signed_up_at'] > r['first_at']]
 
 A value that is fixed once the row arrives, such as an earlier near-duplicate found with `similarity()`, does not need
 a query per row on every read: make the `@pxt.query` call a column, which runs once per row, on insert.
