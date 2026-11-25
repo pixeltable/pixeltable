@@ -81,6 +81,7 @@ class WindowPartitionNode(ExecNode):
         held_rows_start_pos = 0
         # per fn_call: input position of the first row of its current, still incomplete partition
         partition_start_pos = [0] * len(self.fn_calls)
+        # per fn_call: group_by values of its current partition; a change in values starts a new partition
         partition_keys: list[list[Any]] = [[] for _ in self.fn_calls]
         num_input_rows = 0
         num_returned = 0
@@ -104,21 +105,26 @@ class WindowPartitionNode(ExecNode):
         async with contextlib.aclosing(aiter(self.input)) as input_iter:
             async for batch in input_iter:
                 for row in batch:
-                    for i, fn_call in enumerate(self.fn_calls):
+                    for fn_call_idx, fn_call in enumerate(self.fn_calls):
+                        # partition key of the current row for the current window function
                         key = [row[e.slot_idx] for e in fn_call.group_by]
                         if num_input_rows == 0:
                             self._reset_agg(fn_call, num_input_rows)
-                        elif key != partition_keys[i]:
-                            partition_rows = held_rows[partition_start_pos[i] - held_rows_start_pos :]
-                            self._set_partition_value(fn_call, partition_rows, num_input_rows)
-                            self._reset_agg(fn_call, num_input_rows)
-                            partition_start_pos[i] = num_input_rows
-                        partition_keys[i] = key
+                        elif key != partition_keys[fn_call_idx]:
+                            # Key is different from the last one, which means a new partition starts. Compute
+                            # the aggregate value of the completed partition, and set it to rows that belong to it.
+                            partition_rows = held_rows[partition_start_pos[fn_call_idx] - held_rows_start_pos :]
+                            self._set_partition_value(fn_call, partition_rows, row_num=num_input_rows)
+                            self._reset_agg(fn_call, row_num=num_input_rows)
+                            partition_start_pos[fn_call_idx] = num_input_rows
+                        partition_keys[fn_call_idx] = key
                         self._update_agg(fn_call, row, num_input_rows)
                     held_rows.append(row)
                     num_input_rows += 1
 
-                output_batch = release_rows(min(partition_start_pos))
+                # Make an output batch from rows with all aggregates computed
+                first_incomplete_pos = min(partition_start_pos)
+                output_batch = release_rows(first_incomplete_pos)
                 if len(output_batch) > 0:
                     yield output_batch
                 if limit is not None and num_returned == limit:
@@ -126,8 +132,9 @@ class WindowPartitionNode(ExecNode):
 
         if num_input_rows == 0:
             return
-        for i, fn_call in enumerate(self.fn_calls):
-            partition_rows = held_rows[partition_start_pos[i] - held_rows_start_pos :]
+        # No more rows. Compute the last partition for every window function, and release the remaining rows.
+        for fn_call_idx, fn_call in enumerate(self.fn_calls):
+            partition_rows = held_rows[partition_start_pos[fn_call_idx] - held_rows_start_pos :]
             self._set_partition_value(fn_call, partition_rows, num_input_rows)
         output_batch = release_rows(num_input_rows)
         if len(output_batch) > 0:
