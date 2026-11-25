@@ -163,18 +163,25 @@ class TestConfig:
         assert (openai_key['value'], openai_key['source']) == ('<redacted>', 'env')
 
     def test_var_only_in_env(self, cli: PxtRunner) -> None:
-        """A config var with no config file entry is still reported, with a sensitive name's value withheld."""
-        supplied = {'PIXELTABLE_VAR_PXT_TEST_KEY': _A_KEY, 'PIXELTABLE_VAR_PXT_TEST_DEST': 's3://bucket/prefix'}
+        """A config var with no config file entry is still reported, with its value withheld whatever its name."""
+        supplied = {'PIXELTABLE_VAR_PXT_TEST_KEY': _A_KEY, 'PIXELTABLE_VAR_PXT_TEST_AUTH_HEADER': _ANOTHER_KEY}
         # a PIXELTABLE_* variable the daemon lacks restarts it, so the reported values are the ones supplied here
         resp = cli('config', '--json', env_overrides=supplied).json
         entries = {(e['section'], e['key']): e for e in resp['entries']}
 
-        # a name ending in a sensitive suffix is redacted, whatever section it sits in
-        sensitive = entries['pixeltable.database.vars', 'pxt_test_key']
-        assert (sensitive['value'], sensitive['source']) == ('<redacted>', 'env')
-        var = entries['pixeltable.database.vars', 'pxt_test_dest']
-        assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
+        # users choose config var keys, so a key that looks harmless can still hold a credential
+        for key in ('pxt_test_key', 'pxt_test_auth_header'):
+            var = entries['pixeltable.database.vars', key]
+            assert (var['value'], var['source']) == ('<redacted>', 'env')
         assert 'PIXELTABLE_VAR_PXT_TEST_KEY' in resp['env_var_names']
+
+        # the daemon's startup env snapshot hashes every var value as well
+        status = cli('daemon', 'status', '--json', env_overrides=supplied)
+        snapshot = status.json['pixeltable_env']
+        for name in supplied:
+            assert snapshot[name].startswith('sha256:')
+        for value in supplied.values():
+            assert value not in status.stdout
 
     def test_config_var_from_env(
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path, tmp_path: pathlib.Path
@@ -319,8 +326,10 @@ class TestConfig:
         assert daemon_pid(cli) != pid
         assert _A_KEY not in r.stdout + r.stderr
 
-        # the restarted daemon serves with what the file now says
-        entries = cli('config', '--json', env_overrides=own_config).json['entries']
+        # the restarted daemon serves with what the file now says, and no entry shows the var's value
+        resp = cli('config', '--json', env_overrides=own_config)
+        assert _A_KEY not in resp.stdout
+        entries = resp.json['entries']
         test_key = next(e for e in entries if (e['section'], e['key']) == ('pixeltable.database.vars', 'pxt_test_key'))
         assert test_key['source'] == str(config_file)
 

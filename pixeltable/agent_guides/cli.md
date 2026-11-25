@@ -103,7 +103,7 @@ Running `pxt` in a project: the project root, the daemon, application files, pro
 - `pxt get` and `pxt errors` need a table with a primary key.
 - `pxt errors` ends with a `next:` line for each column whose failed cells can be recomputed.
 - `pxt config` prints every setting with its value and its source: an environment variable, a file, or `unset`.
-  Credentials are redacted.
+  Credentials and config vars are redacted.
 - `pxt feedback --kind gap 'TEXT'` prints a report for the Pixeltable team without sending it; `--send` sends it.
 - With `DO_NOT_TRACK` set to `1`, `true` or `yes`, `--send` sends nothing and exits 3.
 - `pxt dashboard` opens the daemon's dashboard in a browser and prints its URL.
