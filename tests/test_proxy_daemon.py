@@ -4,6 +4,7 @@ import http
 import io
 import json
 import math
+import os
 import pathlib
 import shutil
 import socket
@@ -413,6 +414,47 @@ class TestProxyDaemon:
             pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid archive member name: expected a string, got list'
         ):
             proxy_protocol.collect_remote_keys({'rows': [bad_member]})
+
+    def test_dir_tree_rejects_escaping_relpaths(self, tmp_path: pathlib.Path) -> None:
+        # files outside any staging root, which no case may move, change or write into
+        victim = tmp_path / 'victim'
+        victim.mkdir()
+        (victim / 'secret').write_bytes(b'secret')
+        link = tmp_path / 'link'
+        link.symlink_to(victim, target_is_directory=True)
+
+        # each entry is (relpath, file); a None file is one the request uploaded
+        cases: list[list[tuple[str, pathlib.Path | None]]] = [
+            [('/abs/escape.txt', None)],
+            [('x/../../escape.txt', None)],
+            [('x/../../../escape.txt', None)],
+            [('../escape.txt', None)],
+            # a valid entry does not get written ahead of an escaping one
+            [('d/ok.txt', None), ('d/../../escape.txt', None)],
+            # a file the request did not upload
+            [('top/secret', victim / 'secret')],
+            # a symlink, then a write through it
+            [('top/link', link), ('top/link/escape.txt', None)],
+        ]
+        for n, entries in enumerate(cases):
+            case_dir = tmp_path / str(n)
+            case_dir.mkdir()
+            root = case_dir / 'stage' / 'root'
+            files: list[dict[str, Any]] = []
+            uploaded: list[str] = []
+            for i, (relpath, local) in enumerate(entries):
+                file = local
+                if file is None:
+                    file = case_dir / f'{i}.txt'
+                    file.write_bytes(b'attacker bytes')
+                    uploaded.append(str(file))
+                files.append({'relpath': relpath, 'file': str(file)})
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
+                proxy_protocol.decode_dir_tree(files, root, uploaded)
+            assert not root.exists(), entries
+            assert all(os.path.lexists(f['file']) for f in files), entries
+            assert [p.name for p in victim.iterdir()] == ['secret'], entries
+            assert (victim / 'secret').read_bytes() == b'secret', entries
 
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client = ProxyClient.local('http://127.0.0.1:1')
