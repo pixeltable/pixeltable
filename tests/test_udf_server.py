@@ -252,7 +252,7 @@ class TestUdfServer:
         assert query.returncode != 0
         assert 'Run `pxt db update pxt://myorg:mydb` to deploy them.' in query.stderr
 
-    @pytest.mark.skip_merge_queue  # downloads a Hugging Face model
+    @pytest.mark.resource_intensive  # downloads a Hugging Face model
     @pytest.mark.xdist_group('large_model')
     def test_batched_udf(self, uses_db: None, udf_setting: Path) -> None:
         """The batches of a batched UDF run on the server, one call per batch."""
