@@ -1379,12 +1379,14 @@ pxt usage --json                 # the control plane's answer, as it is
 ```
 
 Shows this month's usage of the organization your credential belongs to: the plan and the days left
-in the month (UTC), the cost so far against what the plan includes, each meter, and what the
-organization holds against its plan's limits. Any member can run it.
+in the month (UTC), the cost so far against what the plan includes, the CPU and memory its databases
+and services hold right now, each meter, and what the organization holds against its plan's limits.
+Any member can run it.
 
 ```
 Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left
 $18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC), around November 22 at this rate
+Running now: 2.5 vCPU, 5,120 MB
 
 METER                           QUANTITY          COST
 Compute, vCPU-hours             120.5 vCPU-hour  $4.22
@@ -1402,7 +1404,8 @@ Egress this month           2.1 GB / 5 GB
 ```
 
 Costs are at Pro's rates and bytes are decimal GB. Compute lags up to an hour, storage and egress
-up to a day. On Pro, the cost line ends with an estimate of what bills past the included credit.
+up to a day. On Pro, the cost line ends with an estimate of what bills past the included credit, and
+the `Running now` line with what the running resources cost a month.
 
 ### Plan limits
 
