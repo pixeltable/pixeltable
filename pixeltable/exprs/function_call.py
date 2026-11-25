@@ -341,6 +341,10 @@ class FunctionCall(Expr):
             )
         )
 
+    @property
+    def is_partition_window_fn_call(self) -> bool:
+        return self.is_window_fn_call and len(self.order_by) == 0
+
     def get_window_sort_exprs(self) -> tuple[list[Expr], list[Expr]]:
         return self.group_by, self.order_by
 

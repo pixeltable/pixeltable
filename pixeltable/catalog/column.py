@@ -524,6 +524,15 @@ class Column:
                 f'Column {self.name!r}: aggregate functions are not supported in computed columns:\n'
                 f'{self.value_expr!s}',
             )
+        if self._value_expr.contains_(
+            filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_partition_window_fn_call
+        ):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {self.name!r}: window functions without order_by are not supported in computed columns:\n'
+                f'{self.value_expr!s}\n'
+                'Add order_by for a running value, or compute the value over the entire group in a query.',
+            )
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

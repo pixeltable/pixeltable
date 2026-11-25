@@ -17,3 +17,4 @@ from .row_data_node import RowDataNode
 from .row_update_node import RowUpdateNode
 from .sql_data_node import SqlDataNode
 from .sql_node import SqlAggregationNode, SqlJoinNode, SqlLookupNode, SqlNode, SqlSampleNode, SqlScanNode
+from .window_partition_node import WindowPartitionNode

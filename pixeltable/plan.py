@@ -84,7 +84,9 @@ class Analyzer:
     filter: exprs.Expr | None
 
     agg_fn_calls: list[exprs.FunctionCall]  # grouping aggregation (ie, not window functions)
-    window_fn_calls: list[exprs.FunctionCall]
+    window_fn_calls: list[exprs.FunctionCall]  # all window fn calls in the select list, with or without order_by
+    # subset of window_fn_calls without order_by: each row gets the aggregate over its entire partition
+    partition_window_fn_calls: list[exprs.FunctionCall]
     agg_order_by: list[exprs.Expr]
 
     def __init__(
@@ -148,7 +150,9 @@ class Analyzer:
         self.agg_order_by = []
         self.agg_fn_calls = []
         self.window_fn_calls = []
+        self.partition_window_fn_calls = []
         self._analyze_agg()
+        self._analyze_partition_window_fns()
         self.grouping_exprs = self.group_by_clause if self.group_by_clause is not None else []
 
     def _analyze_agg(self) -> None:
@@ -203,6 +207,30 @@ class Analyzer:
 
         # sort-based aggregation relies on the SQL scan returning rows in group order
         self._validate_grouping_exprs()
+
+    def _analyze_partition_window_fns(self) -> None:
+        self.partition_window_fn_calls = [c for c in self.window_fn_calls if c.is_partition_window_fn_call]
+        if len(self.partition_window_fn_calls) > 0 and self.group_by_clause is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Window functions without order_by are not supported in aggregate queries: '
+                f'{self.partition_window_fn_calls[0]!s}',
+            )
+        if self.filter is not None and self.filter.contains_(
+            cls=exprs.FunctionCall, filter=lambda e: bool(e.is_partition_window_fn_call)
+        ):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'where() cannot contain window functions without order_by: {self.filter!s}',
+            )
+        for fn_call in self.partition_window_fn_calls:
+            if any(
+                arg.contains_(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_partition_window_fn_call))
+                for arg in fn_call.components
+            ):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested window functions without order_by: {fn_call!s}'
+                )
 
     def _validate_grouping_exprs(self) -> None:
         """Reject grouping keys that the SQL scan cannot order by.
@@ -1213,6 +1241,20 @@ class Planner:
         return cls._combine_orderings(orderings)
 
     @classmethod
+    def _add_expr_eval_node(
+        cls,
+        row_builder: exprs.RowBuilder,
+        output_exprs: Iterable[exprs.Expr],
+        input_exprs: Iterable[exprs.Expr],
+        input_node: exec.ExecNode,
+    ) -> exec.ExecNode:
+        if exprs.ExprSet(input_exprs).issuperset(exprs.ExprSet(output_exprs)):
+            return input_node
+        node = exec.ExprEvalNode(row_builder, output_exprs, input_exprs, input=input_node)
+        node.set_gc(False)
+        return node
+
+    @classmethod
     def _add_save_node(cls, input_node: exec.ExecNode) -> exec.ExecNode:
         """Add an ObjectStoreSaveNode, if needed."""
         media_col_info = input_node.row_builder.media_output_col_info
@@ -1461,8 +1503,7 @@ class Planner:
         plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, sql_col_refs, plan)
 
         if analyzer.filter is not None:
-            plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
-            plan.set_gc(False)
+            plan = cls._add_expr_eval_node(row_builder, [analyzer.filter], sql_exprs, plan)
             plan = exec.FilterNode(row_builder, analyzer.filter, input=plan)
             sql_exprs = exprs.ExprSet(sql_exprs)
             sql_exprs.add(analyzer.filter)
@@ -1489,10 +1530,7 @@ class Planner:
                 agg_input = exprs.ExprSet(analyzer.grouping_exprs.copy())
                 for fn_call in analyzer.agg_fn_calls:
                     agg_input.update(fn_call.components)
-                if not sql_exprs.issuperset(agg_input):
-                    # we need an ExprEvalNode
-                    plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
-                    plan.set_gc(False)
+                plan = cls._add_expr_eval_node(row_builder, agg_input, sql_exprs, plan)
 
                 # AggregationNode starts a new group whenever the grouping exprs change value
                 input_sql_node = plan.get_node(exec.SqlNode)
@@ -1507,17 +1545,20 @@ class Planner:
                 )
                 typecheck_dummy = analyzer.grouping_exprs + analyzer.agg_fn_calls + analyzer.window_fn_calls
                 agg_output = exprs.ExprSet(typecheck_dummy)
-                if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
-                    # we need an ExprEvalNode to evaluate the remaining output exprs
-                    plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
-                    plan.set_gc(False)
+                plan = cls._add_expr_eval_node(row_builder, eval_ctx.target_exprs, agg_output, plan)
                 plan = cls._add_save_node(plan)
 
         else:
-            if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
-                # we need an ExprEvalNode to evaluate the remaining output exprs
-                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
-                plan.set_gc(False)
+            if len(analyzer.partition_window_fn_calls) > 0:
+                window_input: exprs.ExprSet[exprs.Expr] = exprs.ExprSet()
+                for fn_call in analyzer.partition_window_fn_calls:
+                    window_input.update(fn_call.components)
+                plan = cls._add_expr_eval_node(row_builder, window_input, sql_exprs, plan)
+                plan = exec.WindowPartitionNode(row_builder, analyzer.partition_window_fn_calls, input=plan)
+                sql_exprs = exprs.ExprSet(sql_exprs)
+                sql_exprs.update(window_input)
+                sql_exprs.update(analyzer.partition_window_fn_calls)
+            plan = cls._add_expr_eval_node(row_builder, eval_ctx.target_exprs, sql_exprs, plan)
             # we're returning everything to the user, so we might as well do it in a single batch
             # TODO: return smaller batches in order to increase inter-ExecNode parallelism
             ctx.batch_size = 0

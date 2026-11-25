@@ -2231,6 +2231,77 @@ class TestExprs:
         new_t.insert(rows)
         _ = new_t.collect()
 
+    def test_window_fns_without_order_by(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('win'), {'id': pxt.Int, 'key': pxt.String | None, 'v': pxt.Int | None}
+        )
+        t.insert(
+            [
+                {'id': 1, 'key': 'a', 'v': 9},
+                {'id': 2, 'key': 'a', 'v': None},
+                {'id': 3, 'key': 'b', 'v': 7},
+                {'id': 4, 'key': 'a', 'v': 5},
+                {'id': 5, 'key': None, 'v': 4},
+                {'id': 6, 'key': None, 'v': 2},
+            ]
+        )
+        group_min = pxtf.min(t.v, group_by=t.key)
+        expected_min = {1: 5, 2: 5, 3: 7, 4: 5, 5: 2, 6: 2}
+
+        res = t.select(
+            t.id,
+            m=group_min,
+            m_plus_one=group_min + 1,
+            group_sum=pxtf.sum(t.v, group_by=t.key),
+            group_count=pxtf.count(t.id, group_by=t.key),
+            running_sum=pxtf.sum(t.v, group_by=t.key, order_by=t.id),
+            udf_max=pxtf.max(self.required_params_fn(t.v, 1.0), group_by=t.key),
+        ).collect()
+        actual = sorted(
+            (
+                row['id'],
+                row['m'],
+                row['m_plus_one'],
+                row['group_sum'],
+                row['group_count'],
+                row['running_sum'],
+                row['udf_max'],
+            )
+            for row in res
+        )
+        assert actual == [
+            (1, 5, 6, 14, 3, 9, 10.0),
+            (2, 5, 6, 14, 3, 9, 10.0),
+            (3, 7, 8, 7, 1, 7, 8.0),
+            (4, 5, 6, 14, 3, 14, 10.0),
+            (5, 2, 3, 6, 2, 4, 5.0),
+            (6, 2, 3, 6, 2, 6, 5.0),
+        ]
+
+        # limit and offset apply to the output, not to the rows that the partition aggregates
+        res = t.select(t.id, m=group_min).limit(2).collect()
+        assert len(res) == 2
+        assert all(row['m'] == expected_min[row['id']] for row in res)
+        res = t.select(t.id, m=group_min).limit(2, offset=3).collect()
+        assert len(res) == 2
+        assert all(row['m'] == expected_min[row['id']] for row in res)
+
+    def test_window_fns_errors(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('win'), {'key': pxt.String, 'v': pxt.Int})
+        group_min = pxtf.min(t.v, group_by=t.key)
+
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'where\(\) cannot contain window functions'):
+            _ = t.where(t.v == group_min).select(t.v).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid nested window functions'):
+            _ = t.select(pxtf.min(t.v - group_min, group_by=t.key)).collect()
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not supported in aggregate queries'):
+            _ = t.group_by(t.key, t.v).select(t.key, t.v, m=group_min).collect()
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match='window functions without order_by are not supported in computed columns',
+        ):
+            t.add_computed_column(m=group_min)
+
     def test_make_list(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 

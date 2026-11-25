@@ -17,7 +17,7 @@ from .inline_expr import InlineArray, InlineDict, InlineList
 from .is_null import IsNull
 from .json_mapper import JsonMapper, JsonMapperDispatch
 from .json_path import JsonPath
-from .literal import Literal
+from .literal import Literal, defensive_copy
 from .method_ref import MethodRef
 from .object_ref import ObjectRef
 from .operators import ArithmeticOperator, ComparisonOperator, LogicalOperator
