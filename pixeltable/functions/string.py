@@ -636,7 +636,7 @@ def rpartition(self: str, sep: str = ' ') -> tuple[str, str, str]:
     # carries the fixed three-element schema
     idx = self.rfind(sep)
     if idx == -1:
-        return [self, '', '']  # type: ignore[return-value]
+        return ['', '', self]  # type: ignore[return-value]
     return [self[:idx], sep, self[idx + builtins.len(sep) :]]  # type: ignore[return-value]
 
 
