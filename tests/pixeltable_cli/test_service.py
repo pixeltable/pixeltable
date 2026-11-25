@@ -337,7 +337,8 @@ class TestService:
         }
         assert get_services(cli, target) == {}
 
-        cli('service', 'update', app, target, '-f')
+        # starting a service interrupts nothing, so it needs no -f, even without a terminal
+        cli('service', 'update', app, target)
         running = assert_serving(cli, app, target, 'ingest')
         assert running['ingest']['app_module'] == 'apps.basic'  # the app corpus sits at <project>/apps
         assert running['ingest']['catalog_path'] == target
@@ -460,6 +461,13 @@ class TestService:
         assert r.returncode == 2
         if not db_root.is_cloud:
             # pid is only available for local
+            assert get_services(cli, target)['ingest']['pid'] == before['pid']
+
+        # restarting a running service interrupts its callers, so without a terminal it needs -f
+        r = cli('service', 'update', str(app_file), target, '--json', check=False)
+        assert r.returncode == 3
+        assert [n['command'] for n in r.json['next']] == [f'pxt service update {app_file} {target} --json -f']
+        if not db_root.is_cloud:
             assert get_services(cli, target)['ingest']['pid'] == before['pid']
 
         r = cli('service', 'update', str(app_file), target, '-f', '--json')
@@ -1927,6 +1935,64 @@ class TestServiceUpdateRunning:
             assert [op.description for op in diff.ops] == [f'generation 5 {description}']
             assert diff.resolution == 'update_additive'
             assert diff.generation == 5
+
+    @pytest.mark.parametrize(
+        'case', ['unsettled_generation', 'error_without_ops', 'changed', 'stopped'], ids=lambda case: case
+    )
+    def test_update_asks_before_interrupting(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], app_file: str, case: str
+    ) -> None:
+        """Without -f or a terminal, update refuses any plan that redeploys a service while it serves, whether or
+        not one of its ops says so, and starts a service that is not serving without asking."""
+        failed = GenerationReceipt(
+            kind='service',
+            resource_id='svc-uuid',
+            generation=5,
+            db='main',
+            service_name='ingest',
+            error=ReceiptError(message='pod crashed', retryable=False),
+        )
+        target = PxtPath('pxt://acme:main')
+        if case == 'unsettled_generation':
+            diff = self._hosted_diff(app_file, receipt=failed)
+            assert [op.requires_restart for op in diff.ops] == [False]
+            plan = ServicePlan(app_file=app_file, target=target, services=[diff])
+        elif case == 'error_without_ops':
+            diff = self._hosted_diff(app_file, error='previous pods still serving')
+            assert diff.ops == []
+            plan = ServicePlan(app_file=app_file, target=target, services=[diff])
+        elif case == 'changed':
+            plan = _plan(app_file, target, ServiceState.AVAILABLE, ServiceChangeOp.fingerprint_changed(['app.py']))
+        else:
+            plan = _plan(app_file, target, ServiceState.STOPPED)
+
+        submitted: list[str] = []
+
+        class SubmittedError(Exception):
+            pass
+
+        def post_request(path: str, body: dict[str, Any]) -> Any:
+            submitted.append(path)
+            raise SubmittedError
+
+        monkeypatch.setattr(service_cmd, '_service_plan', lambda *args, **kwargs: plan)
+        monkeypatch.setattr(service_cmd, 'post_request', post_request)
+        monkeypatch.setattr('pixeltable_cli.client.utils.stdin_is_a_tty', lambda: False)
+
+        if case == 'stopped':
+            with pytest.raises(SubmittedError):
+                service_cmd._update(
+                    app_file, target, as_json=False, force=False, dry_run=False, allow_destructive=False
+                )
+            assert submitted == ['/api/service/update']
+        else:
+            with pytest.raises(SystemExit) as exc_info:
+                service_cmd._update(
+                    app_file, target, as_json=False, force=False, dry_run=False, allow_destructive=False
+                )
+            assert exc_info.value.code == 3
+            assert submitted == []
+            assert 'interrupting 1 running service(s)' in capsys.readouterr().err
 
     def test_hosted_keep_release_no_wait(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
         """--keep-release keeps the instance's code, and without waiting the change returns its receipt."""

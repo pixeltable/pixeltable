@@ -132,6 +132,10 @@ Examples:
   pxt service update app.py my_dir --otel                # emit OpenTelemetry traces from what it starts
   pxt service update app.py pxt://acme:main              # start them in a hosted database
 
+Confirmation:
+  Starting services, as on a first deploy, needs no confirmation. Redeploying a service that is running,
+  for any reason, asks [y/N] on a terminal; without one, it exits 3 unless given -f.
+
 Ports:
   A restarted service keeps its previous port, so its callers keep their address; a service that was not
   running gets one from the OS. --port pins it instead, and fails if that port is taken. It takes one port,
@@ -507,12 +511,13 @@ def _update(
             force=force,
             on_refusal=lambda error: _print_plan(plan, as_json=as_json, error=error),
         )
-    restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
-    confirm_or_exit(
-        f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
-        force,
-        on_refusal=lambda error: _print_plan(plan, as_json=as_json, error=error),
-    )
+    interrupted = s.update_additive + s.update_destructive
+    if interrupted > 0:
+        confirm_or_exit(
+            f'start or restart {s.create + interrupted} service(s), interrupting {interrupted} running service(s)?',
+            force,
+            on_refusal=lambda error: _print_plan(plan, as_json=as_json, error=error),
+        )
 
     applied = ServicePlan.model_validate(
         post_request(
