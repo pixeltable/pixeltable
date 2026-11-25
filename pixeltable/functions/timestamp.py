@@ -107,7 +107,8 @@ def second(self: datetime.datetime) -> int:
 
 @second.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.extract('second', self)
+    # `second` includes the fractional part; drop it with floor(), because casting to an integer would round
+    return sql.cast(sql.func.floor(sql.extract('second', self)), sql.Integer)
 
 
 @pxt.udf(is_property=True)
