@@ -152,7 +152,7 @@ class Analyzer:
         self.window_fn_calls = []
         self.partition_window_fn_calls = []
         self._analyze_agg()
-        self._analyze_partition_window_fns()
+        self._analyze_window_fns()
         self.grouping_exprs = self.group_by_clause if self.group_by_clause is not None else []
 
     def _analyze_agg(self) -> None:
@@ -208,20 +208,23 @@ class Analyzer:
         # sort-based aggregation relies on the SQL scan returning rows in group order
         self._validate_grouping_exprs()
 
-    def _analyze_partition_window_fns(self) -> None:
+    def _analyze_window_fns(self) -> None:
+        # a window function is computed over the rows that pass where(), so where() can't depend on it
+        if self.filter is not None and self.filter.contains_(
+            cls=exprs.FunctionCall, filter=lambda e: bool(e.is_window_fn_call)
+        ):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'where() cannot contain window functions: {self.filter!s}\n'
+                'To filter on a window function with order_by, add it as a computed column and filter on that column.',
+            )
+
         self.partition_window_fn_calls = [c for c in self.window_fn_calls if c.is_partition_window_fn_call]
         if len(self.partition_window_fn_calls) > 0 and self.group_by_clause is not None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Window functions without order_by are not supported in aggregate queries: '
                 f'{self.partition_window_fn_calls[0]!s}',
-            )
-        if self.filter is not None and self.filter.contains_(
-            cls=exprs.FunctionCall, filter=lambda e: bool(e.is_partition_window_fn_call)
-        ):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_EXPRESSION,
-                f'where() cannot contain window functions without order_by: {self.filter!s}',
             )
         for fn_call in self.partition_window_fn_calls:
             if any(

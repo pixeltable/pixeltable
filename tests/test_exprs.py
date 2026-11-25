@@ -2321,8 +2321,9 @@ class TestExprs:
         )
         group_min = pxtf.min(t.v, group_by=t.key)
 
-        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'where\(\) cannot contain window functions'):
-            _ = t.where(t.v == group_min).select(t.v).collect()
+        for window_fn in (group_min, pxtf.count(t.v, group_by=t.key, order_by=t.v), pxtf.sum(t.v, order_by=t.v)):
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'where\(\) cannot contain window functions'):
+                _ = t.where(window_fn > 1).select(t.v).collect()
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid nested window functions'):
             _ = t.select(pxtf.min(t.v - group_min, group_by=t.key)).collect()
         for key in (t.arr, t.img):
@@ -2335,6 +2336,22 @@ class TestExprs:
             match='window functions without order_by are not supported in computed columns',
         ):
             t.add_computed_column(m=group_min)
+
+    def test_window_fn_filter_via_computed_column(self, db_root: DatabaseRoot) -> None:
+        # the workaround for a window function in where(): filter on a computed column instead
+        t = pxt.create_table(db_root.make_catalog_path('win'), {'id': pxt.Int, 'key': pxt.String, 'v': pxt.Int})
+        t.insert(
+            [
+                {'id': 1, 'key': 'a', 'v': 5},
+                {'id': 2, 'key': 'a', 'v': 3},
+                {'id': 3, 'key': 'b', 'v': 7},
+                {'id': 4, 'key': 'a', 'v': 9},
+                {'id': 5, 'key': 'a', 'v': 1},
+            ]
+        )
+        t.add_computed_column(seen=pxtf.count(t.id, group_by=t.key, order_by=t.v))
+        res = t.where(t.seen > 1).select(t.id).collect()
+        assert sorted(row['id'] for row in res) == [1, 2, 4]
 
     def test_make_list(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
