@@ -100,10 +100,10 @@ def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
 
 
 def sa_to_arrow_type(sa_type: sql.types.TypeEngine) -> pa.DataType:
-    """The Arrow type of a store column of type sa_type. A store table has columns with no Pixeltable type (rowid,
-    v_min, v_max, cellmd and index values), so this maps the SQL types."""
+    """Return the Arrow type for a store column of type sa_type. This maps the SQL type, because some store columns
+    have no Pixeltable type: rowid, v_min, v_max, cellmd and index values."""
     if isinstance(sa_type, JSONB):
-        # json text: the value of a JSONB column has no fixed Arrow type
+        # a JSONB value has no fixed Arrow type and is exported as json text
         return pa.string()
     if isinstance(sa_type, sql.String):
         return pa.string()
@@ -141,7 +141,7 @@ def sa_val_to_arrow_val(val: Any, sa_type: sql.types.TypeEngine) -> Any:
 
 def arrow_val_to_sa_val(val: Any, sa_type: sql.types.TypeEngine) -> Any:
     if val is None:
-        # A Python None inserts a json 'null' into a JSONB column. The store keeps a SQL NULL there.
+        # A Python None inserts a json 'null' into a JSONB column, and the store uses SQL NULL for a missing value.
         return sql.null() if isinstance(sa_type, JSONB) else None
     if isinstance(sa_type, JSONB):
         return json.loads(val)

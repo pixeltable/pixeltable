@@ -94,28 +94,29 @@ def create_table(
     contents of the specified data, and the data will be imported from the specified source into the new table. The
     source format and/or schema can be specified directly via the `source_format` and `schema_overrides` parameters.
 
-    If `source` is a table, then the new table is a copy of the current version of that table with its columns,
+    If `source` is a table, then the new table is a copy of the current version of that table, with its columns,
     computed columns, indexes and rows. The copy has no version history: it starts at version 0 and cannot be
-    reverted. A local table can be copied to the same database or to a hosted one. A hosted table can be
-    copied only within its own database. The copy keeps the stored values, so
-    that computed columns and embedding indexes are not computed again. The copy stores its own media files: the
-    local media files of the table and the media files that it stored in a bucket are copied. Any other media URL
-    stays as it is. To copy only the rows of a table, pass a query such as `tbl.select()` as `source`.
+    reverted. A local table can be copied to the same database or to a hosted database. A hosted table can be copied
+    only within its own database. The copy keeps the stored values of computed columns and embedding indexes and does
+    not compute them again. The new table gets its own copies of the local media files of the source table and of the
+    files that the source table stored in a bucket. Other media URLs stay unchanged. To copy only the rows of a table,
+    pass a query such as `tbl.select()` as `source`.
 
     If `schema_source` is provided, then an empty table will be created with the columns, computed columns, primary
-    key, indexes and settings of that table, as `CREATE TABLE ... LIKE` does in SQL.
+    key, indexes and settings of that table.
 
     A copy and a table created from `schema_source` take their comment, custom metadata, media validation and default
-    indexes from the source table. The database must be able to load every UDF that the source table uses. Deploy
-    your own UDFs with `pxt db update` first.
+    indexes from the source table. The database of `path` must be able to load every UDF that the source table uses.
+    To use your own UDFs in a hosted database, deploy them with `pxt db update` first.
 
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types. A bare type such as
             `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls.
-        source: A data source (file, URL, Table, Query, or list of rows) to import from. A Table must be a base
-            table that is local or in the database of `path`. A Query of another database is not supported.
-        schema_source: A base table whose schema the new table takes. It must be local or in the database of `path`.
+        source: A data source (file, URL, Table, Query, or list of rows) to import from. A Table must be a local base
+            table or a base table in the database of `path`. A Query must read from the database of `path`.
+        schema_source: A base table that provides the schema of the new table. It must be a local table or a table in
+            the database of `path`.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
             Pixeltable will attempt to infer the format from the source data.)
@@ -163,8 +164,8 @@ def create_table(
             - the path already exists and is not a table, or
             - an error occurs while attempting to create the table, or
             - an error occurs while attempting to import data from the source, or
-            - a copied table references local media files that no longer exist, or
-            - the database cannot load a UDF that a copied table uses.
+            - the source table references local media files that no longer exist, or
+            - the database of `path` cannot load a UDF that the source table uses.
 
     Examples:
         Create a table with an int and a string column:
@@ -246,14 +247,13 @@ def create_table(
 
     telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
 
-    # refuse queries from tables that aren't in our database
     if isinstance(source, Query) and source._from_clause.catalog_uri != path_obj.catalog_uri:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'Cannot create {path!r} from a query of another database. Pass a base table as `source` to copy it.',
+            f'Cannot create {path!r} from a query of another database. To copy a table, pass the table as `source`.',
         )
     is_copy = isinstance(source, catalog.Table)
-    # the table that gives the new table its columns, indexes and settings
+    # the table that provides the columns, indexes and settings of the new table
     src_tbl = source if is_copy else schema_source
     if src_tbl is not None:
         assert isinstance(src_tbl, catalog.Table)
@@ -263,7 +263,7 @@ def create_table(
             if is_copy:
                 error_msg += '. To copy only its rows, pass a query such as `tbl.select()` as `source`.'
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, error_msg)
-        # the database of a hosted table runs the copy, and it can create the new table only in itself
+        # a hosted table is copied by its own database, which cannot create a table in another database
         src_catalog_uri = src_tbl._tbl_path.catalog_uri
         if not src_catalog_uri.is_local and src_catalog_uri != path_obj.catalog_uri:
             raise excs.RequestError(
@@ -271,7 +271,7 @@ def create_table(
                 f'`{src_tbl_arg}` must be a local table or a table of the database of {path!r}, not '
                 f'{src_tbl._display_str()}',
             )
-        # the new table takes these settings from src_tbl, so that passing one is an error
+        # the new table takes these settings from src_tbl, and passing any of them is an error
         is_arg_given = {
             'source_format': source_format is not None,
             'schema_overrides': schema_overrides is not None,
@@ -332,8 +332,8 @@ def create_table(
         assert isinstance(src_tbl, (catalog.InsertableTable, catalog.InsertableTableProxy))
         tbl, was_created = src_tbl._copy(path_obj, with_rows=is_copy, if_exists=if_exists_)
     else:
-        # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
-        # mapping and report the same errors
+        # canonicalize and validate the schema once, so that local and delegated catalogs receive the same mapping
+        # and report the same errors
         schema = catalog.normalize_schema(schema)
 
         # apply the primary_key parameter to the schema

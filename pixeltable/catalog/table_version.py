@@ -300,7 +300,7 @@ class TableVersion:
 
     @classmethod
     def media_destinations(cls, cols: Iterable[Column]) -> set[str | None]:
-        """The destinations that hold the files of a table with the columns cols."""
+        """Return the destinations that contain the files of a table with the columns cols."""
         # None is a valid column destination which refers to the default object location
         destinations = {col.destination for col in cols if col.is_stored}
         # the files that CellMaterializationNode wrote for this table's array, binary and json cells

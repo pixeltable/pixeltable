@@ -178,7 +178,7 @@ def _dispatch(request: ProxyRequest, key: tuple[str, str], path_label: Any, t0: 
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
         )
-    # import_table() localizes the uploaded files of one chunk at a time, so that temp disk holds the media files of
+    # _import_table() localizes the uploaded files one chunk at a time, so that temp disk contains the files of only
     # one chunk
     if key != ('CatalogBase', 'import_table'):
         _prefetch_remote_parts(request)
@@ -204,8 +204,8 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
 
 
 def _localize_remote_parts(request: ProxyRequest, args: Any) -> None:
-    """Localize the out-of-band binary parts (object store keys) of args, a part of request.args, into TempStore.
-    Updates request._remote_parts with the temp paths of the localized files.
+    """Localize the out-of-band binary parts (object store keys) of args into TempStore. args is request.args or a
+    part of it. Updates request._remote_parts with the temp paths of the localized files.
 
     A part is either an object of its own or a member of an archive (see PxtArchivePartSink). Each archive is
     downloaded once, and only the members referenced by the request are extracted from it.
@@ -381,23 +381,23 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
 
 
 def _import_table(request: ProxyRequest) -> tuple[list, bool]:
-    # the metadata of the copy is made from md, so md must be of this database's metadata version
+    # md becomes the metadata of the copy and must have the metadata version of this database
     if request.schema_version != MD_SCHEMA_VERSION:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Cannot create a table from metadata of version {request.schema_version} in a database of metadata '
-            f'version {MD_SCHEMA_VERSION}; use the Pixeltable version that the database runs ({__version__}).',
+            f'Cannot create a table from metadata of version {request.schema_version} in a database with metadata '
+            f'version {MD_SCHEMA_VERSION}. Use Pixeltable {__version__}, the version that the database runs.',
         )
-    kwargs = proxy_protocol.deserialize_args(
+    kwargs = proxy_protocol.deserialize_request(
         request, {name: arg for name, arg in request.args.items() if name != 'chunks'}
     )
 
     def localize_chunks() -> Iterator[table_copy.CopyChunk]:
         for chunk_args in request.args['chunks']:
             _localize_remote_parts(request, chunk_args)
-            chunk = proxy_protocol.deserialize_args(request, chunk_args)
-            # A request can also give a file as a plain path string. Only an uploaded file is accepted, so that a
-            # caller cannot have the daemon read one of its own files.
+            chunk = proxy_protocol.deserialize_request(request, chunk_args)
+            # A request can also give a file as a plain path. Only uploaded files are accepted, so that a caller cannot
+            # make the daemon read an arbitrary file on the daemon machine.
             uploaded = request._uploaded_names.keys()
             if chunk['rows_file'] not in uploaded or not uploaded >= set(chunk['media'].values()):
                 raise excs.RequestError(
@@ -673,7 +673,6 @@ def _get_path(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _copy(request: ProxyRequest, tbl: LocalTable) -> tuple[list, bool]:
-    # only an InsertableTableProxy dispatches '_copy', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
     new_tbl, was_created = tbl._copy(**proxy_protocol.deserialize_request(request))
     assert isinstance(new_tbl, LocalTable), new_tbl

@@ -18,11 +18,19 @@ from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps, StorageTarget
 
+from . import test_destination
 from .fault_injection import ExceptionFault
-from .utils import DatabaseRoot, assert_resultset_eq, get_image_files, pxt_raises, skip_test_if_not_installed
+from .utils import (
+    DatabaseRoot,
+    assert_resultset_eq,
+    dummy_embedding,
+    get_image_files,
+    pxt_raises,
+    schema_from_tbl_md,
+    skip_test_if_not_installed,
+)
 
-# Defined only in this process, so that a hosted database (and the local proxy daemon) cannot load it; see
-# test_cloud_errors.py.
+# These UDFs exist only in the test process, so that a hosted database and the local proxy daemon cannot load them.
 if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOUD_DB'):
 
     @pxt.udf
@@ -35,7 +43,7 @@ if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOU
 
 
 class TestCopyTable:
-    def test_copy_table(self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function) -> None:
+    def test_copy_table(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         skip_test_if_not_installed('imagehash')
         p = db_root.make_catalog_path
         img_files = get_image_files()[:6]
@@ -43,6 +51,9 @@ class TestCopyTable:
         t = pxt.create_table(
             'src',
             {'id': pxt.Int, 's': pxt.String, 'img': pxt.Image, 'arr': pxt.Array[(32, 32), np.float32], 'j': pxt.Json},
+            comment='source table',
+            custom_metadata={'k': 'v'},
+            media_validation='on_read',
             _is_data_versioned=is_data_versioned,
         )
         # a nondeterministic column: a copy that computed it again would not reproduce its values
@@ -50,7 +61,7 @@ class TestCopyTable:
         t.add_computed_column(upper=t.s.upper())
         t.add_computed_column(rot=t.img.rotate(90))  # a computed image, stored in the local media dir
         t.add_computed_column(ratio=(t.j.f - 2) / (t.j.f - 2), on_error='ignore')  # an error for id == 2
-        t.add_embedding_index(t.s, embedding=local_embed)
+        t.add_embedding_index(t.s, embedding=dummy_embedding.using(n=8))
 
         def row(i: int) -> dict[str, Any]:
             # each array is larger than the store's inline limit, so it is stored in a file
@@ -61,15 +72,26 @@ class TestCopyTable:
         t.insert((row(i) for i in range(4, 6)), on_error='ignore')
         t.update({'s': 'updated'}, where=t.id == 1)
         t.delete(where=t.id == 0)
-        # a dropped column, which the copy leaves out
+        # the copy succeeds with a dropped column that has a value in a live row
         t.add_column(note=pxt.String | None)
         t.update({'note': 'a note'}, where=t.id == 3)
         t.drop_column('note')
 
         def rows(tbl: pxt.Table) -> pxt.ResultSet:
-            cols = ('id', 's', 'u', 'upper', 'arr', 'j', 'img', 'rot', 'ratio')
             return (
-                tbl.select(*(tbl[col] for col in cols), tbl.ratio.errortype, tbl.ratio.errormsg)
+                tbl.select(
+                    tbl.id,
+                    tbl.s,
+                    tbl.u,
+                    tbl.upper,
+                    tbl.arr,
+                    tbl.j,
+                    tbl.img,
+                    tbl.rot,
+                    tbl.ratio,
+                    tbl.ratio.errortype,
+                    tbl.ratio.errormsg,
+                )
                 .order_by(tbl.id)
                 .collect()
             )
@@ -82,20 +104,21 @@ class TestCopyTable:
         t2 = pxt.create_table(p('dst'), source=t)
 
         assert t2.count() == t.count() == 5
-        # the dropped column is not copied
-        assert t2.columns() == t.columns()
+        assert schema_from_tbl_md(t2.get_metadata()) == schema_from_tbl_md(t.get_metadata())
+        assert t2.get_metadata()['is_data_versioned'] == is_data_versioned
         assert_resultset_eq(rows(t2), src_rows, compare_col_names=True)
         assert sum(errortype is not None for errortype in src_rows['ratio_errortype']) == 1
-        # every media file was uploaded: the copy's urls are its own
+        # the copy has its own copy of every media file: no url of t2 is a url of t
         assert media_urls(t).isdisjoint(media_urls(t2))
-        # the embeddings were copied
-        sim = t.s.similarity(string='text 3')
-        sim2 = t2.s.similarity(string='text 3')
-        # id orders the rows with equal scores, which a database returns in any order
-        assert list(t2.select(t2.id, score=sim2).order_by(sim2, asc=False).order_by(t2.id).collect()) == list(
-            t.select(t.id, score=sim).order_by(sim, asc=False).order_by(t.id).collect()
+        # The copy has the embeddings of the source. dummy_embedding returns random vectors, and an embedding that the
+        # copy computed again would give other scores.
+        query_vec = rng.random(8, dtype=np.float32)
+        sim = t.s.similarity(vector=query_vec)
+        sim2 = t2.s.similarity(vector=query_vec)
+        assert list(t2.select(t2.id, score=sim2).order_by(sim2, asc=False).collect()) == list(
+            t.select(t.id, score=sim).order_by(sim, asc=False).collect()
         )
-        # a copy of a table of the destination's database, which that database runs
+        # Copy t2 to the same database. For a hosted t2, the hosted database makes the copy.
         t3 = pxt.create_table(p('dst2'), source=t2)
         assert_resultset_eq(rows(t3), src_rows, compare_col_names=True)
         assert media_urls(t2).isdisjoint(media_urls(t3))
@@ -107,11 +130,11 @@ class TestCopyTable:
                 with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot revert version 0'):
                     copy.revert()
 
-        # the copy doesn't depend on the local table, whose computed images go with it
+        # the copy still reads its rows after drop_table() deletes the source and its computed images
         pxt.drop_table('src')
         FileCache.get().clear()  # so that reading the images fetches them from the destination
         assert_resultset_eq(rows(t2), src_rows)
-        # the copy computes new rows
+        # the copy computes the computed columns of an inserted row
         t2.insert([row(10)])
         new_row = t2.where(t2.id == 10).select(t2.upper, t2.u, t2.rot).collect()[0]
         assert new_row['upper'] == 'TEXT 10'
@@ -127,11 +150,10 @@ class TestCopyTable:
         empty2.insert([{'s': 'a'}])
         assert empty2.select(empty2.upper).collect()['upper'] == ['A']
 
-        if db_root.id == 'local':
-            # a query as source copies only its rows: the computed column becomes a plain one
-            rows_only = pxt.create_table('rows_only', source=empty2.select())
-            assert rows_only.collect()['upper'] == ['A']
-            assert not rows_only.get_metadata()['columns']['upper']['is_computed']
+        # a query as source copies only its rows: the computed column becomes a plain one
+        rows_only = pxt.create_table(p('rows_only'), source=empty2.select())
+        assert rows_only.collect()['upper'] == ['A']
+        assert not rows_only.get_metadata()['columns']['upper']['is_computed']
 
     def test_copy_table_media(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('imagehash')
@@ -141,30 +163,33 @@ class TestCopyTable:
         def media_rows(tbl: pxt.Table) -> pxt.ResultSet:
             return tbl.select(tbl.id, tbl.img, tbl.rot).order_by(tbl.id).collect()
 
-        # rows in several chunks, which reference media files that earlier chunks uploaded
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         t.add_computed_column(rot=t.img.rotate(90))
         # both versions reference the same two input files
         t.insert({'id': i, 'img': img_files[i % 2]} for i in range(5))
         t.insert({'id': i, 'img': img_files[i % 2]} for i in range(5, 9))
         with monkeypatch.context() as m:
-            # The chunk bounds are lowered, since a table that reaches the real ones is too large for a test: a chunk
-            # of at most 2 rows, which ends at a row that references a new media file.
+            # The copy exports the rows in several chunks, and a row of a later chunk references a media file of an
+            # earlier chunk. With these limits, a chunk ends after 2 rows and at each row with a new media file. The
+            # real limits need a table that is too large for a test.
             m.setattr(table_copy, '_ROW_BATCH_SIZE', 2)
             m.setattr(table_copy, '_MAX_CHUNK_ROW_BYTES', 1)
             m.setattr(table_copy, '_MAX_CHUNK_MEDIA_BYTES', 1)
             t2 = pxt.create_table(p('dst'), source=t)
         assert_resultset_eq(media_rows(t2), media_rows(t))
-        # each input file was uploaded once
+        # the copy stores each input file once
         assert len(set(t2.select(t2.img.fileurl).collect()['img_fileurl'])) == 2
-        urls = t2.select(t2.img.fileurl, t2.rot.fileurl).collect()
-        # every file of the copy is stored under its only version: a stored file is named
-        # <table prefix>_<column id>_<table version>_<suffix>
-        file_names = [pathlib.PurePosixPath(url).name for url in urls['img_fileurl'] + urls['rot_fileurl']]
-        assert {name.split('_')[2] for name in file_names} == {'0'}
+        # revert() deletes the files of each version that it reverts. The files of the copy belong to version 0 and
+        # survive a revert to version 0.
+        for i in range(3):
+            t2.insert([{'id': 10 + i, 'img': img_files[0]}])
+        for _ in range(3):
+            t2.revert()
+        FileCache.get().clear()
+        assert_resultset_eq(media_rows(t2), media_rows(t))
 
-        # An object that the source stores under its table prefix in a bucket is uploaded, since the source's
-        # drop_table() and revert() delete that prefix. A remote url outside of that prefix is kept.
+        # The copy stores its own copy of each bucket object under the table prefix of the source, because drop_table()
+        # and revert() of the source delete that prefix. The copy keeps any other remote url.
         img_file = img_files[0]
         downloaded: list[tuple[str, bool]] = []  # (url, whether a transaction is open)
 
@@ -173,23 +198,22 @@ class TestCopyTable:
             shutil.copy(img_file, dest_path)
 
         with monkeypatch.context() as m:
-            # a bucket whose every object is img_file
+            # every download returns a copy of img_file
             m.setattr(ObjectOps, 'copy_object_to_local_file', download)
-            # each chunk carries one object
+            # each chunk has one object
             m.setattr(table_copy, '_MAX_CHUNK_OBJECTS', 1)
             t = pxt.create_table('bucket_src', {'img': pxt.Image})
             prefix = t._id.hex
             source_urls = [f's3://bucket/media/{prefix}/ab/abcd/{prefix}_1_1_{uuid.uuid4().hex}.jpg' for _ in range(2)]
             other_url = f's3://bucket/media/{uuid.uuid4().hex}.jpg'
-            # the first chunk ends at the first object, and the second chunk has the second object
             t.insert([{'img': other_url}, {'img': source_urls[0]}, {'img': source_urls[1]}])
             downloaded.clear()
             t2 = pxt.create_table(p('bucket_dst'), source=t)
-            # the export's transaction is closed: a download must not hold its locks and snapshot
+            # no download runs inside a transaction
             assert sorted(downloaded) == sorted((url, False) for url in source_urls)
             urls = t2.select(t2.img.fileurl).collect()['img_fileurl']
             assert other_url in urls and set(source_urls).isdisjoint(urls)
-            # the copy reads its own bytes of the object
+            # the copy still reads the image after the source is dropped
             pxt.drop_table('bucket_src')
             FileCache.get().clear()
             img = t2.where(t2.img.fileurl != other_url).select(t2.img).collect()[0]['img']
@@ -198,10 +222,8 @@ class TestCopyTable:
     @pytest.mark.very_expensive
     def test_copy_table_bucket_destination(self, db_root: DatabaseRoot) -> None:
         """The copy keeps its own copy of the files that the source wrote to a bucket."""
-        from .test_destination import TestDestination  # imported here, so that pytest doesn't collect it twice
-
         p = db_root.make_catalog_path
-        dest_uri = TestDestination.resolve_destination_uri(StorageTarget.S3_STORE)
+        dest_uri = test_destination.TestDestination.resolve_destination_uri(StorageTarget.S3_STORE)
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         t.add_computed_column(rot=t.img.rotate(90), destination=f'{dest_uri}/copy_table')
         t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:2]))
@@ -211,10 +233,13 @@ class TestCopyTable:
         FileCache.get().clear()
         assert_resultset_eq(t2.select(t2.id, t2.rot).order_by(t2.id).collect(), src_rows)
 
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_copy_table_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         is_other_db = db_root.id != 'local'
-        kwargs: dict[str, Any]  # a case's table, as source or as schema_source
+        # mypy checks the values of an inline `**{like_arg: t}` against every keyword parameter of create_table() and
+        # rejects them
+        kwargs: dict[str, Any]
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         pxt.create_view('view', t)
         pxt.create_table(p('existing'), {'id': pxt.Int})
@@ -226,7 +251,7 @@ class TestCopyTable:
                 kwargs = {like_arg: pxt.get_table(view_path)}
                 with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'`{like_arg}` must be a base table'):
                     pxt.create_table(p('dst'), **kwargs)
-        # the error for a view as source gives the way to copy only its rows
+        # the error suggests tbl.select() for copying only the rows
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'pass a query such as `tbl.select\(\)`'):
             pxt.create_table(p('dst'), source=pxt.get_table('view'))
         if is_other_db:
@@ -238,7 +263,7 @@ class TestCopyTable:
                     match=f'`{like_arg}` must be a local table or a table of the database of',
                 ):
                     pxt.create_table('dst', **kwargs)
-            # a query of another database, refused before anything is created (PXT-1718)
+            # create_table() refuses a query of another database before it creates anything
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='from a query of another database'):
                 pxt.create_table(p('dst'), source=t.select(t.id))
         # arguments that the new table takes from the source table
@@ -264,15 +289,15 @@ class TestCopyTable:
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match='does not exist'):
             pxt.create_table(p('no_dir/dst'), source=t)
 
-        # a computed column that references another table, which the destination doesn't have, through a @pxt.query
-        # that is not the root of its expression
+        # The computed column r calls a @pxt.query that reads src, and the destination database does not have src. The
+        # call is inside a larger expression: lookup(...)[0].
         @pxt.query
         def lookup(n: int) -> pxt.Query:
             return t.where(t.id == n).select(t.id)
 
         t2 = pxt.create_table('src2', {'n': pxt.Int})
         t2.add_computed_column(r=lookup(t2.n)[0])
-        # ... or through a @pxt.query that the where clause of another @pxt.query calls
+        # ... or through a @pxt.query called in the where clause of another @pxt.query
         t3 = pxt.create_table('src3', {'n': pxt.Int})
 
         @pxt.query
@@ -289,10 +314,16 @@ class TestCopyTable:
                     ):
                         pxt.create_table(p('dst'), **kwargs)
                     assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
-        # in the local database, a copy of src2 and a table like src2 can reference src
-        assert pxt.create_table('copy_src2', source=t2).columns() == t2.columns()
-        assert pxt.create_table('like_src2', schema_source=t2).columns() == t2.columns()
-        # a copy and a table like src2 take only the current schema, without the dropped computed column
+        # In the local database, a copy of src2 and a table like src2 can reference src. r stays computed and reads src.
+        t.insert([{'id': 1, 'img': get_image_files()[0]}])
+        for like_arg in ('source', 'schema_source'):
+            kwargs = {like_arg: t2}
+            dst = pxt.create_table(f'{like_arg}_src2', **kwargs)
+            assert dst.get_metadata()['columns']['r']['is_computed']
+            dst.insert([{'n': 1}])
+            assert dst.select(dst.r).collect()['r'] == [1]
+        # A copy and a table like src2 succeed after r is dropped. columns() never shows a dropped column, and these
+        # asserts show only that create_table() succeeds.
         t2.drop_column('r')
         assert pxt.create_table(p('copy_dropped_r'), source=t2).columns() == ['n']
         assert pxt.create_table(p('like_dropped_r'), schema_source=t2).columns() == ['n']
@@ -304,22 +335,22 @@ class TestCopyTable:
             t4.insert([{'n': 1}])
             with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r"computed column 'n1'(.|\n)*pxt db update"):
                 pxt.create_table(p('dst'), source=t4)
-            with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND):
+            with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r"computed column 'n1'(.|\n)*pxt db update"):
                 pxt.create_table(p('dst'), schema_source=t4)
             assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
-            # A dropped column with a UDF that the destination cannot load is not copied. The input column of the UDF
-            # is dropped as well.
+            # The copy succeeds when a dropped column calls a UDF that the destination cannot load. The input column of
+            # the UDF is dropped as well.
             t5 = pxt.create_table('src5', {'n': pxt.Int, 'k': pxt.Int})
             t5.add_computed_column(n1=local_only_udf(t5.n))
             t5.drop_column('n1')
             t5.drop_column('n')
             assert pxt.create_table(p('dst5'), source=t5).columns() == ['k']
-            # ... and neither is a dropped embedding index
+            # ... and when a dropped embedding index calls such a UDF
             t6 = pxt.create_table('src6', {'s': pxt.String})
             t6.add_embedding_index('s', idx_name='idx', string_embed=local_only_embed)
             t6.drop_embedding_index(idx_name='idx')
-            assert pxt.create_table(p('dst6'), source=t6).columns() == ['s']
-        # a dropped column that references another dropped column is not copied
+            assert pxt.create_table(p('dst6'), source=t6).get_metadata()['indexes'] == t6.get_metadata()['indexes']
+        # the copy succeeds when a dropped column references another dropped column
         t7 = pxt.create_table('src7', {'n': pxt.Int})
         t7.add_computed_column(c1=t7.n + 1)
         t7.add_computed_column(c2=t7.c1 + 1)
@@ -328,8 +359,8 @@ class TestCopyTable:
         t7.drop_column('c1')
         assert list(pxt.create_table(p('dst7'), source=t7).collect()) == [{'n': 1}]
 
-        # A referenced local media file that no longer exists. It is under the Pixeltable home, so that the insert
-        # keeps its url. The insert copies a file of the system temp dir into the media store.
+        # A row references a local media file that no longer exists. The file is under the Pixeltable home, so that
+        # insert() keeps its url and does not copy it into the media store.
         img_path = Config.get().home / 'missing_img.jpg'
         shutil.copy(get_image_files()[0], img_path)
         t.insert([{'id': 0, 'img': str(img_path)}])
@@ -349,9 +380,8 @@ class TestCopyTable:
         assert t2.columns() == ['other']
 
         if db_root.id == 'local':
-            # The transaction that creates the copy replaces the existing table, so a failed copy leaves it as it was.
-            # The failed copy deletes the media files that it stored. They belong to no table, so the test counts the
-            # files in the media directory.
+            # A failed copy with 'replace' leaves the existing table unchanged and deletes the media files that it
+            # stored. No table references these files, and the test counts all files in the media directory instead.
             num_media_files = sum(f.is_file() for f in Env.get().media_dir.rglob('*'))
             fault = ExceptionFault(pxt.RequestError(pxt.ErrorCode.INVALID_STATE, 'injected failure'))
             get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_IMPORT_TABLE_BEFORE_MD_COMMITTED, fault)
@@ -388,30 +418,12 @@ class TestCopyTable:
         t.add_btree_index(t.upper)
         t.insert({'id': i, 's': f'text {i}'} for i in range(3))
 
-        def schema_md(tbl: pxt.Table) -> dict[str, Any]:
-            md = tbl.get_metadata()
-            # leave out the fields that hold the table's name or history
-            columns = {
-                name: {
-                    **col_md,
-                    'version_added': None,
-                    'defined_in': None,
-                    'depends_on': [col_name for _, col_name in col_md['depends_on'] or []],
-                }
-                for name, col_md in md['columns'].items()
-            }
-            settings = {
-                'comment': md['comment'],
-                'custom_metadata': md['custom_metadata'],
-                'media_validation': md['media_validation'],
-                'is_data_versioned': md['is_data_versioned'],
-            }
-            return {'columns': columns, 'indexes': md['indexes'], **settings}
-
         t2 = pxt.create_table(p('dst'), schema_source=t)
-        assert schema_md(t2) == schema_md(t)
-        # a table of the destination's database, which that database runs
-        assert schema_md(pxt.create_table(p('dst2'), schema_source=t2)) == schema_md(t)
+        # Create a table like t2 in the same database. For a hosted t2, the hosted database creates it.
+        dst2 = pxt.create_table(p('dst2'), schema_source=t2)
+        for tbl in (t2, dst2):
+            assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(t.get_metadata())
+            assert tbl.get_metadata()['is_data_versioned'] == is_data_versioned
         assert t2.count() == 0
         assert len(t2.get_versions()) == 1
         # the new table computes its computed columns and indexes its rows
@@ -419,9 +431,9 @@ class TestCopyTable:
         assert t2.order_by(t2.id).select(t2.upper).collect()['upper'] == ['TEXT 0', 'TEXT 1', 'TEXT 2']
         sim = t.s.similarity(string='text 1')
         sim2 = t2.s.similarity(string='text 1')
-        # id orders the rows with equal scores, which a database returns in any order
-        assert list(t2.select(t2.id).order_by(sim2, asc=False).order_by(t2.id).collect()) == list(
-            t.select(t.id).order_by(sim, asc=False).order_by(t.id).collect()
+        # id orders the rows with equal scores, which the database returns in any order
+        assert list(t2.select(t2.id).order_by(sim2, t2.id, asc=False).collect()) == list(
+            t.select(t.id).order_by(sim, t.id, asc=False).collect()
         )
 
         # if_exists: 'error' refuses the existing table, 'ignore' returns it, 'replace' creates an empty one
@@ -451,8 +463,9 @@ class TestCopyTable:
             t3.add_computed_column(r=query(t3.n))
             dst3_tbls.append(pxt.create_table(p(f'dst3_{i}'), schema_source=t3))
             t3.drop_column('r')
-        # once src3 is dropped, an insert computes r only if the query reads the new table
+        # Once src3 is dropped, an insert computes r only if the query reads the new table. The new table has no rows
+        # before the insert, and r is empty.
         pxt.drop_table('src3')
         for dst3 in dst3_tbls:
             dst3.insert([{'n': 1}])
-            assert dst3.count() == 1
+            assert dst3.select(dst3.r).collect()['r'] == [[]]

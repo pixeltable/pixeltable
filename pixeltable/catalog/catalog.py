@@ -1803,8 +1803,8 @@ class Catalog(CatalogBase):
         self, path: Path, if_exists: IfExistsParam, write_tbl_fn: Callable[[UUID], UUID]
     ) -> tuple[LocalTable, bool]:
         """
-        Creates a base table at path. write_tbl_fn(dir_id) writes the metadata and the store table of the new table in
-        the directory dir_id and returns the id of the table. write_tbl_fn() runs in the transaction that handles
+        Create a base table at path. write_tbl_fn(dir_id) writes the metadata and the store table of the new table in
+        the directory dir_id and returns the id of the new table. write_tbl_fn() runs in the transaction that handles
         if_exists.
 
         If `if_exists == IfExistsParam.IGNORE` and a table `t` already exists at path, returns `t, False`. Otherwise,
@@ -1843,11 +1843,12 @@ class Catalog(CatalogBase):
         if_exists: IfExistsParam,
     ) -> tuple[LocalTable, bool]:
         """
-        Creates the base table tbl_id at path from the current version md of another base table and the store rows
-        and media files of chunks. The new table has the single version 0. It appears at path with all of its rows, or
-        not at all.
+        Create a base table with the id tbl_id at path. md is the metadata of the current version of another base
+        table, and chunks contain the store rows and media files of that version. The new table has only version 0. It
+        appears at path with all of its rows, or not at all.
 
-        Returns `t, False` for an existing table `t` if `if_exists == IfExistsParam.IGNORE`, otherwise `t, True`.
+        If `if_exists == IfExistsParam.IGNORE` and a table `t` already exists at path, returns `t, False`. Otherwise,
+        returns the new table and True.
         """
         # a client sends a request again after a 5xx response, and the first request may have created the table
         existing_copy = self.get_table_by_id(tbl_id)
@@ -1876,14 +1877,14 @@ class Catalog(CatalogBase):
             tbl, is_created = self._create_table_at(path, if_exists, write_tbl_fn)
         except BaseException:
             try:
-                # a repeated request that created the table stores its files under the same table id
+                # another request with the same tbl_id may have created the table, and that table owns the media files
                 if self.get_table_by_id(tbl_id) is None:
                     table_copy.delete_media(copy_md)
             except Exception:
                 _logger.warning(f'Failed to delete the media files of the failed copy {path!r}', exc_info=True)
             raise
         if not is_created:
-            # if_exists='ignore', and a table was created at path during the copy
+            # if_exists='ignore' kept a table that was created at path during the copy. No table uses the stored media.
             table_copy.delete_media(copy_md)
         return tbl, is_created
 

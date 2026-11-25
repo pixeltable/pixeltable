@@ -1080,8 +1080,8 @@ class TestProxyDaemon:
     def _export_copy(
         db_root: DatabaseRoot, export_dir: pathlib.Path
     ) -> tuple[CatalogProxy, CatalogPath, TableVersionMd, table_copy._Chunk]:
-        """Export a local table of two rows into export_dir, for tests that send import_table() requests that
-        create_table() does not send. Returns the catalog of db_root, the path of the copy, and the export."""
+        """Create a local table with two rows and export it into export_dir. Return the catalog of db_root, the path
+        for the copy, and the metadata and the chunk of the export."""
         src = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         src.insert({'id': i, 'img': get_image_files()[0]} for i in range(2))
         assert isinstance(src, InsertableTable)
@@ -1097,8 +1097,7 @@ class TestProxyDaemon:
         cat, copy_path, md, chunk = self._export_copy(db_root, tmp_path)
         rows_file = str(chunk.rows_file)
 
-        # A rows file or a media file that the request gives as a path, which would be a file of the daemon. Only
-        # uploaded files are accepted.
+        # the request gives the rows file or a media file as a plain path instead of an uploaded file
         for chunk_args in (
             {'rows_file': rows_file, 'media': {}},
             {'rows_file': proxy_protocol.LocalFile(rows_file), 'media': chunk.new_media},
@@ -1113,12 +1112,12 @@ class TestProxyDaemon:
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be uploaded files'):
                 cat.client.send_request('CatalogBase', 'import_table', args)
 
-        # a local media url outside of the media directories of the copy: the url of the source's file, which the rows
-        # keep when the chunk leaves out its media files
+        # The chunk leaves out its media files. The rows then keep the local urls of the files of the source table,
+        # which are outside of the media directories of the copy.
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a media file of'):
             cat.import_table(copy_path, uuid.uuid4(), md, [table_copy.CopyChunk(rows_file, {})], IfExistsParam.ERROR)
 
-        # rows whose rowids a later insert into the copy would assign
+        # rows with rowids that the copy has not assigned yet
         rows = pq.read_table(rows_file)
         shifted_rows_file = str(tmp_path / 'shifted_rows.parquet')
         pq.write_table(
@@ -1138,7 +1137,7 @@ class TestProxyDaemon:
 
     @pytest.mark.db_roots('proxy', 'cloud', reason='sends import_table() requests to a daemon')
     def test_import_table_repeated(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
-        """A client sends a request again when the response to it is lost, even if the daemon committed it."""
+        """A client repeats a request when it loses the response, even if the daemon committed the request."""
         cat, copy_path, md, chunk = self._export_copy(db_root, tmp_path)
         copy_id = uuid.uuid4()
         copy_chunk = table_copy.CopyChunk(str(chunk.rows_file), chunk.new_media)

@@ -47,7 +47,7 @@ class InsertableTableProxy(TableProxy):
         return None
 
     def _copy(self, dest_path: Path, with_rows: bool, if_exists: IfExistsParam) -> tuple[Table, bool]:
-        # the hosted database runs InsertableTable._copy(), because only it can read the table's rows and history
+        # the hosted database runs InsertableTable._copy(), because only that database can read the rows and metadata
         args = {'dest_path': dest_path, 'with_rows': with_rows, 'if_exists': if_exists}
         md, was_created = self._dispatch('_copy', args)
         dest_catalog = cast('CatalogProxy', get_runtime().get_catalog(dest_path))

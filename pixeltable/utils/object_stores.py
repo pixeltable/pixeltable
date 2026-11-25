@@ -175,7 +175,7 @@ class ObjectPath:
 
     @classmethod
     def is_table_object(cls, url: str, tbl_id: UUID) -> bool:
-        """Whether url has a prefix and filename that create_prefix_raw() constructs for tbl_id."""
+        """Return True if url has the prefix and filename that create_prefix_raw() creates for a file of tbl_id."""
         table_prefix = cls.table_prefix(tbl_id)
         url_path = PurePosixPath(urllib.parse.urlparse(url).path)
         return table_prefix in url_path.parent.parts and url_path.name.startswith(f'{table_prefix}_')

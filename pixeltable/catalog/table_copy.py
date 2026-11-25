@@ -1,10 +1,10 @@
-"""Copy the current version of a local base table, with its stored values, to a path in the same database or in a
-hosted one. The copy has no history: it starts at version 0.
+"""Copy the current version of a local base table to a path in the same database or in a hosted database. The copy
+keeps the stored values of computed columns and indexes and does not compute them again. The copy has no history: it
+starts at version 0.
 
-copy_table() exports the live rows of the table into chunks of store rows and media files, and passes them to
-import_table() of the destination catalog, which creates the table with all of its rows in one transaction. No
-computed value or embedding is computed again. A copy without rows is an empty table with the columns, indexes and
-settings of the source table.
+copy_table() exports the current version of the table into chunks of store rows and media files and passes the chunks
+to import_table() of the destination catalog. import_table() creates the table with all of its rows in one
+transaction. A copy without rows is an empty table with the columns, indexes and settings of the source table.
 """
 
 from __future__ import annotations
@@ -48,20 +48,20 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 _ROW_BATCH_SIZE = 1_000
-# A chunk is a rows file and the media files that its rows are the first to reference. The destination downloads and
-# stores one chunk at a time, so these bounds limit its temp disk.
+# A chunk is a rows file and the media files that first appear in its rows. The destination downloads and stores one
+# chunk at a time. These bounds limit the temp disk space that the destination uses.
 _MAX_CHUNK_ROW_BYTES = 64 * 2**20
 _MAX_CHUNK_MEDIA_BYTES = 512 * 2**20
-# The export bounds the number of bucket objects in a chunk, since it cannot know an object's size before it downloads
-# the object, after the export's transaction.
+# The export cannot know the size of a bucket object, because the object is downloaded after the export's
+# transaction. _MAX_CHUNK_OBJECTS limits the number of objects in a chunk instead.
 _MAX_CHUNK_OBJECTS = 64
 _MAX_UPLOAD_THREADS = 16
-# the number of missing media files an error lists
+# the maximum number of missing media files in an error message
 _MAX_LISTED_FILES = 5
 
 
 def _store_columns(md: TableVersionMd) -> list[Column]:
-    """The stored columns of the current version of the table whose metadata is md."""
+    """Return the stored columns of the current version of the table with metadata md."""
     store_cols: list[Column] = []
     for col_id, schema_col in md.schema_version_md.columns.items():
         col_md = md.tbl_md.column_md[col_id]
@@ -106,7 +106,7 @@ def _nested_values(md: Any) -> Iterator[Any]:
 
 
 def _is_local_dir(destination: Any) -> bool:
-    """Whether destination is a directory of this machine."""
+    """Return True if destination is a directory on this machine."""
     return (
         isinstance(destination, str)
         and ObjectPath.parse_object_storage_addr(destination, False).storage_target == StorageTarget.LOCAL_STORE
@@ -114,8 +114,8 @@ def _is_local_dir(destination: Any) -> bool:
 
 
 def md_for_copy(md: TableVersionMd, tbl_id: uuid.UUID, name: str) -> TableVersionMd:
-    """Return the metadata of a copy of the current version md of a table, with id tbl_id and name name. The copy has
-    the single version 0. Raises an error if the table cannot be copied into this database."""
+    """Return the metadata of a copy of the table version md. tbl_id and name are the id and the name of the copy, and
+    its only version is 0. Raise an error if the table cannot be copied into this database."""
     src_md = md.tbl_md
     if src_md.view_md is not None:
         raise excs.RequestError(
@@ -124,7 +124,7 @@ def md_for_copy(md: TableVersionMd, tbl_id: uuid.UUID, name: str) -> TableVersio
     if src_md.pending_stmt is not None or src_md.tbl_state != schema.TableState.LIVE:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_STATE,
-            f'Cannot copy {src_md.name!r} while an operation on it is in progress; retry the copy',
+            f'Cannot copy {src_md.name!r} while an operation on it is in progress. Retry the copy later.',
         )
     _check_udfs(md)
 
@@ -134,7 +134,7 @@ def md_for_copy(md: TableVersionMd, tbl_id: uuid.UUID, name: str) -> TableVersio
     tbl_md.name = name
     tbl_md.user = Env.get().user
     # The dropped columns and indexes of a data-versioned table stay in its metadata, so that a revert can restore
-    # them. The copy cannot be reverted, so it leaves them out.
+    # them. The copy cannot be reverted and leaves them out.
     tbl_md.column_md = {
         col_id: col_md
         for col_id, col_md in tbl_md.column_md.items()
@@ -148,8 +148,8 @@ def md_for_copy(md: TableVersionMd, tbl_id: uuid.UUID, name: str) -> TableVersio
     for col_md in tbl_md.column_md.values():
         col_md.schema_version_add = 0
         if Env.get().is_proxy_daemon and _is_local_dir(col_md.destination):
-            # A proxy daemon receives the metadata of a table of another machine, whose local directory doesn't exist
-            # here. The column falls back to the default destination.
+            # The local directory of a column on the client machine does not exist on the proxy daemon. The column uses
+            # the default destination instead.
             col_md.destination = None
     for idx_md in tbl_md.index_md.values():
         idx_md.schema_version_add = 0
@@ -167,8 +167,8 @@ def md_for_copy(md: TableVersionMd, tbl_id: uuid.UUID, name: str) -> TableVersio
 
 
 def _check_udfs(md: TableVersionMd) -> None:
-    """Raise an error if this database cannot load a UDF of an index or a computed column of the current version md of
-    a table."""
+    """Raise an error if this database cannot load a UDF that an index or a computed column of the table version md
+    uses."""
     src_name = md.tbl_md.name
     # (description, serialized index arguments or value expression)
     udf_callers: list[tuple[str, Any]] = [
@@ -181,8 +181,8 @@ def _check_udfs(md: TableVersionMd) -> None:
         col_desc = f'the computed column {col.name!r}' if col.name is not None else 'the value column of an index'
         udf_callers.append((col_desc, col.value_expr))
     for desc, caller_md in udf_callers:
-        # Only the functions are loaded. Expr.from_dict() cannot be used: the copy has no metadata yet. A function with
-        # a path is a UDF. A @pxt.query has no path, and its UDFs are nested in it.
+        # This loads only the functions, because Expr.from_dict() needs the metadata of the copy, which does not exist
+        # yet. A function with a path is a UDF. A @pxt.query has no path, and its UDFs are nested in it.
         for node in _nested_values(caller_md):
             if not (isinstance(node, dict) and '_classpath' in node and 'path' in node):
                 continue
@@ -197,8 +197,8 @@ def _check_udfs(md: TableVersionMd) -> None:
 
 @dataclasses.dataclass(frozen=True)
 class CopyChunk:
-    """A part of a table copy: store rows in the Parquet file rows_file, and the media files that these rows are the
-    first to reference (url -> local path)."""
+    """A part of a table copy: the store rows in the Parquet file rows_file, and the media files that first appear in
+    these rows (media: url -> local path)."""
 
     rows_file: str
     media: dict[str, str]
@@ -211,16 +211,15 @@ class _Chunk:
     rows_file: FsPath
     num_row_bytes: int = 0
     num_media_bytes: int = 0
-    # local media files that this chunk is the first to reference: url -> local path
+    # local media files that first appear in this chunk: url -> local path
     new_media: dict[str, str] = dataclasses.field(default_factory=dict)
-    # urls of the source table's bucket objects that this chunk is the first to reference; they are downloaded into its
-    # CopyChunk, and _MAX_CHUNK_OBJECTS bounds their number
+    # urls of the bucket objects of the source table that first appear in this chunk, to download for its CopyChunk
     new_objects: set[str] = dataclasses.field(default_factory=set)
 
 
 class _TableExport:
-    """Writes the store rows of a table into chunks, with the media files that the copy must store itself: local
-    files, and objects under the table prefix of the source table."""
+    """Writes the store rows of a table into chunks. A chunk also contains the media files to copy: local files and
+    the objects under the table prefix of the source table."""
 
     md: TableVersionMd
     # the store columns that the export reads: the rowid and the columns of the current version, without v_min and v_max
@@ -233,7 +232,7 @@ class _TableExport:
     _arrow_schema: pa.Schema
     _media_cols: list[str]
     _cellmd_cols: list[str]
-    _exported_media: set[str]  # urls in the new_media of a finished chunk
+    _exported_media: set[str]  # urls in the new_media and new_objects of the finished chunks
     _chunk: _Chunk | None
     _writer: pq.ParquetWriter | None
     _batch: list[Mapping[str, Any]]
@@ -287,14 +286,14 @@ class _TableExport:
     def _add_media_ref(self, url: str) -> None:
         assert self._chunk is not None
         path = parse_local_file_path(url)
-        # The source table deletes the objects under its table prefix when it is dropped or reverted, so the copy
-        # needs its own copy of those. Any other remote url stays as it is.
+        # Dropping or reverting the source table deletes the objects under its table prefix, and the copy needs its own
+        # copies of those objects. Any other remote url stays as it is.
         if path is None and not ObjectPath.is_table_object(url, self._tbl_id):
             return
         if url in self._exported_media or url in self._chunk.new_media or url in self._chunk.new_objects:
             return
         if path is None:
-            # downloaded only for the upload, outside of the export's transaction
+            # the object is downloaded later, outside of the export's transaction
             self._chunk.new_objects.add(url)
             return
         if not path.is_file():
@@ -332,11 +331,11 @@ class _TableExport:
 
 
 def _check_no_other_tbl_refs(tbl: InsertableTable, md: TableVersionMd) -> None:
-    """Refuse tbl if a computed column of its current version md references another table."""
+    """Raise an error if a computed column of the table version md of tbl references another table."""
     cat = get_runtime().catalog
     looked_up_ids = {tbl._id}
     for col in md.schema_version_md.columns.values():
-        # The stored expression is searched for the ids of tables, which include the tables that a @pxt.query reads.
+        # Search the stored expression for table ids. These include the ids of the tables that a @pxt.query reads.
         for node in _nested_values(col.value_expr):
             if not isinstance(node, str):
                 continue
@@ -352,18 +351,18 @@ def _check_no_other_tbl_refs(tbl: InsertableTable, md: TableVersionMd) -> None:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Cannot copy {tbl._display_str()}: the computed column {col.name!r} references '
-                    f'{other._display_str()}; only a table whose computed columns reference no other table can be '
-                    'copied to another database',
+                    f'{other._display_str()}. A table can be copied to another database only if its computed columns '
+                    'reference no other table.',
                 )
 
 
 def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool, with_rows: bool) -> _TableExport:
-    """Export the current version of tbl into tmp_dir, with its live rows if with_rows, for a copy in another database
-    if is_other_db."""
+    """Export the current version of tbl: its metadata and, if with_rows is True, its rows as chunks in tmp_dir.
+    is_other_db is True if the copy goes to another database."""
     cat = get_runtime().catalog
-    # a single transaction (REPEATABLE READ) makes the metadata and the rows a snapshot of the same table state
+    # one REPEATABLE READ transaction reads the metadata and the rows, so that both come from the same table state
     with cat.begin_data_read_xact(tbl_keys=[TableVersionKey(tbl._id, None)]) as conn:
-        # collect_tbl_history() starts a transaction of its own, and the metadata must come from this one
+        # collect_tbl_history() starts its own transaction, and the metadata must come from this one
         md = cat._collect_tbl_history(tbl._id, 1)[0]
         tv = tbl._tbl_version.get()
         if is_other_db:
@@ -373,7 +372,7 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool, with
         if with_rows:
             stmt = sql.select(*export.sa_cols).order_by(*store.rowid_columns())
             if tv.is_data_versioned:
-                # only the live rows: a row of an earlier version has a smaller v_max
+                # only the rows of the current version: a row of an earlier version has a smaller v_max
                 stmt = stmt.where(store.v_max_col == schema.Table.MAX_VERSION)
             stmt = stmt.execution_options(yield_per=_ROW_BATCH_SIZE)
             for row in conn.execute(stmt):
@@ -385,11 +384,11 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool, with
 def copy_table(
     tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, with_rows: bool, if_exists: IfExistsParam
 ) -> tuple[Table, bool]:
-    """Copy the current version of the local base table tbl to dest_path in dest_catalog, the catalog of the same
-    database or a hosted one. If with_rows is False, the copy is an empty table with the columns, indexes and settings
-    of tbl, as CREATE TABLE ... LIKE creates in SQL."""
-    # 'error' and 'ignore' are decided before the export, so that no rows are copied for nothing.
-    # import_table() does the 'replace'.
+    """Copy the current version of the local base table tbl to dest_path in dest_catalog. dest_catalog is the catalog
+    of the same database or of a hosted database. If with_rows is False, the copy is an empty table with the columns,
+    indexes and settings of tbl."""
+    # Handle 'error' and 'ignore' before the export, so that a copy that creates no table exports no rows.
+    # import_table() handles 'replace'.
     existing = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
     if existing is not None and if_exists == IfExistsParam.IGNORE:
         # 'ignore' does not return a view, because the new table is a base table
@@ -418,7 +417,8 @@ def copy_table(
                 f'Cannot copy {tbl._display_str()}: it references local media files that no longer exist, '
                 f'including:\n{listed}',
             )
-        # a chunk downloads its bucket objects when import_table() reads it, outside of the export's transaction
+        # the generator downloads the bucket objects of a chunk when import_table() reads the chunk, after the export's
+        # transaction
         chunks = (
             CopyChunk(
                 str(chunk.rows_file), chunk.new_media | {url: _download(url, tmp_dir) for url in chunk.new_objects}
@@ -442,8 +442,8 @@ def _iter_rows(rows_file: str, columns: list[str] | None = None) -> Iterable[lis
 
 
 def place_media(md: TableVersionMd, rows_file: str, new_media: dict[str, str]) -> dict[str, str]:
-    """Store the media files new_media (url -> local path) in the media store of the copy whose metadata is md, each
-    under the column of the first row in rows_file that references it. Returns url -> stored url."""
+    """Store each media file of new_media (url -> local path) in the media store of the copy with metadata md. A file
+    goes to the destination of the column that first references it in rows_file. Return url -> stored url."""
     tbl_md = md.tbl_md
     cols = _store_columns(md)
     media_cols = [col for col in cols if col.col_type.is_media_type()]
@@ -471,8 +471,7 @@ def place_media(md: TableVersionMd, rows_file: str, new_media: dict[str, str]) -
     unreferenced = new_media.keys() - placements.keys()
     if len(unreferenced) > 0:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            f'Uploaded media files are not referenced by any row: {sorted(unreferenced)}',
+            excs.ErrorCode.INVALID_ARGUMENT, f'No row references the uploaded media files {sorted(unreferenced)}'
         )
 
     stores: dict[str | None, ObjectStoreBase] = {}
@@ -495,14 +494,14 @@ def place_media(md: TableVersionMd, rows_file: str, new_media: dict[str, str]) -
 
 
 def delete_media(md: TableVersionMd) -> None:
-    """Delete the media files of the table whose metadata is md from each of its destinations."""
+    """Delete the media files of the table with metadata md from all of its destinations."""
     tbl_id = uuid.UUID(md.tbl_md.tbl_id)
     for destination in TableVersion.media_destinations(_store_columns(md)):
         ObjectOps.delete(destination, tbl_id)
 
 
 def _local_media_dirs(tv: TableVersion, cols: list[Column]) -> list[FsPath]:
-    """The local directories, resolved, that contain the stored media files of tv."""
+    """Return the resolved local directories that contain the stored media files of tv."""
     addrs = [
         ObjectPath.parse_object_storage_addr(dest or str(Env.get().media_dir), False)
         for dest in TableVersion.media_destinations(cols)
@@ -515,9 +514,9 @@ def _local_media_dirs(tv: TableVersion, cols: list[Column]) -> list[FsPath]:
 
 
 def _check_stored_url(tv: TableVersion, url: str, local_media_dirs: list[FsPath]) -> str:
-    # A query reads the local file that a cell gives. Without this check, a row could give any file of this machine,
-    # such as a credential file, and a query would return its content. A copy within one database passes the check as
-    # well: the export sends every local file that a row references, so each local url is replaced with a stored one.
+    # A query returns the content of the local file in a cell. Without this check, a row could refer to any file on
+    # this machine, such as a credential file. A copy within one database also passes this check, because the export
+    # sends every local file of the rows, and the copy replaces each local url with a stored url.
     path = parse_local_file_path(url)
     if path is not None and not any(d in path.resolve().parents for d in local_media_dirs):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{url!r} is not a media file of {tv.name!r}')
@@ -525,12 +524,13 @@ def _check_stored_url(tv: TableVersion, url: str, local_media_dirs: list[FsPath]
 
 
 def insert_rows(tv: TableVersion, md: TableVersionMd, rows_file: str, media_urls: dict[str, str]) -> None:
-    """Insert the store rows in rows_file into the store table of tv, whose metadata is md, as rows of the current
-    version of tv. A media url that is a key of media_urls is replaced with its value."""
+    """Insert the store rows in rows_file into the store table of tv as rows of the current version of tv. md is the
+    metadata of tv. Replace each media url that is a key of media_urls with its value."""
     store = tv.store_tbl
     sa_tbl = store.sa_tbl
     file_cols = pq.ParquetFile(rows_file).schema_arrow.names
-    # The rows file has no v_min and v_max. The insert sets v_min, and v_max takes its default, which marks a live row.
+    # The rows file has no v_min and v_max. The insert sets v_min, and the default of v_max marks a row of the current
+    # version.
     version_col_names = ['v_min', 'v_max'] if tv.is_data_versioned else []
     data_col_names = [col.name for col in sa_tbl.columns if col.name not in version_col_names]
     if set(file_cols) != set(data_col_names):

@@ -268,8 +268,8 @@ class InsertableTable(LocalTable):
         return None
 
     def _copy(self, dest_path: 'pxt.catalog.Path', with_rows: bool, if_exists: IfExistsParam) -> tuple['Table', bool]:
-        """Create a table at dest_path from the current version of this table: a copy with its rows if with_rows,
-        otherwise an empty table with its schema."""
+        """Create a table at dest_path from the current version of this table. The new table has the rows of this
+        table if with_rows is True, and is empty otherwise."""
         return table_copy.copy_table(self, get_runtime().get_catalog(dest_path), dest_path, with_rows, if_exists)
 
     @property
