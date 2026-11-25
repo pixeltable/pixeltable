@@ -258,14 +258,16 @@ class ExprEvalCtx:
         if len(rows) == 0:
             return
 
-        # Set literals (still per-row since vals is an object array)
+        # Set literals one row at a time, since each row has its own vals array
         for row in rows:
             for slot_idx, val in self.literals.items():
                 row[slot_idx] = val
-            for slot_idx in self.image_decode_slot_idxs:
-                # an image file without a decoded value counts as missing, so that dispatch() schedules its decode
-                if row.has_val[slot_idx] and row.vals[slot_idx] is None and row.file_paths[slot_idx] is not None:
-                    row.has_val[slot_idx] = False
+
+        # clear has_val of a stored image that is not decoded yet, so that dispatch() schedules the decode
+        image_slot_idxs = self.image_decode_slot_idxs
+        for row in rows:
+            is_undecoded = (row.vals[image_slot_idxs] == None) & (row.file_paths[image_slot_idxs] != None)
+            row.has_val[image_slot_idxs] &= ~is_undecoded
 
         # Stack has_val for vectorized computation
         # Shape: (num_rows, num_slots)
