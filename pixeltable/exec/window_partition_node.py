@@ -75,47 +75,50 @@ class WindowPartitionNode(ExecNode):
         if limit == 0:
             return
 
-        pending: list[exprs.DataRow] = []
-        pending_start = 0
-        partition_starts = [0] * len(self.fn_calls)
-        partition_vals: list[list[Any]] = [[] for _ in self.fn_calls]
+        # rows that were read but not yet returned, in input order
+        held_rows: list[exprs.DataRow] = []
+        # input position of held_rows[0]: the row at input position p is held_rows[p - held_rows_start_pos]
+        held_rows_start_pos = 0
+        # per fn_call: input position of the first row of its current, still incomplete partition
+        partition_start_pos = [0] * len(self.fn_calls)
+        partition_keys: list[list[Any]] = [[] for _ in self.fn_calls]
         num_input_rows = 0
-        num_completed = 0
         num_returned = 0
 
-        def take_completed(end: int) -> DataRowBatch:
-            nonlocal pending_start, num_completed, num_returned
+        # completed_end_pos: all rows before this input position have the values of all their partitions
+        def release_rows(completed_end_pos: int) -> DataRowBatch:
+            nonlocal held_rows_start_pos, num_returned
+            num_completed = completed_end_pos - held_rows_start_pos
             output_batch = DataRowBatch(self.row_builder)
-            for row in pending[: end - pending_start]:
-                num_completed += 1
-                if num_completed <= offset:
+            for pos, row in enumerate(held_rows[:num_completed], start=held_rows_start_pos):
+                if pos < offset:
                     continue
                 if limit is not None and num_returned == limit:
                     break
                 output_batch.add_row(row)
                 num_returned += 1
-            del pending[: end - pending_start]
-            pending_start = end
+            del held_rows[:num_completed]
+            held_rows_start_pos = completed_end_pos
             return output_batch
 
         async with contextlib.aclosing(aiter(self.input)) as input_iter:
             async for batch in input_iter:
                 for row in batch:
                     for i, fn_call in enumerate(self.fn_calls):
-                        vals = [row[e.slot_idx] for e in fn_call.group_by]
+                        key = [row[e.slot_idx] for e in fn_call.group_by]
                         if num_input_rows == 0:
                             self._reset_agg(fn_call, num_input_rows)
-                        elif vals != partition_vals[i]:
-                            rows = pending[partition_starts[i] - pending_start :]
-                            self._set_partition_value(fn_call, rows, num_input_rows)
+                        elif key != partition_keys[i]:
+                            partition_rows = held_rows[partition_start_pos[i] - held_rows_start_pos :]
+                            self._set_partition_value(fn_call, partition_rows, num_input_rows)
                             self._reset_agg(fn_call, num_input_rows)
-                            partition_starts[i] = num_input_rows
-                        partition_vals[i] = vals
+                            partition_start_pos[i] = num_input_rows
+                        partition_keys[i] = key
                         self._update_agg(fn_call, row, num_input_rows)
-                    pending.append(row)
+                    held_rows.append(row)
                     num_input_rows += 1
 
-                output_batch = take_completed(min(partition_starts))
+                output_batch = release_rows(min(partition_start_pos))
                 if len(output_batch) > 0:
                     yield output_batch
                 if limit is not None and num_returned == limit:
@@ -124,7 +127,8 @@ class WindowPartitionNode(ExecNode):
         if num_input_rows == 0:
             return
         for i, fn_call in enumerate(self.fn_calls):
-            self._set_partition_value(fn_call, pending[partition_starts[i] - pending_start :], num_input_rows)
-        output_batch = take_completed(num_input_rows)
+            partition_rows = held_rows[partition_start_pos[i] - held_rows_start_pos :]
+            self._set_partition_value(fn_call, partition_rows, num_input_rows)
+        output_batch = release_rows(num_input_rows)
         if len(output_batch) > 0:
             yield output_batch
