@@ -614,9 +614,9 @@ class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
 
-    `FastAPIRouter` is for apps that already have a FastAPI server. If you do
-    not have one, use `pxt service` from the CLI; Pixeltable creates and runs the
-    FastAPI app for you. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
+    A `FastAPIRouter` declares routes over Pixeltable tables or models. Use `pxt service` from the CLI
+    to run it as a standalone server, or call `bind()` and then `include_router()` to mount it inside
+    an existing FastAPI app. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
 
     An app can include several routers with background routes if at most one of them is unnamed.
     """

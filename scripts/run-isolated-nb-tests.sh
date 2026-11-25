@@ -4,12 +4,13 @@ IFS=$'\n'
 SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
 PY_VERSION="$1"
+EXCLUDED_MARKERS=("${@:2}")
 # For isolated NB tests, use a directory that is *not* controlled by conftest.py
 # (The whole point is to run independently of our dev environment.)
 TEST_PATH="target/nb-tests"
 
 if [ -z "$PY_VERSION" ]; then
-    echo "Usage: run-isolated-nb-tests.sh <python-version>"
+    echo "Usage: run-isolated-nb-tests.sh <python-version> [excluded-marker ...]"
     exit 1
 fi
 
@@ -20,10 +21,28 @@ eval "$(conda shell.bash hook)"
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
 
-"$SCRIPT_DIR/prepare-nb-tests.sh" --include-very-expensive --include-expensive "$TEST_PATH" docs/release
+"$SCRIPT_DIR/prepare-nb-tests.sh" "$TEST_PATH" docs/release
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
-rm -f "$TEST_PATH"/img-detection-vs-segmentation.ipynb  # failing for unknown reasons (runs fine locally)
-rm -f "$TEST_PATH"/img-promptable-segmentation.ipynb  # SAM3 video segmentation exceeds the cell timeout on CPU
+
+# The notebooks marked skip or with any of the excluded markers
+EXCLUDED_NOTEBOOKS=$(python3 - "${EXCLUDED_MARKERS[@]}" <<'EOF'
+import sys
+from tests.notebook_markers import NOTEBOOK_MARKERS
+excluded = {'skip', *sys.argv[1:]}
+print('\n'.join(nb for nb, (markers, _) in NOTEBOOK_MARKERS.items() if excluded & set(markers)))
+EOF
+)
+for nb in $EXCLUDED_NOTEBOOKS; do
+    echo "Skipping $nb because of its test markers"
+    rm -f "${TEST_PATH:?}/${nb:?}.ipynb"
+done
+# TODO: drop each skip once its package supports Python 3.14
+if (( $(echo "$PY_VERSION" | cut -d. -f2) >= 14 )); then
+    for skip in embedding-indexes:tensorflow-text audio-podcast-chapters:whisperx; do
+        echo "Skipping ${skip%%:*}: ${skip#*:} has no release for Python $PY_VERSION"
+        rm -f "${TEST_PATH:?}/${skip%%:*}.ipynb"
+    done
+fi
 
 NB_CONDA_ENV=nb-test-env
 FAILURES=0

@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     from ..exprs import ColumnRef
     from ..globals import TableDataSource
+    from .model import TableModelMeta
     from .table_metadata import TableMetadata, VersionMetadata
     from .table_path import TablePath
     from .types import ColumnVersionMd
@@ -130,8 +131,10 @@ class Table(SchemaObject):
         """
         return self.select().where(pred)
 
-    def join(self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'JoinType.LiteralType' = 'inner') -> 'Query':
-        """Join this table with another table."""
+    def join(
+        self, other: 'Table | TableModelMeta', *, on: 'exprs.Expr' | None = None, how: 'JoinType.LiteralType' = 'inner'
+    ) -> 'Query':
+        """Join this table with another table, or with a model that is bound to one."""
         return self.select().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'Query':
@@ -1247,6 +1250,10 @@ class Table(SchemaObject):
 
             >>> tbl.recompute_columns('c1', errors_only=True)
         """
+
+    @abc.abstractmethod
+    def _check_recompute(self, *columns: str | ColumnRef, errors_only: bool = False) -> list[str]:
+        """Run the checks of recompute_columns() without recomputing; returns the names of the columns."""
 
     @abc.abstractmethod
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:

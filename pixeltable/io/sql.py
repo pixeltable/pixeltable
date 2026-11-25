@@ -110,7 +110,8 @@ def import_sql(
             names; values accept any Pixeltable type spec recognized by `pxt.create_table` (eg, `pxt.Image`,
             `pxt.String | None`).
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
-            table. Only applies when a new table is created; ignored when appending to an existing table.
+            table. These columns are imported as non-nullable, even if they are nullable in the source. Only
+            applies when a new table is created; ignored when appending to an existing table.
         comment: An optional comment; its meaning is user-defined. Only applies when a new table is created;
             ignored when appending to an existing table.
         custom_metadata: Optional user-defined metadata to associate with the table. Must be a valid
@@ -167,11 +168,20 @@ def import_sql(
         seen_cols.add(col_name)
         source_names.append(col_name)
 
+    pk_names: set[str] = set()
+    if isinstance(primary_key, str):
+        pk_names.add(catalog.fold_identifier(primary_key))
+    elif primary_key is not None:
+        for pk_name in primary_key:
+            pk_names.add(catalog.fold_identifier(pk_name))
+
     schema: dict[str, Any] = {}
     for sa_col, col_name in zip(sa_cols, source_names, strict=True):
         # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
         nullable_attr = getattr(sa_col, 'nullable', True)
         nullable = True if nullable_attr is None else nullable_attr
+        if catalog.fold_identifier(col_name) in pk_names:
+            nullable = False
         pxt_type: ts.ColumnType | None
         if col_name in schema_overrides:
             pxt_type = schema_overrides[col_name]

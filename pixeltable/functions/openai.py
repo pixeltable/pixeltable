@@ -919,6 +919,7 @@ ResponseOutputItem = TypedDict(
         'quality': str | None,
         'revised_prompt': str | None,
         'size': str | None,
+        'svg_usage': dict[str, Any] | None,
         'execution': str,
         'environment': pxt.Json | None,
         'operation': pxt.Json,
@@ -938,6 +939,8 @@ class ResponseInputTokensDetails(TypedDict):
 
     cache_write_tokens: int
     """The input tokens written to the cache."""
+    cache_write_tokens_details: NotRequired[dict[str, Any] | None]
+    """The input tokens written to the cache, by time to live."""
     cached_tokens: int
     """The input tokens read from the cache."""
 
@@ -1011,6 +1014,11 @@ class Response(TypedDict):
     usage: NotRequired[ResponseUsage | None]
     user: NotRequired[str | None]
     """Deprecated: `safety_identifier` and `prompt_cache_key` replace it."""
+    image: NotRequired[dict[str, Any] | None]
+    input_transformations: NotRequired[list[dict[str, Any]] | None]
+    """The input items the API removed, such as reasoning items it could not reuse, each with the reason."""
+    tool_usage: NotRequired[dict[str, Any] | None]
+    """The usage of hosted tools, such as web search and image generation, apart from `usage`."""
 
 
 def _serialize_input_images(input: list) -> list:

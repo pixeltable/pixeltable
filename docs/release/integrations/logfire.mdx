@@ -158,7 +158,7 @@ A script can create the same column with `create_table` and `add_computed_column
 
 To trace a served app, add `--otel` to `pxt service run` or `pxt service update` ([Tracing](/platform/cli#tracing)). It calls `pxt_otel.init()` with no arguments before it loads the app file, so configure the export in the environment, or in the matching `[otel]` keys. The variables in [Set the environment](#set-the-environment) are that configuration.
 
-`pxt service run` reads these variables in its own process. `pxt service update` starts the service from the Pixeltable daemon, which reads the environment once, so run `pxt daemon restart` after the exports.
+`pxt service run` reads these variables in its own process. `pxt service update` starts the service from the Pixeltable daemon, and restarts the daemon first when these variables differ from the daemon's.
 
 If the database entry in `pixeltable.toml` sets `db_exporter_otlp_endpoint`, it wins over `OTEL_EXPORTER_OTLP_ENDPOINT`, so set the Logfire endpoint on that entry instead.
 

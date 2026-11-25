@@ -28,7 +28,8 @@ def abs(self: float) -> float:
 
 @abs.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.abs(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.abs(self, type_=self.type)
 
 
 @pxt.udf(is_method=True)
@@ -50,15 +51,16 @@ def ceil(self: float) -> float:
 
 @ceil.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.ceiling(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.ceiling(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
 def floor(self: float) -> float:
     """
-    Return the ceiling of the given number.
+    Return the floor of the given number.
 
-    Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/library/math.html#math.ceil) if `self`
+    Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/library/math.html#math.floor) if `self`
     is finite, or `self` itself if `self` is infinite. (This is slightly different from the default behavior of
     `math.floor(self)`, which always returns an `int` and raises an error if `self` is infinite. The behavior of
     Pixeltable generalizes the Python operator and is chosen to align with the SQL standard.)
@@ -72,7 +74,8 @@ def floor(self: float) -> float:
 
 @floor.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.floor(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.floor(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -91,7 +94,8 @@ def round(self: float, digits: int | None = None) -> float:
 @round.to_sql
 def _(self: sql.ColumnElement, digits: sql.ColumnElement | None = None) -> sql.ColumnElement:
     if digits is None:
-        return sql.func.round(self)
+        # without type_, SQLAlchemy leaves the element's type as NullType
+        return sql.func.round(self, type_=sql.Float)
     else:
         return sql.cast(sql.func.round(sql.cast(self, sql.Numeric), sql.cast(digits, sql.Integer)), sql.Float)
 
@@ -108,7 +112,8 @@ def pow(self: float, other: float) -> float:
 
 @pow.to_sql
 def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.pow(self, other)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.pow(self, other, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -123,7 +128,8 @@ def sqrt(self: float) -> float:
 
 @sqrt.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.sqrt(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.sqrt(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -138,7 +144,8 @@ def exp(self: float) -> float:
 
 @exp.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.exp(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.exp(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -153,7 +160,8 @@ def log(self: float) -> float:
 
 @log.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.ln(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.ln(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -168,7 +176,176 @@ def log10(self: float) -> float:
 
 @log10.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.log10(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.log10(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def sin(self: float) -> float:
+    """
+    Return the sine of `self`, an angle in radians.
+
+    Equivalent to Python [`math.sin()`](https://docs.python.org/3/library/math.html#math.sin). Raises an error for
+    infinity.
+
+    For an angle in degrees, apply [`radians()`][pixeltable.functions.math.radians] first, as in
+    `t.x.radians().sin()`.
+    """
+    return math.sin(self)
+
+
+@sin.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.sin(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def cos(self: float) -> float:
+    """
+    Return the cosine of `self`, an angle in radians.
+
+    Equivalent to Python [`math.cos()`](https://docs.python.org/3/library/math.html#math.cos). Raises an error for
+    infinity.
+
+    For an angle in degrees, apply [`radians()`][pixeltable.functions.math.radians] first, as in
+    `t.x.radians().cos()`.
+    """
+    return math.cos(self)
+
+
+@cos.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.cos(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def tan(self: float) -> float:
+    """
+    Return the tangent of `self`, an angle in radians.
+
+    Equivalent to Python [`math.tan()`](https://docs.python.org/3/library/math.html#math.tan). Raises an error for
+    infinity.
+
+    For an angle in degrees, apply [`radians()`][pixeltable.functions.math.radians] first, as in
+    `t.x.radians().tan()`.
+    """
+    return math.tan(self)
+
+
+@tan.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.tan(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def asin(self: float) -> float:
+    """
+    Return the arc sine of the given number, in radians. The result is in the range `[-pi/2, pi/2]`.
+
+    Equivalent to Python [`math.asin()`](https://docs.python.org/3/library/math.html#math.asin).
+
+    Raises an error if the input is outside the range `[-1, 1]`.
+    """
+    return math.asin(self)
+
+
+@asin.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.asin(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def acos(self: float) -> float:
+    """
+    Return the arc cosine of the given number, in radians. The result is in the range `[0, pi]`.
+
+    Equivalent to Python [`math.acos()`](https://docs.python.org/3/library/math.html#math.acos).
+
+    Raises an error if the input is outside the range `[-1, 1]`.
+    """
+    return math.acos(self)
+
+
+@acos.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.acos(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def atan(self: float) -> float:
+    """
+    Return the arc tangent of the given number, in radians. The result is in the range `(-pi/2, pi/2)`.
+
+    Equivalent to Python [`math.atan()`](https://docs.python.org/3/library/math.html#math.atan).
+    """
+    return math.atan(self)
+
+
+@atan.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.atan(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def degrees(self: float) -> float:
+    """
+    Convert an angle from radians to degrees.
+
+    The inverse of [`radians()`][pixeltable.functions.math.radians].
+
+    Equivalent to Python [`math.degrees()`](https://docs.python.org/3/library/math.html#math.degrees).
+    """
+    return math.degrees(self)
+
+
+@degrees.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.degrees(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def radians(self: float) -> float:
+    """
+    Convert an angle from degrees to radians.
+
+    The inverse of [`degrees()`][pixeltable.functions.math.degrees].
+
+    Equivalent to Python [`math.radians()`](https://docs.python.org/3/library/math.html#math.radians).
+    """
+    return math.radians(self)
+
+
+@radians.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.radians(self, type_=sql.Float)
+
+
+@pxt.udf(is_method=True)
+def sign(self: float) -> float:
+    """
+    Return the sign of the given number: `-1.0` if it is negative, `1.0` if it is positive, and `0.0` if it is zero.
+
+    Equivalent to [`numpy.sign()`](https://numpy.org/doc/stable/reference/generated/numpy.sign.html). NaN is returned
+    unchanged.
+    """
+    if math.isnan(self):
+        return self
+    return builtins.float((self > 0) - (self < 0))
+
+
+@sign.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Postgres' sign() returns 0 for NaN; in Postgres, unlike in IEEE 754, NaN compares equal to NaN
+    nan = sql.literal_column("'NaN'::double precision", sql.Float)
+    return sql.case((self == nan, nan), else_=sql.func.sign(self, type_=sql.Float))
 
 
 @pxt.udf(is_method=True)
@@ -224,14 +401,31 @@ def to_int(self: float) -> int:
     """
     Convert a float to an integer by truncating toward zero.
 
-    Equivalent to Python [`int(self)`](https://docs.python.org/3/library/functions.html#int).
+    Equivalent to Python [`int(self)`](https://docs.python.org/3/library/functions.html#int). Raises an error for
+    infinity, NaN, and values outside the range of `Int`.
+
+    To round down, up or to the nearest integer instead, apply [`floor()`][pixeltable.functions.math.floor],
+    [`ceil()`][pixeltable.functions.math.ceil] or [`round()`][pixeltable.functions.math.round] first, as in
+    `t.x.floor().to_int()`.
     """
-    return builtins.int(self)
+    result = builtins.int(self)
+    if not -(2**63) <= result < 2**63:
+        raise OverflowError(f'{self} is outside the range of Int')
+    return result
 
 
 @to_int.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.cast(self, sql.Integer)
+def _(self: sql.ColumnElement) -> sql.ColumnElement | None:
+    if isinstance(self.type, sql.Integer):
+        return sql.cast(self, sql.BigInteger)
+    # sql.Float is a subclass of sql.Numeric in SQLAlchemy 2.0, but not in 2.1
+    if isinstance(self.type, (sql.Numeric, sql.Float)):
+        return sql.cast(sql.func.trunc(self), sql.BigInteger)
+    if isinstance(self.type, sql.Boolean):
+        # Postgres casts a boolean only to integer
+        return sql.cast(sql.cast(self, sql.Integer), sql.BigInteger)
+    # trunc() converts an untyped BIGINT to DOUBLE PRECISION, which is inexact above 2**53
+    return None
 
 
 @pxt.udf(is_method=True)
@@ -251,17 +445,26 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 __all__ = [
     'abs',
+    'acos',
+    'asin',
+    'atan',
     'bitwise_and',
     'bitwise_or',
     'bitwise_xor',
     'ceil',
+    'cos',
+    'degrees',
     'exp',
     'floor',
     'log',
     'log10',
     'pow',
+    'radians',
     'round',
+    'sign',
+    'sin',
     'sqrt',
+    'tan',
     'to_float',
     'to_int',
 ]

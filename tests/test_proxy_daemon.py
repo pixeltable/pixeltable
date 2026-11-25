@@ -5,6 +5,7 @@ import io
 import json
 import math
 import pathlib
+import shutil
 import socket
 import socketserver
 import ssl
@@ -21,6 +22,7 @@ from typing import Any
 import httpx
 import numpy as np
 import PIL.Image
+import psutil
 import pytest
 import requests
 
@@ -40,7 +42,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
-from .utils import pxt_raises, reload_env
+from .utils import bystander_process, pxt_raises, reload_env
 
 _KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
@@ -1069,6 +1071,38 @@ class TestProxyDaemon:
         assert error['server_protocol_version'] == proxy_protocol.PROTOCOL_VERSION
         return error['message']
 
+    @pytest.mark.parametrize(('creation_time_offset', 'live'), [(0.0, True), (None, True), (-100.0, False)])
+    def test_port_lock_creation_time(self, init_env: None, creation_time_offset: float | None, live: bool) -> None:
+        """A port.lock that records an earlier creation time than the process with its pid has is stale: that daemon
+        is gone and another process reused its pid. One that records none, from an older daemon, goes by the pid
+        alone."""
+        db = 'port_lock_test'
+        proxy_daemon.create(db)
+        try:
+            with bystander_process() as bystander:
+                info: dict[str, Any] = {'port': 1, 'pid': bystander.pid}
+                if creation_time_offset is not None:
+                    info['process_started_at'] = psutil.Process(bystander.pid).create_time() + creation_time_offset
+                (proxy_daemon.proxy_home(db) / 'port.lock').write_text(json.dumps(info))
+                assert proxy_daemon.read_port_lock(db) == (info if live else None)
+        finally:
+            shutil.rmtree(proxy_daemon.proxy_home(db))
+
+    def test_stop_reused_port_lock_pid(self, init_env: None) -> None:
+        """stop() removes a stale port.lock without signaling the process that now has its pid."""
+        db = 'port_lock_test'
+        proxy_daemon.create(db)
+        lock = proxy_daemon.proxy_home(db) / 'port.lock'
+        try:
+            with bystander_process() as bystander:
+                started_at = psutil.Process(bystander.pid).create_time()
+                lock.write_text(json.dumps({'port': 1, 'pid': bystander.pid, 'process_started_at': started_at - 100}))
+                proxy_daemon.stop(db)
+                assert not lock.exists()
+                assert bystander.poll() is None
+        finally:
+            shutil.rmtree(proxy_daemon.proxy_home(db))
+
 
 class _ScriptedResponse:
     def __init__(self, status: int, body: bytes) -> None:
@@ -1668,13 +1702,11 @@ class TestTunnelRetries:
     def test_a_proxy_that_cannot_be_reached_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A refused connection to the proxy is retried like any refused connection, then named for the proxy."""
         monkeypatch.setattr(proxy_client, '_TUNNEL_RETRY_MAX_DELAY', 0.3)
-        with socket.socket() as released:
-            released.bind(('127.0.0.1', 0))
-            port = released.getsockname()[1]
-        # nothing listens on the port now, so a connect to it is refused
-        monkeypatch.setenv('HTTPS_PROXY', f'http://127.0.0.1:{port}')
+        # nothing listens on port 1, and no port 0 bind gets it; a port released here could be handed to another
+        # xdist worker's fake proxy, which this test would then reach
+        monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
         transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
-        with pytest.raises(ConnectionError, match=rf'Cannot connect to the HTTPS proxy at 127\.0\.0\.1:{port}: '):
+        with pytest.raises(ConnectionError, match=r'Cannot connect to the HTTPS proxy at 127\.0\.0\.1:1: '):
             transport.post(b'body')
 
     def test_a_proxy_that_never_answers_times_out_like_a_connect(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1718,7 +1750,8 @@ class TestTunnelRetries:
         assert opened == [live]
 
     def test_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it_is_not_handed_out(self) -> None:
-        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is dropped."""
+        """A daemon from an earlier release closes a connection idle 5 s, which loses a request sent while that close is
+        on its way."""
         stale, fresh = _ScriptedConn(), _ScriptedConn()
         opened: list[_ScriptedConn] = []
 

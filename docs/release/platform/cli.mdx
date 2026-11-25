@@ -99,6 +99,8 @@ pxt pwd                            # print it
 # projects
 pxt init                             # mark the current directory as a project root
 pxt skills install                   # give coding agents the Pixeltable skill
+pxt guide tables                     # print the agent guide to tables; 'pxt guide' lists the guides
+pxt lint                             # review the project's code against the rules in 'pxt guide review'
 
 # functions
 pxt functions --on Json              # what you can call on a Json expression
@@ -481,6 +483,19 @@ The command downloads the skill from the repository's `main` branch and prints t
 - Claude Code started at the repository root loads a copy written in a subdirectory only once it reads a file there, so install at the root.
 - If Claude Code also has the Pixeltable plugin, both copies load, because plugin skills are namespaced: keep one.
 - Commit both directories to give every collaborator's agent the same copy, and delete them to remove the skill.
+
+The skill teaches judgment that does not change between Pixeltable releases. How the installed release behaves is in the
+agent guides that ship with it, one per area: tables, expressions, queries, views, indexes, UDFs, Json, providers,
+serving, the CLI and Cloud. `pxt guide` lists them, `pxt guide AREA` prints one, and `pxt guide --path` prints the
+directory of the guide files, for reading or searching them.
+
+`pxt lint` reviews a project's Python code against the rules that `pxt guide review` prints: Python code that redoes
+Pixeltable's work, such as a loop that scores similarity or rebuilds a summary, or that uses Pixeltable wrongly. A
+separate model reads the files and the command prints its findings; it exits 2 when there are any. The reviewer is the
+command in the environment variable `PXT_LINT_REVIEWER`. Without it, a run under Claude Code, Codex, Cursor, Gemini CLI,
+Augment or OpenCode reviews with that agent's CLI, so reviews run on the agent's account. The value `none` turns the
+review off; the command then prints the rules and the files for the coding agent that ran it to review. A review takes
+several minutes: give the command a timeout of 10 minutes.
 
 ### Reporting a gap
 
@@ -1169,6 +1184,7 @@ file_cache_gb = 4.0   # each pod's local cache of media files
 ```
 
 An entry with no `name` configures the local database. A hosted database is configured by the entry whose `name` is its URI.
+The compute settings (`cpu`, `memory_mb`, `disk_gb`, `workers`) and `services` apply to a hosted database only.
 
 ### `pxt db`
 
@@ -1176,7 +1192,7 @@ Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable inst
 
 Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
 
-The URI argument is optional: when it is omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and the other `db` commands with no argument.
+The URI argument is optional for `diff`, `update`, `status`, `retry` and `delete`: when it is omitted, these commands act on the local database, whose UDF servers run in Pixeltable Cloud.
 
 A usage error, such as an unknown verb or a URI that is not `pxt://org:db`, exits `1`: in `pxt db`, `2` means changes pending (`diff`) or a change still under way when a wait ends. A failed update names `pxt db retry` on a `next:` line, and a wait that stops names `pxt db status`.
 

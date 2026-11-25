@@ -1295,7 +1295,7 @@ class TableVersion:
 
     def insert(
         self,
-        source: list[dict[str, Any]] | SqlDataSource | None,
+        source: Iterable[dict[str, Any]] | SqlDataSource | None,
         query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
@@ -1303,7 +1303,7 @@ class TableVersion:
         skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """
-        Insert rows into this table from an explicit list of dicts, a Query, or a SqlDataSource.
+        Insert rows into this table from a stream of row dicts, a Query, or a SqlDataSource.
 
         With skip_existing_keys, a row whose primary key is already in the table is not inserted.
         """
@@ -1468,6 +1468,11 @@ class TableVersion:
                     excs.ErrorCode.ROW_NOT_FOUND, f'batch_update(): {len(unmatched_rows)} row(s) not found'
                 )
             if insert_if_not_exists:
+                if not self.is_insertable:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'batch_update(): cannot insert into {self.display_str()}'
+                    )
+                Planner.check_required_input_columns(self.path, unmatched_rows, None)
                 insert_status = self.insert(
                     unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
                 )
@@ -1558,8 +1563,8 @@ class TableVersion:
                 if not closed_type.is_supertype_of(value_expr.col_type.with_closed_dicts(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
-                        f'The literal value {val!r} is not compatible with the type '
-                        f'`{col.col_type}` of column {col_name!r}',
+                        f'Column {col_name!r}: the value {value_expr!s} has type `{value_expr.col_type}`, which is not '
+                        f'compatible with the column type `{col.col_type}`',
                     ) from exc
             update_targets[col] = value_expr
 
@@ -1691,6 +1696,7 @@ class TableVersion:
         if cascade:
             base_versions = [None if len(plans) == 0 else self.version, *base_versions]  # don't update in place
             changed_qids = {c.qid for c in modified_cols} | {c.qid for c in recomputed_view_cols}
+            changed_dependents = self.get_dependent_columns(modified_cols)
 
             # propagate to views
             for view in self.mutable_views:
@@ -1698,9 +1704,7 @@ class TableVersion:
                 recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
                 # any and all are equivalent since all iterator columns share the same input columns meaning
                 # if one is recomputed they all are. However any is more efficient since it can short circuit.
-                needs_iterator_reload = view_tv.is_component_view and any(
-                    view_tv.is_iterator_column(col) for col in recomputed_cols
-                )
+                needs_iterator_reload = any(view_tv.is_iterator_column(col) for col in changed_dependents)
 
                 membership_change = base_membership_change or (
                     # an update can move a row in or out of a filtered view, but only if it changed one of the columns
@@ -1713,7 +1717,7 @@ class TableVersion:
                 assert len(updated_bases) > 0  # the table where the update started always has a plan
 
                 view_plans: list[exec.ExecNode] = []
-                if needs_iterator_reload or (membership_change and view_tv.is_component_view):
+                if needs_iterator_reload:
                     view_plans.append(
                         Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
                     )
@@ -2119,8 +2123,8 @@ class TableVersion:
         return f'{"Table" if self.is_insertable else "View"} {self.name!r}'
 
     def is_iterator_column(self, col: Column) -> bool:
-        """Returns True if col is produced by an iterator (including the pos column)"""
-        return col.is_iterator_col
+        """Returns True if col is produced by this table's iterator (including the pos column)"""
+        return col.get_tbl().id == self.id and col.is_iterator_col
 
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns (including the pos column)"""

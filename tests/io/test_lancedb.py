@@ -109,7 +109,7 @@ class TestLanceDb:
             t2.c_array,
             c_image=t2.c_image.rotate(180),
         )
-        pxt.io.export_lancedb(query, db_path, 'test', if_exists='overwrite')
+        pxt.io.export_lancedb(query, str(db_path), 'test', if_exists='overwrite')
         validate_data('test', list(query.collect()))
 
         # if_exists='append'

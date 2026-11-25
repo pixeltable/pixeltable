@@ -10,7 +10,13 @@ from types import MethodType
 from typing import Any, Callable, ClassVar, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
+from pixeltable.catalog.globals import (
+    _POS_COLUMN_NAME,
+    fold_identifier,
+    fold_mapping_keys,
+    is_reserved_column_name,
+    is_valid_identifier,
+)
 from pixeltable.exprs.expr import ValidationError
 from pixeltable.func.symbols import import_error_msg, resolve_symbol
 from pixeltable.types import FunctionKind, FunctionMetadata
@@ -64,6 +70,16 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
         return None
 
 
+def _check_output_name(name: str) -> None:
+    folded_name = fold_identifier(name)
+    if folded_name == _POS_COLUMN_NAME or is_reserved_column_name(folded_name):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{name!r} is reserved and cannot be the name of an iterator output.'
+        )
+    if not is_valid_identifier(name):
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid iterator output name: {name!r}')
+
+
 def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[str]) -> dict[str, 'IteratorOutput']:
     """Build the iterator's output map, keyed by the folded name of the view column each output becomes.
 
@@ -71,11 +87,8 @@ def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[s
     """
     folded_name_to_col_schema = fold_mapping_keys({name: (name, col_type) for name, col_type in output_schema.items()})
     unstored_cols = [fold_identifier(name) for name in unstored_cols]
-    if _POS_COLUMN_NAME in folded_name_to_col_schema:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.',
-        )
+    for orig_name, _ in folded_name_to_col_schema.values():
+        _check_output_name(orig_name)
 
     # is_stored=False: it is not stored separately (it's already stored as part of the rowid).
     outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
@@ -239,11 +252,7 @@ class GeneratingFunction:
         type_hints = typing.get_type_hints(output_schema_type, include_extras=True)
         self._default_output_schema = {}
         for name, type_ in type_hints.items():
-            if fold_identifier(name) == _POS_COLUMN_NAME:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.',
-                )
+            _check_output_name(name)
             col_type = ts.ColumnType.from_python_type(type_)
             if col_type is None:
                 raise excs.RequestError(

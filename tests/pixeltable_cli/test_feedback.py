@@ -22,7 +22,7 @@ _URL = 'https://www.pixeltable.com/api/v1/feedback'
 
 # every variable that could name an agent, and those a person's own terminal sets too
 _AGENT_ENV = (
-    *feedback._AGENT_MARKERS,
+    *utils.AGENT_MARKERS,
     'AI_AGENT',
     'CURSOR_EXTENSION_HOST_ROLE',
     'CURSOR_TRACE_ID',

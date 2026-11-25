@@ -7,21 +7,36 @@ answers, not what a real control plane does with them.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
+import http.server
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 import requests
 
-import pixeltable
+import pixeltable as pxt
 from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config
+from pixeltable.env import Env
+from pixeltable.functions.string import format, swapcase
 from pixeltable.service import management_client, receipts
-from pixeltable.service.db import db_build_image, db_change_lifecycle, db_diff, db_retry, db_update
+from pixeltable.service.db import (
+    create_db_update_ops,
+    db_build_image,
+    db_change_lifecycle,
+    db_diff,
+    db_retry,
+    db_update,
+    local_database,
+    local_db_udf_servers,
+    local_db_uri,
+)
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
     BlobUpload,
@@ -34,6 +49,11 @@ from pixeltable.service.management_protocol import (
     GetDbResponse,
     GetReceiptsRequest,
     GetReceiptsResponse,
+    GetUdfServersRequest,
+    GetUdfServersResponse,
+    ListOrgsRequest,
+    ListOrgsResponse,
+    OrgRecord,
     PrepareUpdateRequest,
     PrepareUpdateResponse,
     RetryRequest,
@@ -42,11 +62,14 @@ from pixeltable.service.management_protocol import (
     SubmitUpdateRequest,
     SubmitUpdateResponse,
 )
+from pixeltable.utils.app_module import evict_modules
 from pixeltable_cli.types import DbPlan, DbState, GenerationReceipt, ReceiptError, ReceiptOutcome, ResourcePhase
 
-from ..utils import pxt_raises
+from ..utils import pxt_raises, run_in_new_process
 
 _DB_URI = 'pxt://acme:main'
+_UDF_URLS = {'pixeltable.functions.video.clip': 'https://udf.example.com/clip'}
+_UDF_HEADERS = {'Pxt-Udf-Secret': 'secret'}
 
 
 class _ControlPlane:
@@ -77,6 +100,11 @@ class _ControlPlane:
         self.receipt_reads = 0
         self.deleting = False
         self.retries: list[RetryRequest] = []
+        # the names of the organizations in a ListOrgsResponse
+        self.orgs = ['acme']
+        self.udf_server_lookups = 0
+        # the urls in a GetUdfServersResponse
+        self.udf_urls = dict(_UDF_URLS)
 
     def api_call(self, request: Any, credential: Any = None) -> dict[str, Any]:
         if isinstance(request, PrepareUpdateRequest):
@@ -114,6 +142,18 @@ class _ControlPlane:
             return DbReceiptResponse(receipt=accepted).model_dump(mode='json')
         if isinstance(request, GetDbRequest):
             return GetDbResponse(report=self._report()).model_dump(mode='json')
+        if isinstance(request, ListOrgsRequest):
+            orgs = [OrgRecord(org_id=f'org_{org}', org=org, created_at=0.0, updated_at=0.0) for org in self.orgs]
+            return ListOrgsResponse(orgs=orgs).model_dump(mode='json')
+        if isinstance(request, GetUdfServersRequest):
+            self.udf_server_lookups += 1
+            targets = [s.database_target for s in self.submissions if s.db == request.db]
+            if len(targets) == 0:
+                raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'no UDF servers', status_code=404)
+            assert targets[-1] is not None and targets[-1].fingerprint is not None
+            return GetUdfServersResponse(
+                fingerprint=targets[-1].fingerprint, urls=self.udf_urls, headers=_UDF_HEADERS
+            ).model_dump(mode='json')
         raise AssertionError(f'unexpected request {request.operation_type}')
 
     def _report(self) -> DatabaseReport:
@@ -136,20 +176,53 @@ class _Closable:
         pass
 
 
+class _RefusingHandler(http.server.BaseHTTPRequestHandler):
+    """Answers every request with 401, as a UDF server does for another release's secret."""
+
+    def do_GET(self) -> None:
+        self._refuse()
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers.get('Content-Length', '0')))
+        self._refuse()
+
+    def _refuse(self) -> None:
+        self.send_response(401)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass  # keeps the test output free of request logs
+
+
+@contextlib.contextmanager
+def _refusing_server() -> Iterator[str]:
+    """Run an HTTP server with _RefusingHandler, and yield its url."""
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _RefusingHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield f'http://127.0.0.1:{server.server_address[1]}'
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def _receipt(**fields: Any) -> GenerationReceipt:
     return GenerationReceipt(kind='database', resource_id='db-uuid', generation=8, db='main', **fields)
 
 
 @pytest.fixture
-def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def project(init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     # a released pxt: a development build of an unpinned project is refused before packaging
-    monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
+    monkeypatch.setattr(pxt, '__version__', '0.7.15')
     (tmp_path / 'pixeltable.toml').write_text(f'[[pixeltable.database]]\nname = "{_DB_URI}"\n', encoding='utf-8')
     (tmp_path / 'app.py').write_text('x = 1\n')
     (tmp_path / 'requirements.txt').write_text('pandas\n')
+    original = Config.get().project_root
     Config.init(reinit=True, project_root=tmp_path)
     monkeypatch.setattr(receipts, 'POLL_INTERVAL', 0.0)
-    return tmp_path
+    yield tmp_path
+    Config.init(reinit=True, project_root=original)
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, control_plane: _ControlPlane) -> None:
@@ -180,6 +253,177 @@ class TestDbSubmission:
         db_update(_DB_URI, wait=False)
         assert len(control_plane.uploads) == 1, 'an unchanged project is not uploaded again'
         assert control_plane.submissions[1].blob == submitted.blob, 'an unchanged project is the same blob'
+
+    @pytest.mark.db_roots('local', reason='the pixeltable.udf setting of this process routes the calls')
+    def test_local_database(self, uses_db: None, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An update of the local database submits the catalog's identity, and local_db_udf_servers() returns
+        the servers only while the project matches their release."""
+        control_plane = _ControlPlane(generation=0, settled=_receipt(outcome=ReceiptOutcome.OBSERVED))
+        _serve(monkeypatch, control_plane)
+        # an earlier test in this process can leave endpoints in Env
+        monkeypatch.setattr(Env.get(), 'udf_endpoints', None)
+        local = local_database()
+        assert local == local_database()
+        assert local.name == 'main'
+        db_uri = local_db_uri()
+        assert db_uri == f'pxt://acme:{local.cloud_db_name()}'
+        # local_db_uri() requires exactly one organization
+        control_plane.orgs = []
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match='your sign-in has no organization'):
+            local_db_uri()
+        control_plane.orgs = ['acme', 'other']
+        for uri_or_servers in (local_db_uri, local_db_udf_servers):
+            with pxt_raises(excs.ErrorCode.INVALID_STATE, match='your sign-in has 2'):
+                uri_or_servers()
+        control_plane.orgs = ['acme']
+
+        # the name of another catalog's local database, and this local database's name in another organization
+        for uri in ('pxt://acme:local-main-000000000000', f'pxt://other:{local.cloud_db_name()}'):
+            for request in (db_update, db_diff, db_build_image):
+                with pxt_raises(
+                    excs.ErrorCode.INVALID_ARGUMENT, match='is not the local database of this installation'
+                ):
+                    request(uri)
+
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'have no servers\. Run `pxt db update`'):
+            local_db_udf_servers()
+
+        for update_or_diff in (db_update, db_diff):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the project has no `pixeltable.udf` setting'):
+                update_or_diff(db_uri)
+        # an update refuses a setting with an entry that is not a UDF, for a local and a hosted database
+        config_file = project / 'pixeltable.toml'
+        database_entry = config_file.read_text(encoding='utf-8')
+        config_file.write_text(f"[pixeltable.udf.'json.dumps']\n{database_entry}", encoding='utf-8')
+        Config.init(reinit=True, project_root=project)
+        for update_or_diff in (db_update, db_diff):
+            for uri in (db_uri, _DB_URI):
+                with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="'json.dumps' is not a UDF declared with"):
+                    update_or_diff(uri)
+        udf_setting = ''.join(
+            f"[pixeltable.udf.'pixeltable.functions.{path}']\n"
+            for path in ('video.clip', 'string.format', 'string.swapcase')
+        )
+        config_file.write_text(f'{udf_setting}{database_entry}', encoding='utf-8')
+        Config.init(reinit=True, project_root=project)
+        # the project has no entry for the local database, which then gets the defaults
+        db_update(db_uri)
+        (submitted,) = control_plane.submissions
+        assert submitted.db == local.cloud_db_name()
+        servers = local_db_udf_servers()
+        assert servers.urls == _UDF_URLS and servers.headers == _UDF_HEADERS
+
+        # queries and inserts that call two UDF servers make one lookup in all; the servers have no url for format()
+        # and swapcase(), which fails each of them
+        monkeypatch.delenv('PXT_UDF_SERVERS', raising=False)
+        t = pxt.create_table('udf_lookup_tbl', {'s': pxt.String})
+        t.insert([{'s': 'a'}])
+        computed_t = pxt.create_table('udf_lookup_computed_tbl', {'s': pxt.String})
+        computed_t.add_computed_column(formatted=format('<{0}>', computed_t.s))
+        computed_t.add_computed_column(swapped=swapcase(computed_t.s))
+        lookups = control_plane.udf_server_lookups
+        no_server = (
+            r"'pixeltable\.functions\.string\.(format|swapcase)' is in the `pixeltable\.udf` setting, but the database"
+        )
+        for _ in range(2):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=no_server):
+                t.select(format('<{0}>', t.s), swapcase(t.s)).collect()
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=no_server):
+                computed_t.insert([{'s': 'a'}])
+        assert control_plane.udf_server_lookups == lookups + 1
+        # re-importing project code drops the endpoints; no public function re-imports in this process
+        evict_modules(project)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=no_server):
+            t.select(swapcase(t.s)).collect()
+        assert control_plane.udf_server_lookups == lookups + 2
+        # so does a change of the local database's deployment, and then a refused call
+        with _refusing_server() as url:
+            control_plane.udf_urls['pixeltable.functions.string.format'] = url
+            (project / 'app.py').write_text('x = 3\n')
+            db_update(db_uri)
+            for num_lookups in (lookups + 3, lookups + 4):
+                with pxt_raises(excs.ErrorCode.PROVIDER_AUTH_ERROR, match='refused the credentials of this process'):
+                    t.select(format('<{0}>', t.s)).collect()
+                assert control_plane.udf_server_lookups == num_lookups
+
+        # a changed setting deploys the UDF servers of a local database again, and restarts a hosted one
+        deployed = submitted.database_target
+        assert deployed is not None and deployed.fingerprint is not None
+        other_config = deployed.fingerprint.model_copy(update={'config': {'pixeltable': {'udf': {}}}})
+        changed = deployed.model_copy(update={'fingerprint': other_config})
+        (op,) = create_db_update_ops(changed, deployed, requires_restart=False)
+        assert op.description.endswith('which redeploys the UDF servers') and not op.requires_restart
+        (op,) = create_db_update_ops(changed, deployed)
+        assert op.description.endswith('which restarts the database') and op.requires_restart
+        # a first deploy builds the image and uploads the project, which restarts only a hosted database
+        first_deploy = create_db_update_ops(deployed, None, requires_restart=False)
+        assert {op.target for op in first_deploy} == {'image', 'archive'}
+        assert not any(op.requires_restart for op in first_deploy)
+        assert all(op.requires_restart for op in create_db_update_ops(deployed, None))
+
+        # a secret in the project config file
+        udf_config = config_file.read_text(encoding='utf-8')
+        config_file.write_text(f"[openai]\napi_key = 'sk-project'\n\n{udf_config}", encoding='utf-8')
+        Config.init(reinit=True, project_root=project)
+        num_uploads = len(control_plane.uploads)
+        secret_error = r"(?s)'openai.api_key' in .* is a secret.*pxt secret set pxt://<org> OPENAI_API_KEY=<value>"
+        for update_or_diff in (db_update, db_diff):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=secret_error):
+                update_or_diff(db_uri)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=secret_error):
+            local_db_udf_servers()
+        assert len(control_plane.uploads) == num_uploads
+        config_file.write_text(udf_config, encoding='utf-8')
+        Config.init(reinit=True, project_root=project)
+
+        (project / 'app.py').write_text('x = 2\n')
+        with pxt_raises(
+            excs.ErrorCode.INVALID_STATE, match=r'(?s)run another version of the project.*app\.py.*Run `pxt db update`'
+        ):
+            local_db_udf_servers()
+
+        # a config that still has the removed pixeltable.db_uri setting
+        monkeypatch.setenv('PIXELTABLE_DB_URI', _DB_URI)
+        Config.init(reinit=True, project_root=project)
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION, match='`pixeltable.db_uri` setting is no longer supported'
+        ):
+            local_db_uri()
+        monkeypatch.delenv('PIXELTABLE_DB_URI')
+        Config.init(reinit=True, project_root=project)
+
+    def test_no_local_db(self, tmp_path: Path) -> None:
+        """On an installation without a local database, local_db_uri(), an update of another catalog's local database,
+        and create_local_db() outside a project fail without creating the database."""
+        home = tmp_path / 'home'
+        code = """
+            from pixeltable import exceptions as excs
+            from pixeltable.service import db
+            errors = []
+            for request in (
+                db.local_db_uri,
+                lambda: db.db_update('pxt://acme:local-main-000000000000'),
+                db.create_local_db,
+            ):
+                try:
+                    request()
+                except excs.RequestError as e:
+                    errors.append(str(e))
+            print(json.dumps(errors))
+        """
+        env: dict[str, str | None] = {
+            'PIXELTABLE_HOME': str(home),
+            'PIXELTABLE_PGDATA': str(home / 'pgdata'),
+            'PIXELTABLE_DB_CONNECT_STR': None,
+        }
+        no_local_db, other_catalog, no_project = run_in_new_process(code, env, cwd=tmp_path)
+        assert no_local_db.startswith('This installation has no local database.')
+        assert other_catalog.startswith('This installation has no local database.')
+        assert no_project.startswith('no project configuration here; run `pxt init`')
+        # the removed pixeltable.db_uri setting is refused first
+        errors = run_in_new_process(code, {**env, 'PIXELTABLE_DB_URI': _DB_URI}, cwd=tmp_path)
+        assert '`pixeltable.db_uri` setting is no longer supported' in errors[2]
+        assert not (home / 'pgdata').exists()
 
     def test_upload_network_failure(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A failed upload is retried once, then reported as a pixeltable error rather than a raw traceback."""
