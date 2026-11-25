@@ -83,6 +83,8 @@ def export_images_as_fo_dataset(
         See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/howto/working-with-fiftyone)
         tutorial for a fully worked example.
     """
+    query = tbl if isinstance(tbl, pxt.Query) else tbl.select()
+    query._require_local('export_images_as_fo_dataset()')
     Env.get().require_package('fiftyone')
 
     import fiftyone as fo  # type: ignore[import-not-found]

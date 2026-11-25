@@ -1323,6 +1323,27 @@ class TestQuery:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
+    @pytest.mark.db_roots('proxy', reason='exports that run the query locally reject a hosted table')
+    def test_hosted_exports(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('images'), {'image': pxt.Image, 'annotations': pxt.Json})
+        query = t.select({'image': t.image, 'annotations': t.annotations})
+        where = t.where(t.image != None)
+        for export, name in (
+            (t.to_coco_dataset, 'to_coco_dataset()'),
+            (query.to_coco_dataset, 'to_coco_dataset()'),
+            (t.to_pytorch_dataset, 'to_pytorch_dataset()'),
+            (query.to_pytorch_dataset, 'to_pytorch_dataset()'),
+            (lambda: pxt.io.export_images_as_fo_dataset(t, t.image), 'export_images_as_fo_dataset()'),
+            (
+                lambda: pxt.io.export_images_as_fo_dataset(where, t.image),  # type: ignore[arg-type]
+                'export_images_as_fo_dataset()',
+            ),
+        ):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=rf'{re.escape(name)} is not supported for hosted'
+            ):
+                export()
+
     @pytest.mark.db_roots('local', reason='exports a COCO dataset to the local filesystem')
     def test_to_coco(self, uses_db: None) -> None:
         pytest.importorskip('pycocotools')

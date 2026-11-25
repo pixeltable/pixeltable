@@ -181,9 +181,11 @@ class TableProxy(Table):
             '_column_description', {'column': column, 'html': html, 'catalog_uri': self._catalog_uri.uri_str}
         )
 
-    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
+    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
+        return self.select().to_pytorch_dataset(image_format=image_format)
 
-    def to_coco_dataset(self) -> Path: ...
+    def to_coco_dataset(self) -> Path:
+        return self.select().to_coco_dataset()
 
     def add_columns(
         self,
