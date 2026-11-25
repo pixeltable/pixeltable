@@ -2286,14 +2286,48 @@ class TestExprs:
         assert len(res) == 2
         assert all(row['m'] == expected_min[row['id']] for row in res)
 
+        # the query's own ordering doesn't need to sort the rows by partition
+        res = t.select(t.id, m=group_min).head(3)
+        assert [(row['id'], row['m']) for row in res] == [(i, expected_min[i]) for i in (1, 2, 3)]
+        res = t.select(t.id, m=group_min).tail(2)
+        assert [(row['id'], row['m']) for row in res] == [(i, expected_min[i]) for i in (5, 6)]
+        res = t.select(t.id, m=group_min).order_by(t.id, asc=False).collect()
+        assert [(row['id'], row['m']) for row in res] == [(i, expected_min[i]) for i in (6, 5, 4, 3, 2, 1)]
+
+        # a partition key that SQL can't sort by
+        res = t.select(t.id, m=pxtf.min(t.v, group_by=_is_odd(t.id))).collect()
+        assert sorted((row['id'], row['m']) for row in res) == [(1, 4), (2, 2), (3, 4), (4, 2), (5, 4), (6, 2)]
+
+        # the partition aggregates only the rows that pass where()
+        res = t.where(t.id != 4).select(t.id, m=group_min).collect()
+        assert sorted((row['id'], row['m']) for row in res) == [(1, 9), (2, 9), (3, 7), (5, 2), (6, 2)]
+
+        # the partition aggregates only the sampled rows
+        sampled = t.sample(n=4, seed=0).select(t.id, t.key, t.v).collect()
+        expected_sample_min = {
+            row['id']: min((r['v'] for r in sampled if r['key'] == row['key'] and r['v'] is not None), default=None)
+            for row in sampled
+        }
+        res = t.sample(n=4, seed=0).select(t.id, m=group_min).collect()
+        assert {row['id']: row['m'] for row in res} == expected_sample_min
+
+        res = t.where(t.id > 100).select(t.id, m=group_min).collect()
+        assert len(res) == 0
+
     def test_window_fns_errors(self, db_root: DatabaseRoot) -> None:
-        t = pxt.create_table(db_root.make_catalog_path('win'), {'key': pxt.String, 'v': pxt.Int})
+        t = pxt.create_table(
+            db_root.make_catalog_path('win'),
+            {'key': pxt.String, 'v': pxt.Int, 'arr': pxt.Array[(2,), np.int64], 'img': pxt.Image},
+        )
         group_min = pxtf.min(t.v, group_by=t.key)
 
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'where\(\) cannot contain window functions'):
             _ = t.where(t.v == group_min).select(t.v).collect()
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid nested window functions'):
             _ = t.select(pxtf.min(t.v - group_min, group_by=t.key)).collect()
+        for key in (t.arr, t.img):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot have an array or image group_by'):
+                _ = t.select(pxtf.min(t.v, group_by=key)).collect()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not supported in aggregate queries'):
             _ = t.group_by(t.key, t.v).select(t.key, t.v, m=group_min).collect()
         with pxt_raises(

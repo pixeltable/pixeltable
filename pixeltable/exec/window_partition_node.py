@@ -4,18 +4,32 @@ import contextlib
 import sys
 from typing import Any, AsyncGenerator, Sequence, cast
 
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exceptions as excs, exprs, func
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
+
+
+# TODO move to a util module?
+def _hashable(val: Any) -> Any:
+    """A hashable value that is equal for equal JSON or scalar vals, for use in a dict key."""
+    if isinstance(val, dict):
+        return frozenset((k, _hashable(v)) for k, v in val.items())
+    if isinstance(val, list):
+        return tuple(_hashable(v) for v in val)
+    return val
 
 
 class WindowPartitionNode(ExecNode):
     """
     Evaluates window function calls without order_by: each row gets the aggregate over its entire partition.
 
-    The input needs to be ordered by the group_by exprs of every call. A row is held back until the partitions of all
-    calls that contain it are complete.
+    Rows are grouped by their partition key in a dict. We can't rely on the input to be already sorted by group_by
+    exprs because that would clash with sample(), head(), tail(), or order_by(), and SQL can't sort by group_by exprs
+    that have no SQL translation.
+
+    Accumulates all rows in memory. That doesn't add memory pressure because non-aggregate queries already return their
+    entire result in a single batch.
     """
 
     fn_calls: list[exprs.FunctionCall]
@@ -28,6 +42,16 @@ class WindowPartitionNode(ExecNode):
         self.fn_calls = [cast(exprs.FunctionCall, row_builder.unique_exprs[fn_call]) for fn_call in fn_calls]
         self.limit = None
         self.offset = None
+
+    @classmethod
+    def validate_group_by(cls, fn_call: exprs.FunctionCall) -> None:
+        for e in fn_call.group_by:
+            # the group_by values are used as dict keys, and arrays and images aren't hashable
+            if e.col_type.is_array_type() or e.col_type.is_image_type():
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Window functions without order_by cannot have an array or image group_by: {e!s}',
+                )
 
     def set_limit(self, limit: exprs.Expr) -> None:
         self.limit = limit
@@ -58,16 +82,33 @@ class WindowPartitionNode(ExecNode):
                 fn_call, f'update() function of the aggregate {fn_call!s}', exc, exc_tb, input_vals, row_num
             ) from exc
 
-    def _set_partition_value(self, fn_call: exprs.FunctionCall, rows: list[exprs.DataRow], row_num: int) -> None:
+    def _agg_value(self, fn_call: exprs.FunctionCall, aggregator: func.Aggregator, row_num: int) -> Any:
         try:
-            val = fn_call.aggregator.value()
+            return aggregator.value()
         except Exception as exc:
             _, _, exc_tb = sys.exc_info()
             raise excs.ExprEvalError(
                 fn_call, f'value() function of the aggregate {fn_call!s}', exc, exc_tb, [], row_num
             ) from exc
-        for i, row in enumerate(rows):
-            row[fn_call.slot_idx] = val if i == 0 else exprs.defensive_copy(val)
+
+    def _partition_key(self, fn_call: exprs.FunctionCall, row: exprs.DataRow) -> Any:
+        return tuple(_hashable(row[e.slot_idx]) for e in fn_call.group_by)
+
+    def _eval_fn_call(
+        self, fn_call: exprs.FunctionCall, rows: list[exprs.DataRow], output_rows: list[exprs.DataRow]
+    ) -> None:
+        # partition key -> (input position of the partition's first row, aggregator over the partition's rows)
+        partitions: dict[Any, tuple[int, func.Aggregator]] = {}
+        for row_num, row in enumerate(rows):
+            key = self._partition_key(fn_call, row)
+            if key not in partitions:
+                self._reset_agg(fn_call, row_num)
+                partitions[key] = (row_num, fn_call.aggregator)
+            fn_call.aggregator = partitions[key][1]
+            self._update_agg(fn_call, row, row_num)
+        vals = {key: self._agg_value(fn_call, agg, row_num) for key, (row_num, agg) in partitions.items()}
+        for row in output_rows:
+            row[fn_call.slot_idx] = exprs.defensive_copy(vals[self._partition_key(fn_call, row)])
 
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
@@ -75,67 +116,15 @@ class WindowPartitionNode(ExecNode):
         if limit == 0:
             return
 
-        # rows that were read but not yet returned, in input order
-        held_rows: list[exprs.DataRow] = []
-        # input position of held_rows[0]: the row at input position p is held_rows[p - held_rows_start_pos]
-        held_rows_start_pos = 0
-        # per fn_call: input position of the first row of its current, still incomplete partition
-        partition_start_pos = [0] * len(self.fn_calls)
-        # per fn_call: group_by values of its current partition; a change in values starts a new partition
-        partition_keys: list[list[Any]] = [[] for _ in self.fn_calls]
-        num_input_rows = 0
-        num_returned = 0
-
-        # completed_end_pos: all rows before this input position have the values of all their partitions
-        def release_rows(completed_end_pos: int) -> DataRowBatch:
-            nonlocal held_rows_start_pos, num_returned
-            num_completed = completed_end_pos - held_rows_start_pos
-            output_batch = DataRowBatch(self.row_builder)
-            for pos, row in enumerate(held_rows[:num_completed], start=held_rows_start_pos):
-                if pos < offset:
-                    continue
-                if limit is not None and num_returned == limit:
-                    break
-                output_batch.add_row(row)
-                num_returned += 1
-            del held_rows[:num_completed]
-            held_rows_start_pos = completed_end_pos
-            return output_batch
-
+        rows: list[exprs.DataRow] = []
         async with contextlib.aclosing(aiter(self.input)) as input_iter:
             async for batch in input_iter:
-                for row in batch:
-                    for fn_call_idx, fn_call in enumerate(self.fn_calls):
-                        # partition key of the current row for the current window function
-                        key = [row[e.slot_idx] for e in fn_call.group_by]
-                        if num_input_rows == 0:
-                            self._reset_agg(fn_call, num_input_rows)
-                        elif key != partition_keys[fn_call_idx]:
-                            # Key is different from the last one, which means a new partition starts. Compute
-                            # the aggregate value of the completed partition, and set it to rows that belong to it.
-                            partition_rows = held_rows[partition_start_pos[fn_call_idx] - held_rows_start_pos :]
-                            self._set_partition_value(fn_call, partition_rows, row_num=num_input_rows)
-                            self._reset_agg(fn_call, row_num=num_input_rows)
-                            partition_start_pos[fn_call_idx] = num_input_rows
-                        partition_keys[fn_call_idx] = key
-                        self._update_agg(fn_call, row, num_input_rows)
-                    held_rows.append(row)
-                    num_input_rows += 1
+                rows.extend(batch)
 
-                # Make an output batch from rows with all aggregates computed
-                first_incomplete_pos = min(partition_start_pos)
-                output_batch = release_rows(first_incomplete_pos)
-                if len(output_batch) > 0:
-                    yield output_batch
-                if limit is not None and num_returned == limit:
-                    return
-
-        if num_input_rows == 0:
+        # every row contributes to its partitions, but only the rows within limit and offset need the values
+        output_rows = rows[offset:] if limit is None else rows[offset : offset + limit]
+        if len(output_rows) == 0:
             return
-        # No more rows. Compute the last partition for every window function, and release the remaining rows.
-        for fn_call_idx, fn_call in enumerate(self.fn_calls):
-            partition_rows = held_rows[partition_start_pos[fn_call_idx] - held_rows_start_pos :]
-            self._set_partition_value(fn_call, partition_rows, num_input_rows)
-        output_batch = release_rows(num_input_rows)
-        if len(output_batch) > 0:
-            yield output_batch
+        for fn_call in self.fn_calls:
+            self._eval_fn_call(fn_call, rows, output_rows)
+        yield DataRowBatch(self.row_builder, output_rows)

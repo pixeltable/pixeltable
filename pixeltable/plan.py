@@ -231,6 +231,7 @@ class Analyzer:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested window functions without order_by: {fn_call!s}'
                 )
+            exec.WindowPartitionNode.validate_group_by(fn_call)
 
     def _validate_grouping_exprs(self) -> None:
         """Reject grouping keys that the SQL scan cannot order by.
@@ -335,9 +336,12 @@ class Analyzer:
         row_builder.set_slot_idxs(self.agg_order_by)
 
     def get_window_fn_orderings(self) -> list[OrderByClause]:
-        """Return the ordering required by each window function."""
+        """Return the ordering required by each window function with order_by."""
         orderings: list[OrderByClause] = []
         for fn_call in self.window_fn_calls:
+            if fn_call.is_partition_window_fn_call:
+                # WindowPartitionNode groups the rows itself
+                continue
             # window functions require ordering by the group_by/order_by clauses
             group_by_exprs, order_by_exprs = fn_call.get_window_sort_exprs()
             orderings.append(
