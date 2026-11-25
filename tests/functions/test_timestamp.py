@@ -281,6 +281,16 @@ class TestTimestamp:
         res = t.select(t.later).order_by(t.id).collect()
         assert res['later'] == [self.shifted(row['dt'], 3600) for row in rows] + [self.shifted(self.BEFORE_DST, 3600)]
 
+        dts = [row['dt'] for row in rows] + [self.BEFORE_DST]
+        validate_update_status(t.update({'end': t.dt - timedelta(days=1)}), expected_rows=len(dts))
+        assert t.select(t.end).order_by(t.id).collect()['end'] == [self.shifted(dt, -86400) for dt in dts]
+        year_end = datetime(2020, 12, 31, tzinfo=timezone.utc)
+        year_later = [self.shifted(dt, 365 * 86400) for dt in dts]
+        validate_update_status(
+            t.where(t.dt + timedelta(days=365) < year_end).delete(),
+            expected_rows=sum(later is not None and later < year_end for later in year_later),
+        )
+
     def test_timestamp_arithmetic_errors(self, uses_db: None) -> None:
         _, t = self.make_arithmetic_table()
         seconds_since_hint = r'- is not defined for two Timestamps; `end.seconds_since\(start\)`'
