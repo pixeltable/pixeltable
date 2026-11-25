@@ -15,6 +15,7 @@ from pixeltable.metadata import schema
 from pixeltable.query_clauses import JoinClause, JoinType
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
+from pixeltable.utils.sql import log_explain
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -449,22 +450,6 @@ class SqlNode(ExecNode):
         for handle in self.tbl.get_tbl_versions():
             cat.check_rows_read_locked(handle.get())
 
-    def _log_explain(self, stmt: sql.Select) -> None:
-        try:
-            # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y -> syntax error
-            if len(self.bound_args) > 0:
-                # the stmt has bindparams without statement-level values; render SQL with
-                # placeholders and skip EXPLAIN (it would fail type inference on unknown params)
-                stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': False}))
-                _logger.debug(f'SqlScanNode parameterized stmt:\n{stmt_str}')
-                return
-            stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
-            explain_result = get_runtime().conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
-            explain_str = '\n'.join([str(row) for row in explain_result])
-            _logger.debug(f'SqlScanNode explain:\n{explain_str}')
-        except Exception as e:
-            _logger.warning(f'EXPLAIN failed with error: {e}')
-
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
         self._check_catalog_locks()
@@ -478,10 +463,10 @@ class SqlNode(ExecNode):
                 try:
                     literal_binds = not self.bound_args
                     stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': literal_binds}))
-                    _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
+                    _logger.debug(f'SqlNode stmt:\n{stmt_str}')
                 except Exception:
-                    _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt}')
-                self._log_explain(stmt)
+                    _logger.debug(f'SqlNode proto-stmt:\n{stmt}')
+                log_explain(_logger, stmt, get_runtime().conn, self.bound_args)
 
             conn = get_runtime().conn
             execution_options = {'stream_results': True} if self.stream_results else {}

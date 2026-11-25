@@ -2851,6 +2851,7 @@ class TestTable:
         c3_vals = t.select(t.c3).collect()['c3']
         assert any(math.isnan(val) for val in c3_vals)
         assert math.inf in c3_vals
+        assert t.where(t.c3 == math.inf).count() == 1
 
         # drop column, then add it back; insert still works
         t.drop_column('c4')
