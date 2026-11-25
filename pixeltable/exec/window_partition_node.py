@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import math
 import sys
 from typing import Any, AsyncGenerator, Sequence, cast
 
@@ -9,10 +10,15 @@ from pixeltable import exceptions as excs, exprs, func
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
+_NAN_KEY = object()
+
 
 # TODO move to a util module?
 def _hashable(val: Any) -> Any:
     """A hashable value that is equal for equal JSON or scalar vals, for use in a dict key."""
+    if isinstance(val, float) and math.isnan(val):
+        # nan != nan, but SQL puts all NaNs in the same group
+        return _NAN_KEY
     if isinstance(val, dict):
         return frozenset((k, _hashable(v)) for k, v in val.items())
     if isinstance(val, list):
@@ -28,8 +34,9 @@ class WindowPartitionNode(ExecNode):
     exprs because that would clash with sample(), head(), tail(), or order_by(), and SQL can't sort by group_by exprs
     that have no SQL translation.
 
-    Accumulates all rows in memory. That doesn't add memory pressure because non-aggregate queries already return their
-    entire result in a single batch.
+    Accumulates all input rows in memory, because a partition isn't complete until the last row is read. For collect(),
+    that doesn't add memory pressure, because the query returns its entire result in a single batch anyway. insert() of
+    a query streams its source, but this node still holds all of it.
     """
 
     fn_calls: list[exprs.FunctionCall]
@@ -100,6 +107,9 @@ class WindowPartitionNode(ExecNode):
         # partition key -> (input position of the partition's first row, aggregator over the partition's rows)
         partitions: dict[Any, tuple[int, func.Aggregator]] = {}
         for row_num, row in enumerate(rows):
+            if row.has_exc(fn_call.slot_idx):
+                # an input of the call failed: the row keeps that error and doesn't contribute to its partition
+                continue
             key = self._partition_key(fn_call, row)
             if key not in partitions:
                 self._reset_agg(fn_call, row_num)
@@ -108,7 +118,8 @@ class WindowPartitionNode(ExecNode):
             self._update_agg(fn_call, row, row_num)
         vals = {key: self._agg_value(fn_call, agg, row_num) for key, (row_num, agg) in partitions.items()}
         for row in output_rows:
-            row[fn_call.slot_idx] = exprs.defensive_copy(vals[self._partition_key(fn_call, row)])
+            if not row.has_exc(fn_call.slot_idx):
+                row[fn_call.slot_idx] = exprs.defensive_copy(vals[self._partition_key(fn_call, row)])
 
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None

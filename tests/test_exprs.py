@@ -2337,6 +2337,23 @@ class TestExprs:
         ):
             t.add_computed_column(m=group_min)
 
+    def test_window_fns_without_order_by_nan_key(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('win'), {'id': pxt.Int, 'f': pxt.Float, 'v': pxt.Int})
+        t.insert([{'id': 1, 'f': math.nan, 'v': 2}, {'id': 2, 'f': math.nan, 'v': 10}, {'id': 3, 'f': 1.0, 'v': 3}])
+        res = t.select(t.id, s=pxtf.sum(t.v, group_by=t.f)).collect()
+        assert sorted((row['id'], row['s']) for row in res) == [(1, 12), (2, 12), (3, 3)]
+
+    def test_window_fns_without_order_by_ignore_errors(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('win'), {'id': pxt.Int, 'key': pxt.String, 'v': pxt.Int})
+        t.insert([{'id': 1, 'key': 'a', 'v': 1}, {'id': 2, 'key': 'a', 'v': 3}, {'id': 3, 'key': 'a', 'v': 5}])
+        dest = pxt.create_table(db_root.make_catalog_path('dest'), {'id': pxt.Int, 's': pxt.Int | None})
+        status = dest.insert(t.select(t.id, s=pxtf.sum(_fail_on_three(t.v), group_by=t.key)), on_error='ignore')
+        assert status.num_rows == 3
+        assert status.num_excs == 1
+        # the failed row keeps its error, the others get the aggregate of the successful rows
+        res = dest.select(dest.id, dest.s).collect()
+        assert sorted((row['id'], row['s']) for row in res) == [(1, 6), (2, None), (3, 6)]
+
     def test_window_fn_filter_via_computed_column(self, db_root: DatabaseRoot) -> None:
         # the workaround for a window function in where(): filter on a computed column instead
         t = pxt.create_table(db_root.make_catalog_path('win'), {'id': pxt.Int, 'key': pxt.String, 'v': pxt.Int})
@@ -3045,6 +3062,13 @@ def _add_one(x: int) -> int:
 @pxt.udf
 def _add_two(x: int, y: int) -> int:
     return x + y
+
+
+@pxt.udf
+def _fail_on_three(x: int) -> int:
+    if x == 3:
+        raise ValueError('three')
+    return x
 
 
 @pxt.udf
