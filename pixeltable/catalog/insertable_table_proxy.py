@@ -10,9 +10,10 @@ from uuid import UUID
 import pyarrow.parquet as pq
 
 from pixeltable import exceptions as excs
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import arrow, parse_local_file_path
 
-from .globals import is_hf_dataset
+from .globals import IfExistsParam, is_hf_dataset
 from .table_path import TableMdPath
 from .table_proxy import TableProxy
 from .update_status import UpdateStatus
@@ -24,6 +25,8 @@ if TYPE_CHECKING:
     from pixeltable.service.proxy_client import ProxyClient
 
     from ..globals import TableDataSource
+    from .catalog_proxy import CatalogProxy
+    from .path import Path
     from .table import Table
 
 
@@ -42,6 +45,13 @@ class InsertableTableProxy(TableProxy):
 
     def _get_base_table(self) -> 'Table' | None:
         return None
+
+    def _copy(self, dest_path: Path, with_rows: bool, if_exists: IfExistsParam) -> tuple[Table, bool]:
+        # the hosted database runs InsertableTable._copy(), because only that database can read the rows and metadata
+        args = {'dest_path': dest_path, 'with_rows': with_rows, 'if_exists': if_exists}
+        md, was_created = self._dispatch('_copy', args)
+        dest_catalog = cast('CatalogProxy', get_runtime().get_catalog(dest_path))
+        return dest_catalog._make_table(md, is_anon_snapshot=False), was_created
 
     def insert(
         self,

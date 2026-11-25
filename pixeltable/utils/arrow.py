@@ -1,11 +1,15 @@
 import datetime
 import io
+import json
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping, cast
 
 import numpy as np
+import pgvector.sqlalchemy as sql_vector
 import PIL.Image
 import pyarrow as pa
+import sqlalchemy as sql
+from sqlalchemy.dialects.postgresql import JSONB
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -94,6 +98,59 @@ def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
         return pa.fixed_shape_tensor(pa.from_numpy_dtype(pxt_type.dtype), pxt_type.shape)
     else:
         return None
+
+
+def sa_to_arrow_type(sa_type: sql.types.TypeEngine) -> pa.DataType:
+    """Return the Arrow type for a store column of type sa_type. This maps the SQL type, because some store columns
+    have no Pixeltable type: rowid, v_min, v_max, cellmd and index values."""
+    if isinstance(sa_type, JSONB):
+        # a JSONB value has no fixed Arrow type and is exported as json text
+        return pa.string()
+    if isinstance(sa_type, sql.String):
+        return pa.string()
+    if isinstance(sa_type, sql.Boolean):
+        return pa.bool_()
+    if isinstance(sa_type, sql.BigInteger):
+        return pa.int64()
+    if isinstance(sa_type, sql.Float):
+        return pa.float64()
+    if isinstance(sa_type, sql.TIMESTAMP):
+        return pa.timestamp('us', tz='UTC')
+    if isinstance(sa_type, sql.Date):
+        return pa.date32()
+    if isinstance(sa_type, sql.LargeBinary):
+        return pa.binary()
+    if isinstance(sa_type, sql.UUID):
+        return pa.binary(16)
+    if isinstance(sa_type, (sql_vector.Vector, sql_vector.HALFVEC)):
+        # a vector element is a float32, and a halfvec element is a float16, which float32 represents exactly
+        return pa.list_(pa.float32())
+    raise AssertionError(f'Unexpected store column type: {sa_type!r}')
+
+
+def sa_val_to_arrow_val(val: Any, sa_type: sql.types.TypeEngine) -> Any:
+    if val is None:
+        return None
+    if isinstance(sa_type, JSONB):
+        return json.dumps(val)
+    if isinstance(sa_type, sql.UUID):
+        return val.bytes
+    if isinstance(sa_type, (sql_vector.Vector, sql_vector.HALFVEC)):
+        return np.asarray(val, dtype=np.float32)
+    return val
+
+
+def arrow_val_to_sa_val(val: Any, sa_type: sql.types.TypeEngine) -> Any:
+    if val is None:
+        # A Python None inserts a json 'null' into a JSONB column, and the store uses SQL NULL for a missing value.
+        return sql.null() if isinstance(sa_type, JSONB) else None
+    if isinstance(sa_type, JSONB):
+        return json.loads(val)
+    if isinstance(sa_type, sql.UUID):
+        return uuid.UUID(bytes=val)
+    if isinstance(sa_type, (sql_vector.Vector, sql_vector.HALFVEC)):
+        return np.array(val, dtype=np.float32)
+    return val
 
 
 def to_arrow_schema(
