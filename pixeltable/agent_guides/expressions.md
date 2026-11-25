@@ -114,10 +114,6 @@ parsed = trips.select(
 - `col.errortype` and `col.errormsg` record the error of a failed cell in a stored computed column or a media column
   (`pxt guide tables`).
 
-## String methods
-
-- `rpartition()` returns two empty strings followed by the original string when the separator is absent.
-
 ## Trying an expression
 
 - `select()` evaluates an expression on existing rows and stores nothing.
