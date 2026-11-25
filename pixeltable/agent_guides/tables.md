@@ -69,6 +69,8 @@ docs.delete(where=docs.id == 3)
 - `insert()` takes a list of dicts, one row as keyword arguments, a file path or URL, or a query.
 - For a file path or URL, `source_format=` is `'csv'`, `'excel'`, `'parquet'` or `'json'`.
 - For a file path or URL, `schema_overrides=` sets column types.
+- `pxt.io.import_pandas()` converts integral `Decimal` values in columns declared as `Int` and raises
+  `INVALID_TYPE` for fractional `Decimal` values.
 - Known issue (PXT-1749): an insert from a query leaves the computed columns of the new rows null.
 - `if_exists='ignore'` skips each row whose primary key is already in the table and computes nothing for it.
 - `status.row_count_stats.skipped_rows` counts the skipped rows.

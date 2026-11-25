@@ -1,6 +1,7 @@
 import datetime
 import pathlib
 import uuid
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -414,17 +415,22 @@ class TestPandas:
             )
         assert 'Primary key column `ts_n` cannot contain null values.' in str(exc_info.value)
 
-    def test_import_pandas_lossy_float_to_int(self, db_root: DatabaseRoot) -> None:
+    @pytest.mark.parametrize(
+        'fractional, integral',
+        [(1.9, [1.0, 2.0]), (Decimal('-1.9'), [Decimal('1.0'), Decimal('2.0')])],
+        ids=['float', 'decimal'],
+    )
+    def test_import_pandas_lossy_to_int(
+        self, db_root: DatabaseRoot, fractional: float | Decimal, integral: list[float] | list[Decimal]
+    ) -> None:
         p = db_root.make_catalog_path
 
-        # a non-integral float must not be silently truncated when the column is declared as an int
-        df = pd.DataFrame({'pk': [1.9, 2.1], 'v': ['a', 'b']})
+        df = pd.DataFrame({'pk': [fractional]})
         with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             _ = pxt.io.import_pandas(p('lossy'), df, schema_overrides={'pk': ts.IntType()}, primary_key='pk')
         assert 'cannot be converted to int without loss' in str(exc_info.value)
 
-        # integral floats are still converted losslessly
-        df = pd.DataFrame({'pk': [1.0, 2.0], 'v': ['a', 'b']})
+        df = pd.DataFrame({'pk': integral})
         t = pxt.io.import_pandas(p('lossless'), df, schema_overrides={'pk': ts.IntType()}, primary_key='pk')
         assert sorted(r['pk'] for r in t.collect()) == [1, 2]
 

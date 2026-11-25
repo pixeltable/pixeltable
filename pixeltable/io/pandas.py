@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import typing
 import uuid
+from decimal import Decimal
 from typing import Any, Iterable, Iterator
 
 import numpy as np
@@ -236,7 +237,9 @@ def _df_convert_value(val: Any, col_type: ts.ColumnType, col_name: str) -> Any:
         # Float NaN remains a float value; in other column types it represents a missing cell.
         return None
     if col_type.is_int_type():
-        if isinstance(val, (float, np.floating)) and not float(val).is_integer():
+        if (isinstance(val, (float, np.floating)) and not float(val).is_integer()) or (
+            isinstance(val, Decimal) and val.is_finite() and val != val.to_integral_value()
+        ):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_TYPE,
                 f'Value {val!r} in column `{col_name}` cannot be converted to int without loss of precision',
