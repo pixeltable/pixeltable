@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import math
+import os
 import pathlib
 import re
 import shutil
@@ -145,7 +146,11 @@ t = pxt.create_table({p('console/t')!r}, {{'c': pxt.Int}})
 t.insert([{{'c': 1}}, {{'c': 2}}])
 t.add_computed_column(d=t.c + 1)
 """
-        r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=False, timeout=300)
+        # CI turns console output off with PIXELTABLE_VERBOSITY=0
+        env = {**os.environ, 'PIXELTABLE_VERBOSITY': '1'}
+        r = subprocess.run(
+            [sys.executable, '-c', code], env=env, capture_output=True, text=True, check=False, timeout=300
+        )
         assert r.returncode == 0, r.stderr
         expected = (
             r"Created directory 'console'\.\n"
