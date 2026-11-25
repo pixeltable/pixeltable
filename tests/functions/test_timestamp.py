@@ -148,6 +148,19 @@ class TestTimestamp:
         )
         assert actual_py == expected, actual_py
 
+    def test_second(self, uses_db: None) -> None:
+        # Regression test: the `second` SQL translation must drop the fractional part (without rounding), so that
+        # filters match the Python semantics.
+        from pixeltable.functions.timestamp import second
+
+        test_dts = [datetime.fromisoformat(f'2024-01-01T00:00:{sec}-08:00') for sec in ('28', '28.500000', '29')]
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp | None})
+        validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
+
+        assert t.where(t.dt.second == 28).order_by(t.dt).collect()['dt'] == test_dts[:2]
+        actual = t.order_by(t.dt).select(out=second(t.dt)).collect()['out']
+        assert actual == [28, 28, 29], actual
+
     def make_arithmetic_table(self) -> tuple[list[dict[str, Any]], pxt.Table]:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         t = pxt.create_table(
