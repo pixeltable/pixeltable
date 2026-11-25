@@ -85,13 +85,17 @@ def pytest_configure(config: PytestConfig) -> None:
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a
-# Hugging Face test and is marked 'skip_merge_queue', in the 'large_model' xdist group.
+# Hugging Face test, in the 'large_model' xdist group.
 _HF_FIXTURES = frozenset({'clip_embed', 'e5_embed', 'all_mpnet_embed'})
+
+
+def _xdist_group_names(item: pytest.Item) -> set[str]:
+    return {str(m.args[0] if m.args else m.kwargs.get('name', 'default')) for m in item.iter_markers('xdist_group')}
 
 
 def _xdist_group(item: pytest.Item) -> str | None:
     """The group --dist loadgroup schedules the item in: its xdist_group names, sorted and joined, as xdist does."""
-    names = {str(m.args[0] if m.args else m.kwargs.get('name', 'default')) for m in item.iter_markers('xdist_group')}
+    names = _xdist_group_names(item)
     return '_'.join(sorted(names)) if names else None
 
 
@@ -105,7 +109,6 @@ _GROUP_WORKERS: dict[str, set[str]] = {}
 def pytest_collection_modifyitems(config: PytestConfig, items: list[pytest.Item]) -> None:
     for item in items:
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
-            item.add_marker(pytest.mark.skip_merge_queue)
             item.add_marker(pytest.mark.xdist_group('large_model'))
 
     for item in items:
@@ -128,10 +131,21 @@ def pytest_collection_modifyitems(config: PytestConfig, items: list[pytest.Item]
             marker = item.get_closest_marker('db_roots')
             if marker is None or marker.args != ('local',):
                 offenders.append(item.nodeid)
-    if offenders:
+    if len(offenders) > 0:
         raise pytest.UsageError(
             "tests using the 'uses_db' fixture must be marked @pytest.mark.db_roots('local', reason='...'):\n  "
             + '\n  '.join(offenders)
+        )
+
+    offenders = [
+        item.nodeid
+        for item in items
+        if 'large_model' in _xdist_group_names(item) and item.get_closest_marker('resource_intensive') is None
+    ]
+    if len(offenders) > 0:
+        raise pytest.UsageError(
+            "tests in the 'large_model' xdist group must be marked @pytest.mark.resource_intensive, so that they run "
+            'only on the large runner:\n  ' + '\n  '.join(offenders)
         )
 
 
@@ -951,13 +965,13 @@ def local_embed() -> pxt.Function:
 
 # Parametrized embedding selectors for tests that assert real-model semantics:
 # - the 'local_embed' param runs the full test body against the download-free embedding
-# - the real-model param is marked 'skip_merge_queue', in the 'large_model' xdist group
+# - the real-model param is marked 'resource_intensive', in the 'large_model' xdist group
 # Each fixture returns (embedding, is_dummy_model); skip model-dependent assertions when is_dummy_model.
 @pytest.fixture(
     params=[
         pytest.param(False, id='local_embed'),
         pytest.param(
-            True, id='clip_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+            True, id='clip_embed', marks=[pytest.mark.resource_intensive, pytest.mark.xdist_group('large_model')]
         ),
     ]
 )
@@ -971,7 +985,7 @@ def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
     params=[
         pytest.param(False, id='local_embed'),
         pytest.param(
-            True, id='mpnet_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+            True, id='mpnet_embed', marks=[pytest.mark.resource_intensive, pytest.mark.xdist_group('large_model')]
         ),
     ]
 )
