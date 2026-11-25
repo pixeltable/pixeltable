@@ -217,13 +217,19 @@ def reinitialize(db: str) -> None:
     response.raise_for_status()
 
 
-def delete(db: str) -> None:
-    """Stop the daemon, drop its database, and remove its home directory."""
-    stop(db)
-    _drop_database(db)
+def delete(db: str) -> bool:
+    """Stop the daemon, drop its database, and remove its home directory.
+
+    Returns False if there is no local proxy for db: without its home directory, a database of that name in the
+    shared postmaster belongs to something else and is left alone.
+    """
     home = proxy_home(db)
     if home.exists():
+        stop(db)
+        _drop_database(db)
         shutil.rmtree(home)
+        return True
+    return False
 
 
 def _reinitialize() -> None:

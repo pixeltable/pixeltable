@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import numpy as np
@@ -25,6 +25,7 @@ import PIL.Image
 import psutil
 import pytest
 import requests
+import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -1102,6 +1103,53 @@ class TestProxyDaemon:
                 assert bystander.poll() is None
         finally:
             shutil.rmtree(proxy_daemon.proxy_home(db))
+
+    def test_localproxy_unknown_name(self, init_env: None, capsys: pytest.CaptureFixture[str]) -> None:
+        """pxt localproxy stop and delete of a name with no local proxy say so and fail."""
+        from pixeltable_cli.client.commands import localproxy
+
+        def run(*argv: str) -> tuple[int, str, str]:
+            try:
+                localproxy.run(list(argv))
+                code = 0
+            except SystemExit as e:
+                code = cast(int, e.code)
+            out, err = capsys.readouterr()
+            return code, out, err
+
+        for action in ('stop', 'delete'):
+            code, _, err = run(action, 'neverexisted')
+            assert code == 1
+            assert "no local proxy named 'neverexisted'" in err
+
+        # a database with no proxy home is not a proxy's to drop, even in the shared postmaster
+        env = Env.get()
+        orphan = 'localproxy_orphan'
+        engine = sql.create_engine(env._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
+        try:
+            with engine.connect() as conn:
+                if not env._store_db_exists(orphan):
+                    conn.execute(sql.text(f'CREATE DATABASE {orphan}'))
+            code, _, err = run('delete', orphan)
+            assert code == 1
+            assert f"no local proxy named '{orphan}'" in err
+            assert env._store_db_exists(orphan)
+        finally:
+            with engine.connect() as conn:
+                conn.execute(sql.text(f'DROP DATABASE IF EXISTS {orphan}'))
+            engine.dispose()
+
+        # a proxy that exists but is not running stops as a no-op, and deletes once
+        db = 'localproxy_idle'
+        assert run('create', db)[0] == 0
+        try:
+            assert run('stop', db)[:2] == (0, f"Local proxy '{db}' is not running.\n")
+            assert run('delete', db)[:2] == (0, f"Deleted local proxy '{db}'.\n")
+            code, _, err = run('delete', db)
+            assert code == 1
+            assert f"no local proxy named '{db}'" in err
+        finally:
+            shutil.rmtree(proxy_daemon.proxy_home(db), ignore_errors=True)
 
 
 class _ScriptedResponse:
