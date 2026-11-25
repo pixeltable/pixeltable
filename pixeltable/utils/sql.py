@@ -18,10 +18,18 @@ def log_stmt(logger: logging.Logger, stmt: sql.sql.ClauseElement) -> None:
     logger.debug(f'executing {stmt.compile(dialect=postgresql.dialect())}')
 
 
+# Postgres syntax with literal values, for EXPLAIN: the generic dialect emits non-Postgres SQL (eg, CAST(x AS DOUBLE)
+# in SQLAlchemy 2.1), and the engine's pyformat paramstyle turns x % y into x %% y
+_EXPLAIN_DIALECT = postgresql.dialect(paramstyle='named')
+
+
+def compile_for_explain(stmt: sql.sql.ClauseElement) -> str:
+    return str(stmt.compile(dialect=_EXPLAIN_DIALECT, compile_kwargs={'literal_binds': True}))
+
+
 def log_explain(logger: logging.Logger, stmt: sql.sql.ClauseElement, conn: sql.engine.Connection) -> None:
     try:
-        # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y, which results in a syntax error
-        stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
+        stmt_str = compile_for_explain(stmt)
         explain_result = conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
         explain_str = '\n'.join(str(row) for row in explain_result)
         logger.debug(f'SqlScanNode explain:\n{explain_str}')

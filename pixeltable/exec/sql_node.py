@@ -15,6 +15,7 @@ from pixeltable.metadata import schema
 from pixeltable.query_clauses import JoinClause, JoinType
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
+from pixeltable.utils.sql import compile_for_explain
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -451,14 +452,13 @@ class SqlNode(ExecNode):
 
     def _log_explain(self, stmt: sql.Select) -> None:
         try:
-            # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y -> syntax error
             if len(self.bound_args) > 0:
                 # the stmt has bindparams without statement-level values; render SQL with
                 # placeholders and skip EXPLAIN (it would fail type inference on unknown params)
                 stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': False}))
                 _logger.debug(f'SqlScanNode parameterized stmt:\n{stmt_str}')
                 return
-            stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
+            stmt_str = compile_for_explain(stmt)
             explain_result = get_runtime().conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
             explain_str = '\n'.join([str(row) for row in explain_result])
             _logger.debug(f'SqlScanNode explain:\n{explain_str}')
