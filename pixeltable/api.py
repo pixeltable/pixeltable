@@ -21,7 +21,7 @@ from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.catalog.model.resolution import resolve_query_calls
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
+from pixeltable.io.table_data_adapter import RowDataTableDataAdapter, TableDataAdapter
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, FunctionList, TableKind, TableNode, TreeNode
 from pixeltable.utils.http import fetch_url
@@ -205,9 +205,9 @@ def create_table(
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
     telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
-    data_source: TableDataConduit | None = None
+    data_source: TableDataAdapter | None = None
     if source is not None:
-        data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
+        data_source = TableDataAdapter.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
@@ -222,9 +222,6 @@ def create_table(
         data_source.infer_schema()
         schema = data_source.pxt_schema  # type: ignore[assignment]
         primary_key = data_source.pxt_pk
-        is_direct_query = data_source.is_direct_query()
-    else:
-        is_direct_query = False
 
     if len(schema) == 0 or not isinstance(schema, dict):
         raise excs.RequestError(
@@ -281,22 +278,15 @@ def create_table(
     if was_created and data_source is not None:
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
         if isinstance(tbl, catalog.InsertableTable):
-            if isinstance(data_source, QueryTableDataConduit):
-                query = data_source.pxt_query
-                with get_runtime().catalog.begin_data_write_xact(
-                    read_tbl_keys=query.referenced_tbl_keys(), tvps=[tbl._tbl_version_path]
-                ):
-                    tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-            elif not is_direct_query:
-                tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+            tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
         else:
             # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
-            # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
+            # insert nothing. Insert the rows the adapter already materialized instead. (A Query source is
             # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
             # Materialized rows are already parsed, so the source_format (e.g. 'json') must not be re-applied,
             # which would otherwise re-classify the row list as a file source.
-            insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
-            insert_format = None if isinstance(data_source, RowDataTableDataConduit) else source_format
+            insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataAdapter) else source
+            insert_format = None if isinstance(data_source, RowDataTableDataAdapter) else source_format
             tbl.insert(
                 insert_source,
                 source_format=insert_format,

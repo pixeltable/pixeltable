@@ -256,22 +256,22 @@ class LocalTable(Table):
         outputs: Sequence[str | ColumnRef] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> RowBatch:
-        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
+        from pixeltable.io.table_data_adapter import PydanticTableDataAdapter, RowDataTableDataAdapter, TableDataAdapter
         from pixeltable.plan import Planner
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
-        # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
+        # TableDataAdapter.create() which would treat a string as a path/URL and trigger file I/O.
         if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
             )
         fail_on_exc = OnErrorParam.fail_on_exception(on_error)
-        # TableDataConduit.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
+        # TableDataAdapter.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
         # dict-source dispatch, so normalize to list here.
-        data_source = TableDataConduit.create(list(source))
-        if not isinstance(data_source, (RowDataTableDataConduit, PydanticTableDataConduit)):
+        data_source = TableDataAdapter.create(list(source))
+        if not isinstance(data_source, (RowDataTableDataAdapter, PydanticTableDataAdapter)):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
@@ -290,7 +290,7 @@ class LocalTable(Table):
                 data_source.prepare_for_insert_into_table()
                 # TODO: this materializes all input rows; streaming them into the compute plan (RowDataNode accepts a
                 # stream) would bound memory, but create_compute_plan() currently validates and filters a list
-                input_rows = list(data_source.rows())
+                input_rows = get_runtime().run_coro(data_source.collect_rows())
 
                 output_cols = path.columns()
                 if output_md is not None:

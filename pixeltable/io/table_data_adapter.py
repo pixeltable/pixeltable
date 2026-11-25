@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import enum
 import json
 import logging
@@ -7,7 +8,7 @@ import os
 import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Iterator, Literal, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -21,8 +22,11 @@ from pyarrow.parquet import ParquetDataset
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable import exec
 from pixeltable.catalog import fold_identifier, fold_mapping_keys
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_prepare_columns, _df_rows, df_infer_schema
+from pixeltable.plan import Planner
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.pydantic import is_json_convertible
 
@@ -35,10 +39,11 @@ if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
     from pixeltable.api import RowData, TableDataSource
+    from pixeltable.exec import ExecPlan
 
 
-class TableDataConduitFormat(str, enum.Enum):
-    """Supported formats for TableDataConduit"""
+class TableDataAdapterFormat(str, enum.Enum):
+    """Supported formats for TableDataAdapter"""
 
     JSON = 'json'
     CSV = 'csv'
@@ -53,7 +58,7 @@ class TableDataConduitFormat(str, enum.Enum):
 
 
 @dataclass
-class TableDataConduit:
+class TableDataAdapter:
     source: 'TableDataSource'
     source_format: str | None = None
     source_column_map: dict[str, str] | None = None
@@ -80,40 +85,40 @@ class TableDataConduit:
         source_format: str | None = None,
         src_schema_overrides: dict[str, ts.ColumnType] | None = None,
         extra_fields: dict[str, Any] | None = None,
-    ) -> 'TableDataConduit':
-        """Factory that returns a concrete TableDataConduit subclass based on the source type."""
-        assert source_format is None or TableDataConduitFormat.is_valid(source_format), (
+    ) -> 'TableDataAdapter':
+        """Factory that returns a concrete TableDataAdapter subclass based on the source type."""
+        assert source_format is None or TableDataAdapterFormat.is_valid(source_format), (
             f'Invalid source_format {source_format}'
         )
         # fsdecode, not fspath: a bytes __fspath__() must become a str
         if isinstance(source, os.PathLike):
             source = os.fsdecode(source)
         if isinstance(source, Sequence) and len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
-            return PydanticTableDataConduit(source)
+            return PydanticTableDataAdapter(source)
 
-        tds = TableDataConduit(
+        adapter = TableDataAdapter(
             source, source_format=source_format, src_schema_overrides=src_schema_overrides, extra_fields=extra_fields
         )
-        if isinstance(tds.source, (pxt.Table, pxt.Query)):
-            return QueryTableDataConduit.from_tds(tds)
-        if isinstance(tds.source, pd.DataFrame):
-            return PandasTableDataConduit.from_tds(tds)
-        if HFTableDataConduit.is_applicable(tds):
-            return HFTableDataConduit.from_tds(tds)
-        if tds.source_format == 'csv' or (isinstance(tds.source, str) and '.csv' in tds.source.lower()):
-            return CSVTableDataConduit.from_tds(tds)
-        if tds.source_format == 'excel' or (isinstance(tds.source, str) and '.xls' in tds.source.lower()):
-            return ExcelTableDataConduit.from_tds(tds)
-        if tds.source_format == 'json' or (isinstance(tds.source, str) and '.json' in tds.source.lower()):
-            return JsonTableDataConduit.from_tds(tds)
-        if tds.source_format == 'parquet' or (
-            isinstance(tds.source, str) and any(s in tds.source.lower() for s in ['.parquet', '.pq', '.parq'])
+        if isinstance(adapter.source, (pxt.Table, pxt.Query)):
+            return QueryTableDataAdapter.from_adapter(adapter)
+        if isinstance(adapter.source, pd.DataFrame):
+            return PandasTableDataAdapter.from_adapter(adapter)
+        if HFTableDataAdapter.is_applicable(adapter):
+            return HFTableDataAdapter.from_adapter(adapter)
+        if adapter.source_format == 'csv' or (isinstance(adapter.source, str) and '.csv' in adapter.source.lower()):
+            return CSVTableDataAdapter.from_adapter(adapter)
+        if adapter.source_format == 'excel' or (isinstance(adapter.source, str) and '.xls' in adapter.source.lower()):
+            return ExcelTableDataAdapter.from_adapter(adapter)
+        if adapter.source_format == 'json' or (isinstance(adapter.source, str) and '.json' in adapter.source.lower()):
+            return JsonTableDataAdapter.from_adapter(adapter)
+        if adapter.source_format == 'parquet' or (
+            isinstance(adapter.source, str) and any(s in adapter.source.lower() for s in ['.parquet', '.pq', '.parq'])
         ):
-            return ParquetTableDataConduit.from_tds(tds)
-        if tds.is_rowdata_structure(tds.source) or isinstance(tds.source, Iterator):
-            return RowDataTableDataConduit.from_tds(tds)
+            return ParquetTableDataAdapter.from_adapter(adapter)
+        if adapter.is_rowdata_structure(adapter.source) or isinstance(adapter.source, Iterator):
+            return RowDataTableDataAdapter.from_adapter(adapter)
         raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported data source type: {type(tds.source)}'
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported data source type: {type(adapter.source)}'
         )
 
     def __post_init__(self) -> None:
@@ -127,9 +132,6 @@ class TableDataConduit:
             return False
         return all(isinstance(row, dict) for row in d)
 
-    def is_direct_query(self) -> bool:
-        return isinstance(self.source, pxt.Query) and self.source_column_map is None
-
     def normalize_pxt_schema_types(self) -> None:
         for name, coltype in self.pxt_schema.items():
             self.pxt_schema[name] = ts.ColumnType.normalize_type(coltype)
@@ -137,9 +139,25 @@ class TableDataConduit:
     def infer_schema(self) -> dict[str, ts.ColumnType]:
         raise NotImplementedError
 
-    def rows(self) -> Iterator[dict[str, Any]]:
-        """Yield the rows of the source, converted for insertion into the target table."""
+    def rows(self) -> AsyncGenerator[dict[str, Any], None]:
+        """Yield normalized input rows. Exception values represent failed source cells."""
         raise NotImplementedError
+
+    async def collect_rows(self) -> list[dict[str, Any]]:
+        """Materialize rows for callers that need to send or compute a complete batch."""
+        async with contextlib.aclosing(self.rows()) as rows:
+            return [row async for row in rows]
+
+    def _create_literal(self, col_name: str, val: Any, *, row: dict[str, Any] | None = None) -> Any:
+        try:
+            return self.pxt_schema[col_name].create_literal(val)
+        except TypeError as e:
+            msg = str(e)
+            row_context = f'\nRow: {row}' if row is not None else ''
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Error in column {col_name}: {msg[0].lower() + msg[1:]}{row_context}',
+            ) from e
 
     def prepare_for_insert_into_table(self) -> None:
         """Validate the source against the target table, before the insert plan runs."""
@@ -191,19 +209,21 @@ class TableDataConduit:
             )
 
 
-class QueryTableDataConduit(TableDataConduit):
+class QueryTableDataAdapter(TableDataAdapter):
     pxt_query: pxt.Query = None
+    ignore_errors: bool = False
+    _plan: ExecPlan | None = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'QueryTableDataConduit':
-        tds_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+    def from_adapter(cls, adapter: TableDataAdapter) -> 'QueryTableDataAdapter':
+        adapter_fields = {f.name for f in fields(adapter)}
+        kwargs = {k: v for k, v in adapter.__dict__.items() if k in adapter_fields}
         t = cls(**kwargs)
-        if isinstance(tds.source, pxt.Table):
-            t.pxt_query = tds.source.select()
+        if isinstance(adapter.source, pxt.Table):
+            t.pxt_query = adapter.source.select()
         else:
-            assert isinstance(tds.source, pxt.Query)
-            t.pxt_query = tds.source
+            assert isinstance(adapter.source, pxt.Query)
+            t.pxt_query = adapter.source
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
@@ -215,26 +235,59 @@ class QueryTableDataConduit(TableDataConduit):
     def prepare_for_insert_into_table(self) -> None:
         if self.source_column_map is None:
             self.source_column_map = {}
-        self.check_source_columns_are_insertable(self.pxt_query.schema.keys())
+        self._plan = self.pxt_query._create_query_plan()
+        self.check_source_columns_are_insertable(self._plan.select_list_schema)
+        sql_node = self._plan.exec_root.get_node(exec.SqlNode)
+        assert sql_node is not None
+        # For self-insertion, the source cursor opens before any destination rows are written, so its snapshot
+        # excludes the rows produced by this insert.
+        sql_node.set_stream_results(True)
+        self._plan.ctx.batch_size = Planner._ROW_BATCH_SIZE
+        self._plan.ctx.ignore_errors = self.ignore_errors
+
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
+        assert get_runtime().in_xact
+        assert self._plan is not None
+        col_exprs = list(zip(self._plan.select_list_schema, self._plan.select_list_exprs))
+        async with contextlib.aclosing(self._plan.aexec({})) as rows:
+            async for row in rows:
+                output_row: dict[str, Any] = {}
+                for col_name, e in col_exprs:
+                    if row.has_exc(e.slot_idx):
+                        output_row[col_name] = row.get_exc(e.slot_idx)
+                        continue
+                    # Keep original URLs for non-image media and images that have not been downloaded.
+                    # All media uses normal insertion storage handling, which can unnecessarily copy existing files.
+                    # Images with local files are unnecessarily re-encoded; their format and pixels can change.
+                    if (
+                        e.col_type.is_media_type()
+                        and (not e.col_type.is_image_type() or row.file_paths[e.slot_idx] is None)
+                        and row.file_urls[e.slot_idx] is not None
+                    ):
+                        val = row.file_urls[e.slot_idx]
+                    else:
+                        val = row[e.slot_idx]
+                    output_row[col_name] = self._create_literal(col_name, val)
+                yield output_row
 
 
-class RowDataTableDataConduit(TableDataConduit):
+class RowDataTableDataAdapter(TableDataAdapter):
     raw_rows: RowData | None = None
     valid_rows: RowData | None = None
     disable_mapping: bool = True
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'RowDataTableDataConduit':
-        tds_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+    def from_adapter(cls, adapter: TableDataAdapter) -> 'RowDataTableDataAdapter':
+        adapter_fields = {f.name for f in fields(adapter)}
+        kwargs = {k: v for k, v in adapter.__dict__.items() if k in adapter_fields}
         t = cls(**kwargs)
-        if isinstance(tds.source, Iterator):
+        if isinstance(adapter.source, Iterator):
             # Instantiate the iterator to get the raw rows here
-            t.raw_rows = list(tds.source)
+            t.raw_rows = list(adapter.source)
         elif TYPE_CHECKING:
-            t.raw_rows = cast(RowData, tds.source)
+            t.raw_rows = cast(RowData, adapter.source)
         else:
-            t.raw_rows = tds.source
+            t.raw_rows = adapter.source
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
@@ -278,33 +331,27 @@ class RowDataTableDataConduit(TableDataConduit):
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Value for computed column {col_name} in row {row}'
                 )
             # basic sanity checks here
-            try:
-                checked_val = self.pxt_schema[col_name].create_literal(val)
-            except TypeError as e:
-                msg = str(e)
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}',
-                ) from e
+            checked_val = self._create_literal(col_name, val, row=row)
             output_row[col_name] = checked_val
         return output_row
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         assert self.valid_rows is not None
-        yield from self.valid_rows
+        for row in self.valid_rows:
+            yield row
 
 
-class PandasTableDataConduit(TableDataConduit):
+class PandasTableDataAdapter(TableDataAdapter):
     pd_df: pd.DataFrame = None
     prepared_columns: dict[str, Iterable[Any]] | None = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> PandasTableDataConduit:
-        tds_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+    def from_adapter(cls, adapter: TableDataAdapter) -> PandasTableDataAdapter:
+        adapter_fields = {f.name for f in fields(adapter)}
+        kwargs = {k: v for k, v in adapter.__dict__.items() if k in adapter_fields}
         t = cls(**kwargs)
-        assert isinstance(tds.source, pd.DataFrame)
-        t.pd_df = tds.source
+        assert isinstance(adapter.source, pd.DataFrame)
+        t.pd_df = adapter.source
         return t
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
@@ -338,33 +385,34 @@ class PandasTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pd_df.columns)
         self.prepared_columns = _df_prepare_columns(self.pd_df, self.src_schema, self.source_column_map)
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         assert self.prepared_columns is not None
-        yield from _df_rows(self.prepared_columns, len(self.pd_df))
+        for row in _df_rows(self.prepared_columns, len(self.pd_df)):
+            yield row
 
 
-class CSVTableDataConduit(TableDataConduit):
+class CSVTableDataAdapter(TableDataAdapter):
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
-        tds_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+    def from_adapter(cls, adapter: TableDataAdapter) -> 'PandasTableDataAdapter':
+        adapter_fields = {f.name for f in fields(adapter)}
+        kwargs = {k: v for k, v in adapter.__dict__.items() if k in adapter_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
         path = fetch_url(t.source, allow_local_file=True)
         t.source = pd.read_csv(path, **t.extra_fields)
-        return PandasTableDataConduit.from_tds(t)
+        return PandasTableDataAdapter.from_adapter(t)
 
 
-class ExcelTableDataConduit(TableDataConduit):
+class ExcelTableDataAdapter(TableDataAdapter):
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
-        tds_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+    def from_adapter(cls, adapter: TableDataAdapter) -> 'PandasTableDataAdapter':
+        adapter_fields = {f.name for f in fields(adapter)}
+        kwargs = {k: v for k, v in adapter.__dict__.items() if k in adapter_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
         path = fetch_url(t.source, allow_local_file=True)
         t.source = pd.read_excel(path, **t.extra_fields)
-        return PandasTableDataConduit.from_tds(t)
+        return PandasTableDataAdapter.from_adapter(t)
 
 
 def _parse_jsonl_from_path(path: Path, extra_fields: dict[str, Any]) -> list[dict]:
@@ -389,11 +437,11 @@ def _parse_jsonl_from_path(path: Path, extra_fields: dict[str, Any]) -> list[dic
     return rows
 
 
-class JsonTableDataConduit(TableDataConduit):
+class JsonTableDataAdapter(TableDataAdapter):
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> RowDataTableDataConduit:
-        tds_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+    def from_adapter(cls, adapter: TableDataAdapter) -> RowDataTableDataAdapter:
+        adapter_fields = {f.name for f in fields(adapter)}
+        kwargs = {k: v for k, v in adapter.__dict__.items() if k in adapter_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
         source_str = t.source
@@ -403,12 +451,12 @@ class JsonTableDataConduit(TableDataConduit):
         else:
             rows = json.loads(path.read_text(encoding='utf-8'), **t.extra_fields)
         t.source = rows
-        t2 = RowDataTableDataConduit.from_tds(t)
+        t2 = RowDataTableDataAdapter.from_adapter(t)
         t2.disable_mapping = False
         return t2
 
 
-class HFTableDataConduit(TableDataConduit):
+class HFTableDataAdapter(TableDataAdapter):
     """HuggingFace dataset importer"""
 
     column_name_for_split: str | None = None
@@ -417,25 +465,25 @@ class HFTableDataConduit(TableDataConduit):
     hf_schema_source: dict[str, Any] = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> HFTableDataConduit:
-        tds_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+    def from_adapter(cls, adapter: TableDataAdapter) -> HFTableDataAdapter:
+        adapter_fields = {f.name for f in fields(adapter)}
+        kwargs = {k: v for k, v in adapter.__dict__.items() if k in adapter_fields}
         t = cls(**kwargs)
         import datasets
 
-        assert cls._is_dataset_class(tds.source)
+        assert cls._is_dataset_class(adapter.source)
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        if isinstance(tds.source, (datasets.IterableDataset, datasets.IterableDatasetDict)):
-            tds.source = tds.source.with_format('arrow')
+        if isinstance(adapter.source, (datasets.IterableDataset, datasets.IterableDatasetDict)):
+            adapter.source = adapter.source.with_format('arrow')
 
-        if isinstance(tds.source, (datasets.Dataset, datasets.IterableDataset)):
-            split_name = str(tds.source.split) if tds.source.split is not None else None
-            t.dataset_dict = {split_name: tds.source}
+        if isinstance(adapter.source, (datasets.Dataset, datasets.IterableDataset)):
+            split_name = str(adapter.source.split) if adapter.source.split is not None else None
+            t.dataset_dict = {split_name: adapter.source}
         else:
-            assert isinstance(tds.source, (datasets.DatasetDict, datasets.IterableDatasetDict))
-            t.dataset_dict = dict(tds.source)
+            assert isinstance(adapter.source, (datasets.DatasetDict, datasets.IterableDatasetDict))
+            t.dataset_dict = dict(adapter.source)
 
         # Disable auto-decoding for Audio and Image columns, we want to write the bytes directly to temp files
         for ds_split_name, dataset in list(t.dataset_dict.items()):
@@ -457,10 +505,10 @@ class HFTableDataConduit(TableDataConduit):
         )
 
     @classmethod
-    def is_applicable(cls, tds: TableDataConduit) -> bool:
+    def is_applicable(cls, adapter: TableDataAdapter) -> bool:
         return (
-            isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface'
-        ) or cls._is_dataset_class(tds.source)
+            isinstance(adapter.source_format, str) and adapter.source_format.lower() == 'huggingface'
+        ) or cls._is_dataset_class(adapter.source)
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
         from pixeltable.io.hf_datasets import _get_hf_schema, huggingface_schema_to_pxt_schema
@@ -650,23 +698,26 @@ class HFTableDataConduit(TableDataConduit):
         # Return as list of array views (shares memory with reshaped)
         return list(reshaped)
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         import datasets
 
         for split_name, split_dataset in self.dataset_dict.items():
             features = split_dataset.features
             if isinstance(split_dataset, datasets.Dataset):
                 table = split_dataset.data  # the underlying Arrow table
-                yield from self._process_arrow_table(table, split_name, features)
+                for row in self._process_arrow_table(table, split_name, features):
+                    yield row
             else:
                 # we're getting batches of Arrow tables, since we did set_format('arrow');
                 # use a trial batch to determine the target batch size
                 first_batch = next(split_dataset.iter(batch_size=16))
                 bytes_per_row = int(first_batch.nbytes / len(first_batch))
                 batch_size = self._K_BATCH_SIZE_BYTES // bytes_per_row
-                yield from self._process_arrow_table(first_batch, split_name, features)
+                for row in self._process_arrow_table(first_batch, split_name, features):
+                    yield row
                 for batch in split_dataset.skip(16).iter(batch_size=batch_size):
-                    yield from self._process_arrow_table(batch, split_name, features)
+                    for row in self._process_arrow_table(batch, split_name, features):
+                        yield row
 
     def _process_arrow_table(
         self, table: 'pa.Table', split_name: str, features: dict[str, Any]
@@ -698,17 +749,17 @@ class HFTableDataConduit(TableDataConduit):
             offset += chunk_size
 
 
-class ParquetTableDataConduit(TableDataConduit):
+class ParquetTableDataAdapter(TableDataAdapter):
     pq_ds: ParquetDataset | None = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'ParquetTableDataConduit':
-        tds_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+    def from_adapter(cls, adapter: TableDataAdapter) -> 'ParquetTableDataAdapter':
+        adapter_fields = {f.name for f in fields(adapter)}
+        kwargs = {k: v for k, v in adapter.__dict__.items() if k in adapter_fields}
         t = cls(**kwargs)
 
-        assert isinstance(tds.source, str)
-        input_path = fetch_url(tds.source, allow_local_file=True)
+        assert isinstance(adapter.source, str)
+        input_path = fetch_url(adapter.source, allow_local_file=True)
         t.pq_ds = pa.parquet.ParquetDataset(str(input_path))
         return t
 
@@ -743,7 +794,7 @@ class ParquetTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pq_ds.schema.names)
         self.total_rows = 0
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         from pixeltable.utils.arrow import iter_tuples2
 
         try:
@@ -758,7 +809,7 @@ class ParquetTableDataConduit(TableDataConduit):
 
 
 @dataclass
-class PydanticTableDataConduit(TableDataConduit):
+class PydanticTableDataAdapter(TableDataAdapter):
     dumped_rows: list[dict[str, Any]] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
@@ -799,13 +850,14 @@ class PydanticTableDataConduit(TableDataConduit):
                     )
             self.dumped_rows[i] = self._convert_row(i, raw_row)
 
-    def rows(self) -> Iterator[dict[str, Any]]:
+    async def rows(self) -> AsyncGenerator[dict[str, Any], None]:
         """Yield the normalized dicts prepared from the Pydantic models."""
-        yield from self.dumped_rows
+        for row in self.dumped_rows:
+            yield row
 
     def _convert_row(self, i: int, raw_row: dict[str, Any]) -> dict[str, Any]:
         # Coerce each cell to its column's stored representation, exactly as the dict path does
-        # (RowDataTableDataConduit._translate_row). This is what makes a pydantic model behave like the
+        # (RowDataTableDataAdapter._translate_row). This is what makes a pydantic model behave like the
         # equivalent dict: timestamps localized, enums accepted only when their members are int/str values, etc.
         assert self.pxt_schema is not None
         pxt_row: dict[str, Any] = {}

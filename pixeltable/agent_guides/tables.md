@@ -69,7 +69,8 @@ docs.delete(where=docs.id == 3)
 - `insert()` takes a list of dicts, one row as keyword arguments, a file path or URL, or a query.
 - For a file path or URL, `source_format=` is `'csv'`, `'excel'`, `'parquet'` or `'json'`.
 - For a file path or URL, `schema_overrides=` sets column types.
-- Known issue (PXT-1749): an insert from a query leaves the computed columns of the new rows null.
+- Query inserts compute destination columns and index values and validate input values. HTTP image URLs cast with
+  `astype(pxt.Image)` are supported.
 - `if_exists='ignore'` skips each row whose primary key is already in the table and computes nothing for it.
 - `status.row_count_stats.skipped_rows` counts the skipped rows.
 - With `if_exists='ignore'`, a batch that repeats a new key inserts only the first of those rows.
