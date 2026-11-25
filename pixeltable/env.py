@@ -389,7 +389,7 @@ class Env:
         """Log a message for the user. A collector set with collect_console() also receives it."""
         collector = current_collector()
         if collector is not None:
-            collector.add(level, msg)
+            collector.add(msg, level)
         self._console_logger.log(level, msg)
 
     def _get_tz_name(self) -> str:

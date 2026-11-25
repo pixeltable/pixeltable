@@ -11,6 +11,8 @@ import shutil
 import socket
 import socketserver
 import ssl
+import subprocess
+import sys
 import tarfile
 import threading
 import time
@@ -45,7 +47,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
-from .utils import DatabaseRoot, bystander_process, capture_console_output, pxt_raises, reload_env
+from .utils import DatabaseRoot, bystander_process, pxt_raises, reload_env
 
 _KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
@@ -135,26 +137,40 @@ class TestProxyDaemon:
     def test_console_output(self, db_root: DatabaseRoot) -> None:
         """An operation on a hosted table prints the same console messages as on a local one."""
         p = db_root.make_catalog_path
-        with capture_console_output() as out:
-            pxt.create_dir(p('console'))
-            t = pxt.create_table(p('console/t'), {'c': pxt.Int})
-            t.insert([{'c': 1}, {'c': 2}])
-            t.add_computed_column(d=t.c + 1)
+        code = f"""
+import pixeltable as pxt
+
+pxt.create_dir({p('console')!r})
+t = pxt.create_table({p('console/t')!r}, {{'c': pxt.Int}})
+t.insert([{{'c': 1}}, {{'c': 2}}])
+t.add_computed_column(d=t.c + 1)
+"""
+        r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=False, timeout=300)
+        assert r.returncode == 0, r.stderr
         expected = (
             r"Created directory 'console'\.\n"
             r"Created table 't'\.\n"
             r'Inserted 2 rows with 0 errors in .*\n'
             r'Added 2 column values with 0 errors in .*\n'
         )
-        assert re.fullmatch(expected, out.getvalue()), out.getvalue()
+        # a new local process also prints that it connected to its database
+        assert re.search(expected, r.stdout), r.stdout
 
     def test_console_collector_cap(self, init_env: None) -> None:
-        collector = ConsoleCollector(max_chars=10)
+        collector = ConsoleCollector(max_chars=40)
         with collect_console(collector):
-            Env.get().log_to_console('12345')
-            Env.get().log_to_console('123456', logging.WARNING)
-            Env.get().log_to_console('1')
-        assert collector.messages() == [(logging.INFO, '12345'), (logging.WARNING, '2 more console messages omitted')]
+            for msg in ['aaaa', 'bbbb', 'cccc', 'dddd', 'eeee', 'ffff', 'gggg']:
+                Env.get().log_to_console(msg)
+            Env.get().log_to_console('x' * 50, logging.WARNING)
+        assert collector.messages() == [
+            ('aaaa', logging.INFO),
+            ('bbbb', logging.INFO),
+            ('cccc', logging.INFO),
+            ('dddd', logging.INFO),
+            ('eeee', logging.INFO),
+            ('... 2 console messages omitted ...', logging.WARNING),
+            ('xxxx ... (truncated)', logging.WARNING),
+        ]
 
     @staticmethod
     def _media_args(tmp_path: pathlib.Path) -> dict[str, Any]:

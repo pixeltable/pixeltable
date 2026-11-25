@@ -110,12 +110,12 @@ def _handle(
         error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
-        return proxy_protocol.encode_response({'error': error_dict, 'console': console.messages()})
+        return proxy_protocol.encode_response({'error': error_dict, 'console_out': console.messages()})
 
     except ProhibitedWriteError as e:
         error = e
         _logger.info('%s.%s prohibited write (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-        return proxy_protocol.encode_response({'prohibited_write': True, 'console': console.messages()})
+        return proxy_protocol.encode_response({'prohibited_write': True, 'console_out': console.messages()})
 
     except Exception as e:
         error = e
@@ -136,7 +136,7 @@ def _handle(
         error_dict = err.to_dict()
         if include_error_detail:
             error_dict['detail'] = tb
-        return proxy_protocol.encode_response({'error': error_dict, 'console': console.messages()})
+        return proxy_protocol.encode_response({'error': error_dict, 'console_out': console.messages()})
 
     finally:
         telemetry.span_end(rpc_span, exc=error)
@@ -175,13 +175,13 @@ def _dispatch(
         result = _convert_result(key, table_handler(request, tbl))
         if not is_mutation:
             # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
-            return proxy_protocol.encode_response({'result': result, 'console': console.messages()})
+            return proxy_protocol.encode_response({'result': result, 'console_out': console.messages()})
 
         # a mutation bumps the table version; return the new md so the client's path refreshes
         with cat.begin_md_read_xact():
             md = cat.read_md_for_export(tbl)
         _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
-        return proxy_protocol.encode_response({'result': result, 'current_md': md, 'console': console.messages()})
+        return proxy_protocol.encode_response({'result': result, 'current_md': md, 'console_out': console.messages()})
 
     handler = _HANDLERS.get(key)
     if handler is None:
@@ -194,7 +194,9 @@ def _dispatch(
     if key in _BODY_METHODS:
         body = result
     else:
-        body = proxy_protocol.encode_response({'result': _convert_result(key, result), 'console': console.messages()})
+        body = proxy_protocol.encode_response(
+            {'result': _convert_result(key, result), 'console_out': console.messages()}
+        )
     _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
     return body
 

@@ -745,7 +745,8 @@ class ProxyClient:
         body = encode_body(request.model_dump_json().encode(), parts)
         response_head, response_parts = decode_body(self._transport.post(body))
         response: ProxyResponse = json.loads(response_head)
-        for level, msg in response.get('console', []):
+        # print the console messages the daemon logged while handling the request, as a local call would
+        for msg, level in response.get('console_out', []):
             Env.get().log_to_console(msg, level)
         return response, response_parts
 

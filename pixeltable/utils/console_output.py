@@ -1,3 +1,4 @@
+import collections
 import contextlib
 import contextvars
 import logging
@@ -49,36 +50,50 @@ class ConsoleLogger(logging.LoggerAdapter):
 
 
 class ConsoleCollector:
-    """Console messages collected in memory, up to max_chars characters of message text.
+    """Console messages collected in memory, up to about max_chars characters of message text.
 
-    Once a message would exceed the cap, it and all later ones are dropped, and messages() ends with a warning
-    that says how many.
+    Past the cap, messages are dropped from the middle: the collector keeps the first and the last max_chars / 2
+    characters' worth, and messages() inserts a warning between them that says how many were omitted. A message
+    longer than max_chars / 2 is truncated.
     """
 
     max_chars: int
-    _messages: list[tuple[int, str]]
-    _num_chars: int
+    _head: list[tuple[str, int]]
+    _head_chars: int
+    _tail: collections.deque[tuple[str, int]]
+    _tail_chars: int
     _num_dropped: int
 
     def __init__(self, max_chars: int = 1_000_000):
         self.max_chars = max_chars
-        self._messages = []
-        self._num_chars = 0
+        self._head = []
+        self._head_chars = 0
+        self._tail = collections.deque()
+        self._tail_chars = 0
         self._num_dropped = 0
 
-    def add(self, level: int, msg: str) -> None:
-        if self._num_dropped == 0 and self._num_chars + len(msg) <= self.max_chars:
-            self._messages.append((level, msg))
-            self._num_chars += len(msg)
-        else:
+    def add(self, msg: str, level: int) -> None:
+        half = self.max_chars // 2
+        if len(msg) > half:
+            marker = ' ... (truncated)'
+            msg = msg[: half - len(marker)] + marker if half > len(marker) else msg[:half]
+        if len(self._tail) == 0 and self._head_chars + len(msg) <= half:
+            self._head.append((msg, level))
+            self._head_chars += len(msg)
+            return
+        self._tail.append((msg, level))
+        self._tail_chars += len(msg)
+        while self._tail_chars > half:
+            dropped, _ = self._tail.popleft()
+            self._tail_chars -= len(dropped)
             self._num_dropped += 1
 
-    def messages(self) -> list[tuple[int, str]]:
-        """The collected (level, message) pairs, in the order they were added."""
+    def messages(self) -> list[tuple[str, int]]:
+        """The collected (message, level) pairs, in the order they were added."""
         if self._num_dropped == 0:
-            return list(self._messages)
-        note = f'{self._num_dropped} more console message{"" if self._num_dropped == 1 else "s"} omitted'
-        return [*self._messages, (logging.WARNING, note)]
+            return [*self._head, *self._tail]
+        note = f'... {self._num_dropped} console message{"" if self._num_dropped == 1 else "s"} omitted ...'
+        return [*self._head, (note, logging.WARNING), *self._tail]
 
 
 _collector: contextvars.ContextVar[ConsoleCollector | None] = contextvars.ContextVar('console_collector', default=None)

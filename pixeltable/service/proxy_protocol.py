@@ -439,7 +439,7 @@ class ProxyResponse(TypedDict, total=False):
 
     is_stale_md: bool  # True if the request's snapshot_path_key was behind the current schema version
 
-    console: list[tuple[int, str]]  # (level, message) of each console message the server logged for the request
+    console_out: list[tuple[str, int]]  # (message, level) of each console message the server logged for the request
 
 
 def _ref_fields(ref: int | str | ArchiveMember) -> dict[str, Any]:
@@ -959,7 +959,7 @@ def response_body(
     current_md_json: bytes = b'null',
     is_stale_md: bool = False,
     prohibited_write: bool = False,
-    console_json: bytes = b'[]',
+    console_out_json: bytes = b'[]',
 ) -> bytes:
     """The wire body for a response whose fields are already encoded.
 
@@ -976,8 +976,8 @@ def response_body(
     head += b'true' if is_stale_md else b'false'
     head += b',"prohibited_write":'
     head += b'true' if prohibited_write else b'false'
-    head += b',"console":'
-    head += console_json
+    head += b',"console_out":'
+    head += console_out_json
     head += b'}'
     return encode_body(bytes(head), parts)
 
@@ -995,7 +995,7 @@ def encode_response(response: ProxyResponse) -> bytes:
         current_md_json=current_md_json,
         is_stale_md=response.get('is_stale_md', False),
         prohibited_write=response.get('prohibited_write', False),
-        console_json=_dumps(response.get('console', [])).encode(),
+        console_out_json=_dumps(response.get('console_out', [])).encode(),
     )
 
 
