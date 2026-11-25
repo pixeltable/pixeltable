@@ -6,6 +6,7 @@ import PIL
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.utils.image as image_utils
 
 format_msg = """
 
@@ -121,7 +122,7 @@ def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
         else:
             # we need to create a local path
             img_path = images_dir / f'{img_id}.jpg'
-            img.save(img_path)
+            image_utils.save(img, img_path)
 
         images.append({'id': img_id, 'file_name': str(img_path), 'width': img.width, 'height': img.height})
 

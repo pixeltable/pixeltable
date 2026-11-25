@@ -43,7 +43,7 @@ class ExprEvalNode(ExecNode):
     """
 
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
-    outputs: np.ndarray  # bool per slot; True if this slot is part of our output
+    outputs: np.ndarray  # bool per slot; True if this slot is part of our output, except for image decode slots
     schedulers: dict[str, Scheduler]  # key: resource pool name
     col_names: dict[int, str]  # Dispatcher protocol; slot idx -> name of the table column it materializes
     eval_ctx: ExprEvalCtx  # for input/output rows
@@ -89,6 +89,8 @@ class ExprEvalNode(ExecNode):
         output_slot_idxs = [e.slot_idx for e in output_exprs]
         self.outputs[output_slot_idxs] = True
         self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
+        # leave out the image decode slots, so that the progress bar and cells_computed do not count a decode as a cell
+        self.outputs[self.eval_ctx.image_decode_slot_idxs] = False
         self._init_exec_state()
 
     def init_bindings(self) -> None:
@@ -392,7 +394,8 @@ class ExprEvalNode(ExecNode):
         if not self.ctx.ignore_errors:
             dependency_idxs = [e.slot_idx for e in exec_ctx.row_builder.unique_exprs[slot_with_exc].dependencies()]
             first_row = rows[0]
-            input_vals = [first_row[idx] for idx in dependency_idxs]
+            # read vals directly: DataRow.__getitem__() decodes a stored image, and a failed decode would raise here
+            input_vals = [first_row.vals[idx] for idx in dependency_idxs]
             e = exec_ctx.row_builder.unique_exprs[slot_with_exc]
             self.error = excs.ExprEvalError(
                 e, f'expression {e!s}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0

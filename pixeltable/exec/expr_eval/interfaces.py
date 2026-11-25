@@ -162,6 +162,7 @@ class ExprEvalCtx:
     eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
     literals: dict[int, Any]  # key: slot idx; value: literal value for this slot; used to pre-populate rows
     all_exprs: list[exprs.Expr]  # all evaluated exprs; needed for cleanup
+    image_decode_slot_idxs: list[int]  # stored image slots that an ImageLoadEvaluator decodes
 
     def __init__(
         self,
@@ -179,8 +180,39 @@ class ExprEvalCtx:
         self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
         non_literal_slot_idxs = [e.slot_idx for e in output_ctx.exprs if not isinstance(e, exprs.Literal)]
         self.eval_ctx[non_literal_slot_idxs] = True
-        self._init_slot_evaluators(dispatcher, non_literal_slot_idxs)
+        self.image_decode_slot_idxs = self._get_image_decode_slot_idxs()
+        # the decode of a stored image gets a slot in the dataflow, so that only the readers of the image wait for it
+        self.eval_ctx[self.image_decode_slot_idxs] = True
+        self._init_slot_evaluators(dispatcher, self.eval_ctx.nonzero()[0].tolist())
         self.set_gc(True)
+
+    def _get_image_decode_slot_idxs(self) -> list[int]:
+        """Return the slots of the stored image ColumnRefs that a UDF call or a validating ColumnRef reads.
+
+        A validating ColumnRef and an unstored iterator column compute their own image and are left out. A slot that
+        the args of an unstored iterator column read is also left out: RowBuilder.eval() evaluates those args outside
+        the dispatch order, and it would overwrite an undecoded image with None.
+        """
+        image_refs: list[exprs.ColumnRef] = []
+        iter_arg_slot_idxs: set[int] = set()
+        for expr in self.all_exprs:
+            if isinstance(expr, exprs.ColumnRef):
+                if expr.perform_validation and expr.col_type.is_image_type():
+                    # a validating ColumnRef reads the image of its unvalidated ColumnRef
+                    unvalidated_ref = expr.components[0]
+                    assert isinstance(unvalidated_ref, exprs.ColumnRef)
+                    image_refs.append(unvalidated_ref)
+                if expr.iter_arg_ctx is not None:
+                    iter_arg_slot_idxs.update(expr.iter_arg_ctx.slot_idxs)
+            elif isinstance(expr, exprs.FunctionCall) and isinstance(expr.fn, func.CallableFunction):
+                for component_idx in [*expr.arg_idxs, *expr.kwarg_idxs.values()]:
+                    arg = expr.components[component_idx]
+                    if isinstance(arg, exprs.ColumnRef) and arg.col_type.is_image_type():
+                        image_refs.append(arg)
+        stored_slot_idxs = {
+            ref.slot_idx for ref in image_refs if not ref.perform_validation and not ref.needs_iterator_evaluation
+        }
+        return sorted(stored_slot_idxs - iter_arg_slot_idxs)
 
     def set_gc(self, gc: bool) -> None:
         if gc:
@@ -200,11 +232,13 @@ class ExprEvalCtx:
             self.gc_targets = np.zeros(self.row_builder.num_materialized, dtype=bool)
 
     def _init_slot_evaluators(self, dispatcher: Dispatcher, target_slot_idxs: list[int]) -> None:
-        from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher
+        from .evaluators import DefaultExprEvaluator, FnCallEvaluator, ImageLoadEvaluator, JsonMapperDispatcher
 
         for slot_idx in target_slot_idxs:
             expr = self.row_builder.unique_exprs[slot_idx]
-            if (
+            if slot_idx in self.image_decode_slot_idxs:
+                self.slot_evaluators[slot_idx] = ImageLoadEvaluator(expr, dispatcher, self)
+            elif (
                 isinstance(expr, exprs.FunctionCall)
                 # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
                 and not isinstance(expr.fn, func.ExprTemplateFunction)
@@ -224,10 +258,16 @@ class ExprEvalCtx:
         if len(rows) == 0:
             return
 
-        # Set literals (still per-row since vals is an object array)
+        # Set literals one row at a time, since each row has its own vals array
         for row in rows:
             for slot_idx, val in self.literals.items():
                 row[slot_idx] = val
+
+        # clear has_val of a stored image that is not decoded yet, so that dispatch() schedules the decode
+        image_slot_idxs = self.image_decode_slot_idxs
+        for row in rows:
+            is_undecoded = (row.vals[image_slot_idxs] == None) & (row.file_paths[image_slot_idxs] != None)
+            row.has_val[image_slot_idxs] &= ~is_undecoded
 
         # Stack has_val for vectorized computation
         # Shape: (num_rows, num_slots)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import dataclasses
 import datetime
@@ -184,6 +185,7 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
+    _cpu_pool: concurrent.futures.ThreadPoolExecutor | None
     # the last result of udf_configs(), with the config setting that produced it
     _udf_configs_cache: tuple[dict[str, Any], dict[str, UdfConfig]] | None
     # the endpoints of the UDF servers; valid until this process changes the local database's deployment, re-imports
@@ -253,6 +255,7 @@ class Env:
 
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
+        self._cpu_pool = None
         self._udf_configs_cache = None
         self._udf_endpoints = None
         self._dbms = None
@@ -441,6 +444,18 @@ class Env:
         # query/insert so a file fetched at the start of an operation is still present when the operation needs it
         lease_s = config.get_float_value('file_cache_lease_s')
         self._file_cache_lease_s = 600.0 if lease_s is None else lease_s
+
+        cpu_pool_size = config.get_int_value('cpu_pool_size')
+        if cpu_pool_size is not None and cpu_pool_size <= 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'pixeltable/cpu_pool_size must be a positive integer, got {cpu_pool_size}',
+            )
+        if cpu_pool_size is None:
+            num_cpus = os.cpu_count()
+            cpu_pool_size = 4 if num_cpus is None else num_cpus
+        # the executor starts a thread only when a job needs one
+        self._cpu_pool = concurrent.futures.ThreadPoolExecutor(max_workers=cpu_pool_size, thread_name_prefix='pxt-cpu')
 
         self._cloud_org = config.get_string_value('org', section='pxtcloud')
         self._cloud_db = config.get_string_value('db', section='pxtcloud')
@@ -1178,6 +1193,15 @@ class Env:
         return self._pgdata_dir
 
     @property
+    def cpu_pool(self) -> concurrent.futures.ThreadPoolExecutor:
+        """Thread pool, shared by the whole process, for CPU-bound work in libraries that release the GIL.
+
+        A job on this pool must not access the catalog, a DataRow or the database.
+        """
+        assert self._cpu_pool is not None
+        return self._cpu_pool
+
+    @property
     def media_dir(self) -> Path:
         assert self._media_dir is not None
         return self._media_dir
@@ -1237,6 +1261,10 @@ class Env:
                 self._httpd.server_close()
             except Exception as e:
                 _logger.warning(f'Error stopping HTTP server: {e}')
+
+        if self._cpu_pool is not None:
+            self._cpu_pool.shutdown(wait=False, cancel_futures=True)
+            self._cpu_pool = None
 
         # Dispose of SQLAlchemy engine
         if self._sa_engine is not None:

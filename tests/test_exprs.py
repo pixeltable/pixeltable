@@ -10,7 +10,9 @@ import math
 import operator
 import os
 import re
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
@@ -21,6 +23,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+import pixeltable.utils.image as image_utils
 from pixeltable import catalog, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
@@ -2769,6 +2772,132 @@ class TestExprs:
         (name,) = res.schema.keys()
         assert catalog.is_valid_identifier(name)
         assert res[name] == [None, 1]
+
+    def test_image_load(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        # an image that the user opened with PIL.Image.open() is not decoded yet. Two UDF calls on pool threads read
+        # it at the same time, and both get the decoded image.
+        t = pxt.create_table(p('lazy'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(small=t.img.resize((32, 32)))
+        rows = [{'img': PIL.Image.open(f)} for f in get_image_files()[:8]]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+    def test_image_save(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        files = get_image_files()[:2]
+        t = pxt.create_table(p('imgs'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(rot_copy=t.img.rotate(90))
+        validate_update_status(t.insert({'img': f} for f in files), expected_rows=len(files))
+
+        # two columns with the same expr share one slot: the image is saved once and both columns store its url
+        res = t.select(rot_url=t.rot.fileurl, copy_url=t.rot_copy.fileurl).collect()
+        assert all(url is not None for url in res['rot_url'])
+        assert res['rot_url'] == res['copy_url']
+
+        # Eight threads save one image as jpeg and as tiff at the same time, and each save gives the bytes of a lone
+        # save. This calls to_bytes() and not a query, because a query rarely runs two saves of one image close enough
+        # together for one save to use the encoder settings of the other.
+        shared_img = PIL.Image.effect_noise((16, 16), 32).convert('RGB')
+        formats = ['jpeg', 'tiff'] * 5000
+        lone_save = {image_format: image_utils.to_bytes(shared_img, image_format) for image_format in ('jpeg', 'tiff')}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            saved = list(pool.map(lambda image_format: image_utils.to_bytes(shared_img, image_format), formats))
+        assert saved == [lone_save[image_format] for image_format in formats]
+
+    @pytest.mark.db_roots('local', reason='patches PIL in the test process and reads stored files by local path')
+    def test_image_decode(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = db_root.make_catalog_path
+        files = get_image_files()[:8]
+        open_thread_names: list[str] = []
+        pil_open = PIL.Image.open
+
+        def tracking_open(*args: Any, **kwargs: Any) -> PIL.Image.Image:
+            open_thread_names.append(threading.current_thread().name)
+            return pil_open(*args, **kwargs)
+
+        monkeypatch.setattr(PIL.Image, 'open', tracking_open)
+        t = pxt.create_table(p('imgs'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(same_file=image_path_as_image(t.img.localpath))
+
+        # An insert decodes each image file once on the cpu pool. The thread of a decode is not visible through the
+        # API, so this test tracks PIL.Image.open().
+        validate_update_status(t.insert({'img': f} for f in files), expected_rows=len(files))
+        assert sum(name.startswith('pxt-cpu') for name in open_thread_names) == len(files)
+
+        # a query decodes each image once on the cpu pool, although two UDF calls read it
+        open_thread_names.clear()
+        res = t.select(out1=t.img.rotate(90), out2=t.img.rotate(180)).collect()
+        assert len(res) == len(files)
+        assert len(open_thread_names) == len(files)
+        assert all(name.startswith('pxt-cpu') for name in open_thread_names)
+
+        # a query on a column with on_read validation also decodes each image once on the cpu pool
+        t_on_read = pxt.create_table(p('on_read'), {'img': pxt.Image}, media_validation='on_read')
+        validate_update_status(t_on_read.insert({'img': f} for f in files), expected_rows=len(files))
+        open_thread_names.clear()
+        res = t_on_read.select(out=t_on_read.img.rotate(90)).collect()
+        assert len(res) == len(files)
+        assert sum(name.startswith('pxt-cpu') for name in open_thread_names) == len(files)
+
+        # a UDF that returns the path of an image file stores that file unchanged
+        res = t.select(src=t.img.localpath, stored=t.same_file.localpath).collect()
+        for src_path, stored_path in zip(res['src'], res['stored'], strict=True):
+            assert Path(src_path).read_bytes() == Path(stored_path).read_bytes()
+
+        # The unstored tile column of a view reads the base image outside the dispatch order. A query that reads the
+        # tiles and also passes the base image to a UDF gets both.
+        v = pxt.create_view(p('tiles'), t, iterator=pxtf.image.tile_iterator(t.img, tile_size=(256, 256)))
+        res = v.select(tile_width=v.tile.width, rot=v.img.rotate(90)).collect()
+        assert len(res) == v.count()
+        assert all(width == 256 for width in res['tile_width'])
+        assert all(img is not None for img in res['rot'])
+
+        # a stored image file that fails to decode gives an error for the cell of the UDF call that reads it, for a
+        # run_in_thread UDF (rotate) and for an unmarked UDF (convert)
+        t = pxt.create_table(p('corrupt'), {'img': pxt.Image})
+        validate_update_status(t.insert([{'img': PIL.Image.new('RGB', (8, 8))}]), expected_rows=1)
+        stored_path = t.select(path=t.img.localpath).collect()['path'][0]
+        Path(stored_path).write_bytes(b'not an image')
+        assert t.add_computed_column(rot=t.img.rotate(90), on_error='ignore').num_excs == 1
+        assert t.add_computed_column(gray=t.img.convert('L'), on_error='ignore').num_excs == 1
+        res = t.select(rot_err=t.rot.errortype, gray_err=t.gray.errortype).collect()
+        assert res['rot_err'] == res['gray_err'] == ['UnidentifiedImageError']
+        # without on_error='ignore', the failed decode fails the query with the error of the UDF call
+        for expr in (t.img.rotate(90), t.img.convert('L')):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='encountered exception UnidentifiedImageError'):
+                t.select(expr).collect()
+
+        # A decode holds up only the readers of its image. Each decode below waits until a UDF on another column of
+        # the same query has run. The query finishes only if that UDF does not wait for the decodes.
+        t = pxt.create_table(p('gate'), {'id': pxt.Int, 'img': pxt.Image})
+        validate_update_status(t.insert({'id': i, 'img': f} for i, f in enumerate(files)), expected_rows=len(files))
+        decode_gate.clear()
+        image_load = image_utils.load
+
+        def gated_load(path: str) -> PIL.Image.Image:
+            assert decode_gate.wait(timeout=30)
+            return image_load(path)
+
+        monkeypatch.setattr(image_utils, 'load', gated_load)
+        res = t.select(id=open_decode_gate(t.id), rot=t.img.rotate(90)).collect()
+        assert sorted(res['id']) == list(range(len(files)))
+
+
+@pxt.udf
+def image_path_as_image(path: str) -> PIL.Image.Image:
+    return path  # type: ignore[return-value]
+
+
+decode_gate = threading.Event()
+
+
+@pxt.udf
+def open_decode_gate(x: int) -> int:
+    decode_gate.set()
+    return x
 
 
 @pxt.udf
