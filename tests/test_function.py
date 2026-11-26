@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import typing
+import uuid
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -100,6 +101,17 @@ def day_of(when: datetime) -> str:
 @pxt.udf
 def count_items(items: pxt.Json) -> int:
     return len(items)
+
+
+@pxt.udf
+def show_optional_args(
+    s: str | None = None,
+    i: int | None = None,
+    f: float | None = None,
+    b: bool | None = None,
+    u: uuid.UUID | None = None,
+) -> str:
+    return repr((s, i, f, b, u))
 
 
 @pxt.udf
@@ -2564,6 +2576,17 @@ class TestFunction:
         res = t.order_by(t.id).select(t.anthropic_calls, t.openai_calls).collect()
         assert res['anthropic_calls'] == [{'count_items': [3]}, {'count_items': [4]}]
         assert res['openai_calls'] == [{'count_items': [1]}, {'count_items': [1]}]
+
+    def test_tool_null_args(self, db_root: DatabaseRoot) -> None:
+        from pixeltable.functions import anthropic
+
+        tools = pxt.tools(show_optional_args)
+        t = pxt.create_table(db_root.make_catalog_path('tool_null'), {'resp': pxt.Json})
+        t.add_computed_column(calls=anthropic.invoke_tools(tools, t.resp))
+        args = {'s': None, 'i': None, 'f': None, 'b': None, 'u': None}
+        t.insert([{'resp': {'content': [{'type': 'tool_use', 'name': 'show_optional_args', 'input': args}]}}])
+        res = t.select(t.calls).collect()
+        assert res['calls'] == [{'show_optional_args': [repr((None, None, None, None, None))]}]
 
     # the table a retrieval UDF reads is not in the lock set of the operation that evaluates it
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')

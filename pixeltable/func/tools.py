@@ -192,6 +192,6 @@ T = TypeVar('T')
 
 
 def _extract_arg(eval_fn: Callable[[Any], T], kwargs: dict[str, Any], param_name: str) -> T | None:
-    if param_name in kwargs:
-        return eval_fn(kwargs[param_name])
-    return None
+    val = kwargs.get(param_name)
+    # models can send an explicit null for an optional argument; converting it would yield e.g. the string 'None'
+    return None if val is None else eval_fn(val)
