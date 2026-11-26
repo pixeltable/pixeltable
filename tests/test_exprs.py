@@ -2328,8 +2328,15 @@ class TestExprs:
     def test_window_fns_errors(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(
             db_root.make_catalog_path('win'),
-            {'key': pxt.String, 'v': pxt.Int, 'arr': pxt.Array[(2,), np.int64], 'img': pxt.Image},
+            {
+                'key': pxt.String,
+                'v': pxt.Int,
+                'arr': pxt.Array[(2,), np.int64] | None,
+                'img': pxt.Image | None,
+                'j': pxt.Json,
+            },
         )
+        t.insert([{'key': 'a', 'v': 1, 'j': {'a': np.array([1, 2])}}, {'key': 'a', 'v': 2, 'j': [np.array([1, 2])]}])
         group_min = pxtf.min(t.v, group_by=t.key)
 
         for window_fn in (group_min, pxtf.count(t.v, group_by=t.key, order_by=t.v), pxtf.sum(t.v, order_by=t.v)):
@@ -2339,7 +2346,7 @@ class TestExprs:
             _ = t.where((group_min > 1) & (t.v > 0)).select(t.v).collect()
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid nested window functions'):
             _ = t.select(pxtf.min(t.v - group_min, group_by=t.key)).collect()
-        for key in (t.arr, t.img):
+        for key in (t.arr, t.img, t.j.a, t.j):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot have an array or image group_by'):
                 _ = t.select(pxtf.min(t.v, group_by=key)).collect()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not supported in aggregate queries'):

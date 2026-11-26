@@ -5,6 +5,9 @@ import math
 import sys
 from typing import Any, AsyncGenerator, Sequence, cast
 
+import numpy as np
+import PIL.Image
+
 from pixeltable import exceptions as excs, exprs, func
 
 from .data_row_batch import DataRowBatch
@@ -22,6 +25,12 @@ def _hashable(val: Any) -> Any:
         return frozenset((k, _hashable(v)) for k, v in val.items())
     if isinstance(val, list):
         return tuple(_hashable(v) for v in val)
+    if isinstance(val, (np.ndarray, PIL.Image.Image)):
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Window functions without order_by cannot have an array or image group_by, '
+            f'including one inside a Json value: {type(val).__name__}',
+        )
     return val
 
 
