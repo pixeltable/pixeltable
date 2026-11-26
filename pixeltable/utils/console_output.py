@@ -76,7 +76,7 @@ class ConsoleCollector:
         half = self.max_chars // 2
         if len(msg) > half:
             msg = msg[:half] + ' ... (truncated)'
-        if len(self._tail) == 0 and self._head_chars + len(msg) <= half:
+        if len(self._tail) == 0 and (len(self._head) == 0 or self._head_chars + len(msg) <= half):
             self._head.append((msg, level))
             self._head_chars += len(msg)
             return
