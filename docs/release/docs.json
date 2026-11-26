@@ -119,6 +119,7 @@
                       "sdk/latest/groq",
                       "sdk/latest/huggingface",
                       "sdk/latest/jina",
+                      "sdk/latest/keenable",
                       "sdk/latest/llama_cpp",
                       "sdk/latest/mistralai",
                       "sdk/latest/nebius",
