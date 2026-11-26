@@ -95,7 +95,8 @@ Instead: compute the per-group value with a `group_by()` query, then look it up 
     duplicates = [r['signup_id'] for r in rows if r['signed_up_at'] > first_at[r['email_key']]]
 
 For the group's value on each row, select a window aggregate without `order_by=`, which takes one query.
-`where()` cannot contain it, so filter its results in Python (`pxt guide queries`):
+`where()` cannot contain it. To filter on a window function with order_by, add it as a computed column and filter on
+that column.
 
     rows = signups.select(
         signups.signup_id,
