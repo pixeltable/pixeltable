@@ -214,9 +214,7 @@ class Analyzer:
             cls=exprs.FunctionCall, filter=lambda e: bool(e.is_window_fn_call)
         ):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_EXPRESSION,
-                f'where() cannot contain window functions: {self.filter!s}\n'
-                'To filter on a window function with order_by, add it as a computed column and filter on that column.',
+                excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain window functions: {self.filter!s}'
             )
 
         self.partition_window_fn_calls = [c for c in self.window_fn_calls if c.is_partition_window_fn_call]
