@@ -36,7 +36,13 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.resources import UdfResources
 from pixeltable.utils import fault_injection
-from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
+from pixeltable.utils.console_output import (
+    ConsoleLogger,
+    ConsoleMessageFilter,
+    ConsoleOutputHandler,
+    get_console_collector,
+    map_level,
+)
 from pixeltable.utils.dbms import Dbms, PostgresqlDbms
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
@@ -379,9 +385,12 @@ class Env:
         assert package_name in self.__optional_packages
         return self.__optional_packages[package_name].is_installed
 
-    @property
-    def console_logger(self) -> ConsoleLogger:
-        return self._console_logger
+    def log_to_console(self, msg: str, level: int = logging.INFO) -> None:
+        """Log a message for the user. A collector set with collect_console() also receives it."""
+        collector = get_console_collector()
+        if collector is not None:
+            collector.add(msg, level)
+        self._console_logger.log(level, msg)
 
     def _get_tz_name(self) -> str:
         """Get the time zone name from the configuration, or the system local time zone if not specified.
@@ -613,7 +622,7 @@ class Env:
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {redacted_db_url}')
+        self.log_to_console(f'Connected to Pixeltable database at: {redacted_db_url}')
         fault_injection.process_fault(FaultLocation.ENV_SET_UP_DB_BEFORE_UPGRADE)
         self._upgrade_metadata()
         from pixeltable import metadata
@@ -679,8 +688,8 @@ class Env:
                 and not self._store_db_exists(folded_name)
                 and self._store_db_exists(configured_name)
             ):
-                self.console_logger.warning(
-                    f'Using database {configured_name!r}, which predates case-folded database names'
+                self.log_to_console(
+                    f'Using database {configured_name!r}, which predates case-folded database names', logging.WARNING
                 )
                 self._set_local_db(configured_name)
         assert self._dbms is not None

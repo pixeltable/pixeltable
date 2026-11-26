@@ -859,7 +859,7 @@ class TableModelMeta(type):
         )
 
         if was_created:
-            Env.get().console_logger.info(f'Created {tbl._path()!r} from {table_spec["display_name"]}.')
+            Env.get().log_to_console(f'Created {tbl._path()!r} from {table_spec["display_name"]}.')
 
         return cls._bind(catalog_dir), was_created
 

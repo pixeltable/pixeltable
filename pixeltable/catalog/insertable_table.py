@@ -190,7 +190,7 @@ class InsertableTable(LocalTable):
             except excs.ExprEvalError as e:
                 excs.raise_from_expr_eval_err(e)
 
-        Env.get().console_logger.info(status.insert_msg(start_ts))
+        Env.get().log_to_console(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()
         return status
 
@@ -234,7 +234,7 @@ class InsertableTable(LocalTable):
                 return_rows=return_rows,
             )
 
-        Env.get().console_logger.info(status.insert_msg(start_ts))
+        Env.get().log_to_console(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()
         return status
 

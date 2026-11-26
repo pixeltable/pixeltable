@@ -45,6 +45,7 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog.catalog import Catalog, ProhibitedWriteError
 from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
+from pixeltable.env import Env
 from pixeltable.row import RowBatch
 from pixeltable.utils.cloud_utils import (
     MAX_PRESIGNED_URL_KEYS,
@@ -743,7 +744,11 @@ class ProxyClient:
         )
         body = encode_body(request.model_dump_json().encode(), parts)
         response_head, response_parts = decode_body(self._transport.post(body))
-        return json.loads(response_head), response_parts
+        response: ProxyResponse = json.loads(response_head)
+        # print the console messages the daemon logged while handling the request, as a local call would
+        for msg, level in response.get('console_out', []):
+            Env.get().log_to_console(msg, level)
+        return response, response_parts
 
     def send(
         self,

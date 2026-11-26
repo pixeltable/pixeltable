@@ -4,11 +4,15 @@ import http
 import io
 import json
 import math
+import os
 import pathlib
+import re
 import shutil
 import socket
 import socketserver
 import ssl
+import subprocess
+import sys
 import tarfile
 import threading
 import time
@@ -42,7 +46,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
-from .utils import bystander_process, pxt_raises, reload_env
+from .utils import DatabaseRoot, bystander_process, pxt_raises, reload_env
 
 _KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
@@ -126,6 +130,35 @@ class _RecordingHttpTransport(httpx.BaseTransport):
 
 
 class TestProxyDaemon:
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='a hosted database runs a released daemon, which may not forward console output yet'
+    )
+    def test_console_output(self, db_root: DatabaseRoot) -> None:
+        """An operation on a hosted table prints the same console messages as on a local one."""
+        p = db_root.make_catalog_path
+        code = f"""
+import pixeltable as pxt
+
+pxt.create_dir({p('console')!r})
+t = pxt.create_table({p('console/t')!r}, {{'c': pxt.Int}})
+t.insert([{{'c': 1}}, {{'c': 2}}])
+t.add_computed_column(d=t.c + 1)
+"""
+        # CI turns console output off with PIXELTABLE_VERBOSITY=0
+        env = {**os.environ, 'PIXELTABLE_VERBOSITY': '1'}
+        r = subprocess.run(
+            [sys.executable, '-c', code], env=env, capture_output=True, text=True, check=False, timeout=300
+        )
+        assert r.returncode == 0, r.stderr
+        expected = (
+            r"Created directory 'console'\.\n"
+            r"Created table 't'\.\n"
+            r'Inserted 2 rows with 0 errors in .*\n'
+            r'Added 2 column values with 0 errors in .*\n'
+        )
+        # a new local process also prints that it connected to its database
+        assert re.search(expected, r.stdout), r.stdout
+
     @staticmethod
     def _media_args(tmp_path: pathlib.Path) -> dict[str, Any]:
         """A rows payload with one of each binary-bearing value type."""

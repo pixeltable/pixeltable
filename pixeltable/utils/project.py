@@ -389,11 +389,12 @@ def package_project_archive(
     )
 
     if not has_lockfile:
-        Env.get().console_logger.warning(
+        Env.get().log_to_console(
             'No dependency lockfile (uv.lock, requirements.txt) was found in '
             f'{project_dir}.\nThe image will hold Pixeltable and nothing else, so it may not have the '
             'Python dependencies the project needs. An active conda environment is not a substitute: '
-            "run 'uv lock', or write a requirements.txt."
+            "run 'uv lock', or write a requirements.txt.",
+            logging.WARNING,
         )
 
     fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_project_')

@@ -36,6 +36,7 @@ from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.console_output import ConsoleCollector, collect_console
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, home_bucket_uri
 
@@ -51,7 +52,17 @@ if TYPE_CHECKING:
 
 
 def handle(request_json: str, request_parts: list[bytes], *, include_error_detail: bool = False) -> bytes:
-    """Entry point for an incoming proxy request; always returns an encoded response body."""
+    """Entry point for an incoming proxy request; always returns an encoded response body.
+
+    The response carries the console messages logged while handling the request, which the client prints.
+    """
+    with collect_console(ConsoleCollector()) as console:
+        return _handle(request_json, request_parts, console, include_error_detail=include_error_detail)
+
+
+def _handle(
+    request_json: str, request_parts: list[bytes], console: ConsoleCollector, *, include_error_detail: bool
+) -> bytes:
     request = ProxyRequest.model_validate_json(request_json)
     request._binary_parts = request_parts
     path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
@@ -87,7 +98,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             error = mismatch
             return proxy_protocol.encode_response({'error': error_dict})
         with Catalog.freeze() if request.catalog_frozen else contextlib.nullcontext():
-            return _dispatch(request, key, path_label, t0)
+            return _dispatch(request, key, path_label, t0, console)
 
     except excs.Error as e:
         error = e
@@ -99,12 +110,12 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
-        return proxy_protocol.encode_response({'error': error_dict})
+        return proxy_protocol.encode_response({'error': error_dict, 'console_out': console.messages()})
 
     except ProhibitedWriteError as e:
         error = e
         _logger.info('%s.%s prohibited write (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-        return proxy_protocol.encode_response({'prohibited_write': True})
+        return proxy_protocol.encode_response({'prohibited_write': True, 'console_out': console.messages()})
 
     except Exception as e:
         error = e
@@ -125,7 +136,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         error_dict = err.to_dict()
         if include_error_detail:
             error_dict['detail'] = tb
-        return proxy_protocol.encode_response({'error': error_dict})
+        return proxy_protocol.encode_response({'error': error_dict, 'console_out': console.messages()})
 
     finally:
         telemetry.span_end(rpc_span, exc=error)
@@ -140,7 +151,9 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 pass
 
 
-def _dispatch(request: ProxyRequest, key: tuple[str, str], path_label: Any, t0: float) -> bytes:
+def _dispatch(
+    request: ProxyRequest, key: tuple[str, str], path_label: Any, t0: float, console: ConsoleCollector
+) -> bytes:
     """Run the handler for key and return the encoded response body."""
     table_handler = _TABLE_HANDLERS.get(key)
     if table_handler is not None:
@@ -162,13 +175,13 @@ def _dispatch(request: ProxyRequest, key: tuple[str, str], path_label: Any, t0: 
         result = _convert_result(key, table_handler(request, tbl))
         if not is_mutation:
             # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
-            return proxy_protocol.encode_response({'result': result})
+            return proxy_protocol.encode_response({'result': result, 'console_out': console.messages()})
 
         # a mutation bumps the table version; return the new md so the client's path refreshes
         with cat.begin_md_read_xact():
             md = cat.read_md_for_export(tbl)
         _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
-        return proxy_protocol.encode_response({'result': result, 'current_md': md})
+        return proxy_protocol.encode_response({'result': result, 'current_md': md, 'console_out': console.messages()})
 
     handler = _HANDLERS.get(key)
     if handler is None:
@@ -181,7 +194,9 @@ def _dispatch(request: ProxyRequest, key: tuple[str, str], path_label: Any, t0: 
     if key in _BODY_METHODS:
         body = result
     else:
-        body = proxy_protocol.encode_response({'result': _convert_result(key, result)})
+        body = proxy_protocol.encode_response(
+            {'result': _convert_result(key, result), 'console_out': console.messages()}
+        )
     _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
     return body
 
