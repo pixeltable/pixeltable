@@ -19,6 +19,16 @@ from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
 
+def is_mutable_val(val: Any) -> bool:
+    """True if val is a dict, list, ndarray or image, which a function can modify in place."""
+    return isinstance(val, (dict, list, np.ndarray, PIL.Image.Image))
+
+
+def defensive_copy(val: Any) -> Any:
+    """A defensive copy of val: a deep copy if val is mutable, val itself otherwise."""
+    return copy.deepcopy(val) if is_mutable_val(val) else val
+
+
 class Literal(Expr):
     val: Any
 
@@ -48,12 +58,10 @@ class Literal(Expr):
 
     @property
     def has_mutable_val(self) -> bool:
-        """True if val is a dict, list, ndarray or image, which a function can modify in place."""
-        return isinstance(self.val, (dict, list, np.ndarray, PIL.Image.Image))
+        return is_mutable_val(self.val)
 
     def defensive_copy(self) -> Any:
-        """A defensive copy of val: a deep copy if val is mutable, val itself otherwise."""
-        return copy.deepcopy(self.val) if self.has_mutable_val else self.val
+        return defensive_copy(self.val)
 
     def default_column_name(self) -> str | None:
         return 'Literal'

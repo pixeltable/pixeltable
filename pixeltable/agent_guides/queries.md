@@ -113,13 +113,9 @@ totals = regions.select(regions.region, total=region_total(regions.region)).coll
   collected rows instead.
 - An aggregate with `group_by=` and `order_by=` arguments is a window function, with one value per row:
   `pxtf.sum(t.amount, group_by=t.region, order_by=t.id)` is a running total per region.
-- Known issue (PXT-1801): an aggregate with `group_by=` and no `order_by=` returns a running value instead of the
-  group's value. `pxtf.min(t.at, group_by=t.key)` gives each row the minimum over that row and the rows before it, in
-  the order in which Pixeltable reads them. For the group's value, run a `group_by()` query and look up its rows by
-  key.
-- Known issue (PXT-1802): a window function in `where()` selects the wrong rows. Select the window function instead,
-  and filter the results in Python.
-- `distinct()` removes duplicate rows.
+- An aggregate with `group_by=` and no `order_by=` gives each row the value over its entire group:
+  `pxtf.min(t.at, group_by=t.key)` is the earliest `at` of the row's key. The group contains the rows that pass
+  `where()`, including rows outside `limit()`, `head()` or `tail()`.
 - Defining a computed column with an aggregate raises `aggregate functions are not supported in computed columns`.
 - `t.join(other, on=t.region == other.region, how='left')` joins two tables.
 - `on=` also takes a column, matched by name in both tables.

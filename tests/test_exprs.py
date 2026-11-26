@@ -2231,6 +2231,165 @@ class TestExprs:
         new_t.insert(rows)
         _ = new_t.collect()
 
+    def test_window_fns_without_order_by(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('win'), {'id': pxt.Int, 'key': pxt.String | None, 'v': pxt.Int | None}
+        )
+        t.insert(
+            [
+                {'id': 1, 'key': 'a', 'v': 9},
+                {'id': 2, 'key': 'a', 'v': None},
+                {'id': 3, 'key': 'b', 'v': 7},
+                {'id': 4, 'key': 'a', 'v': 5},
+                {'id': 5, 'key': None, 'v': 4},
+                {'id': 6, 'key': None, 'v': 2},
+            ]
+        )
+        group_min = pxtf.min(t.v, group_by=t.key)
+        expected_min = {1: 5, 2: 5, 3: 7, 4: 5, 5: 2, 6: 2}
+
+        res = t.select(
+            t.id,
+            m=group_min,
+            m_plus_one=group_min + 1,
+            group_sum=pxtf.sum(t.v, group_by=t.key),
+            group_count=pxtf.count(t.id, group_by=t.key),
+            running_sum=pxtf.sum(t.v, group_by=t.key, order_by=t.id),
+            udf_max=pxtf.max(self.required_params_fn(t.v, 1.0), group_by=t.key),
+        ).collect()
+        actual = sorted(
+            (
+                row['id'],
+                row['m'],
+                row['m_plus_one'],
+                row['group_sum'],
+                row['group_count'],
+                row['running_sum'],
+                row['udf_max'],
+            )
+            for row in res
+        )
+        assert actual == [
+            (1, 5, 6, 14, 3, 9, 10.0),
+            (2, 5, 6, 14, 3, 9, 10.0),
+            (3, 7, 8, 7, 1, 7, 8.0),
+            (4, 5, 6, 14, 3, 14, 10.0),
+            (5, 2, 3, 6, 2, 4, 5.0),
+            (6, 2, 3, 6, 2, 6, 5.0),
+        ]
+
+        # limit and offset apply to the output, not to the rows that the partition aggregates
+        res = t.select(t.id, m=group_min).limit(2).collect()
+        assert len(res) == 2
+        assert all(row['m'] == expected_min[row['id']] for row in res)
+        res = t.select(t.id, m=group_min).limit(2, offset=3).collect()
+        assert len(res) == 2
+        assert all(row['m'] == expected_min[row['id']] for row in res)
+
+        # the query's own ordering doesn't need to sort the rows by partition
+        res = t.select(t.id, m=group_min).head(3)
+        assert [(row['id'], row['m']) for row in res] == [(i, expected_min[i]) for i in (1, 2, 3)]
+        res = t.select(t.id, m=group_min).tail(2)
+        assert [(row['id'], row['m']) for row in res] == [(i, expected_min[i]) for i in (5, 6)]
+        res = t.select(t.id, m=group_min).order_by(t.id, asc=False).collect()
+        assert [(row['id'], row['m']) for row in res] == [(i, expected_min[i]) for i in (6, 5, 4, 3, 2, 1)]
+
+        # two calls with different partition keys
+        res = t.select(t.id, m=group_min, m_by_id=pxtf.min(t.v, group_by=t.id)).collect()
+        assert sorted((row['id'], row['m'], row['m_by_id']) for row in res) == [
+            (1, 5, 9),
+            (2, 5, None),
+            (3, 7, 7),
+            (4, 5, 5),
+            (5, 2, 4),
+            (6, 2, 2),
+        ]
+
+        # a partition key that SQL can't sort by
+        res = t.select(t.id, m=pxtf.min(t.v, group_by=_is_odd(t.id))).collect()
+        assert sorted((row['id'], row['m']) for row in res) == [(1, 4), (2, 2), (3, 4), (4, 2), (5, 4), (6, 2)]
+
+        # the partition aggregates only the rows that pass where()
+        res = t.where(t.id != 4).select(t.id, m=group_min).collect()
+        assert sorted((row['id'], row['m']) for row in res) == [(1, 9), (2, 9), (3, 7), (5, 2), (6, 2)]
+
+        # the partition aggregates only the sampled rows
+        sampled = t.sample(n=4, seed=0).select(t.id, t.key, t.v).collect()
+        expected_sample_min = {
+            row['id']: min((r['v'] for r in sampled if r['key'] == row['key'] and r['v'] is not None), default=None)
+            for row in sampled
+        }
+        res = t.sample(n=4, seed=0).select(t.id, m=group_min).collect()
+        assert {row['id']: row['m'] for row in res} == expected_sample_min
+
+        res = t.where(t.id > 100).select(t.id, m=group_min).collect()
+        assert len(res) == 0
+
+    def test_window_fns_errors(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('win'),
+            {
+                'key': pxt.String,
+                'v': pxt.Int,
+                'arr': pxt.Array[(2,), np.int64] | None,
+                'img': pxt.Image | None,
+                'j': pxt.Json,
+            },
+        )
+        t.insert([{'key': 'a', 'v': 1, 'j': {'a': np.array([1, 2])}}, {'key': 'a', 'v': 2, 'j': [np.array([1, 2])]}])
+        group_min = pxtf.min(t.v, group_by=t.key)
+
+        for window_fn in (group_min, pxtf.count(t.v, group_by=t.key, order_by=t.v), pxtf.sum(t.v, order_by=t.v)):
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'where\(\) cannot contain window functions'):
+                _ = t.where(window_fn > 1).select(t.v).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'where\(\) cannot contain window functions'):
+            _ = t.where((group_min > 1) & (t.v > 0)).select(t.v).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid nested window functions'):
+            _ = t.select(pxtf.min(t.v - group_min, group_by=t.key)).collect()
+        for key in (t.arr, t.img, t.j.a, t.j):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot have an array or image group_by'):
+                _ = t.select(pxtf.min(t.v, group_by=key)).collect()
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not supported in aggregate queries'):
+            _ = t.group_by(t.key, t.v).select(t.key, t.v, m=group_min).collect()
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match='window functions without order_by are not supported in computed columns',
+        ):
+            t.add_computed_column(m=group_min)
+
+    def test_window_fns_without_order_by_nan_key(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('win'), {'id': pxt.Int, 'f': pxt.Float, 'v': pxt.Int})
+        t.insert([{'id': 1, 'f': math.nan, 'v': 2}, {'id': 2, 'f': math.nan, 'v': 10}, {'id': 3, 'f': 1.0, 'v': 3}])
+        res = t.select(t.id, s=pxtf.sum(t.v, group_by=t.f)).collect()
+        assert sorted((row['id'], row['s']) for row in res) == [(1, 12), (2, 12), (3, 3)]
+
+    def test_window_fns_without_order_by_ignore_errors(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('win'), {'id': pxt.Int, 'key': pxt.String, 'v': pxt.Int})
+        t.insert([{'id': 1, 'key': 'a', 'v': 1}, {'id': 2, 'key': 'a', 'v': 3}, {'id': 3, 'key': 'a', 'v': 5}])
+        dest = pxt.create_table(db_root.make_catalog_path('dest'), {'id': pxt.Int, 's': pxt.Int | None})
+        status = dest.insert(t.select(t.id, s=pxtf.sum(_fail_on_three(t.v), group_by=t.key)), on_error='ignore')
+        assert status.num_rows == 3
+        assert status.num_excs == 1
+        # the failed row keeps its error, the others get the aggregate of the successful rows
+        res = dest.select(dest.id, dest.s).collect()
+        assert sorted((row['id'], row['s']) for row in res) == [(1, 6), (2, None), (3, 6)]
+
+    def test_window_fn_filter_via_computed_column(self, db_root: DatabaseRoot) -> None:
+        # the workaround for a window function in where(): filter on a computed column instead
+        t = pxt.create_table(db_root.make_catalog_path('win'), {'id': pxt.Int, 'key': pxt.String, 'v': pxt.Int})
+        t.insert(
+            [
+                {'id': 1, 'key': 'a', 'v': 5},
+                {'id': 2, 'key': 'a', 'v': 3},
+                {'id': 3, 'key': 'b', 'v': 7},
+                {'id': 4, 'key': 'a', 'v': 9},
+                {'id': 5, 'key': 'a', 'v': 1},
+            ]
+        )
+        t.add_computed_column(seen=pxtf.count(t.id, group_by=t.key, order_by=t.v))
+        res = t.where(t.seen > 1).select(t.id).collect()
+        assert sorted(row['id'] for row in res) == [1, 2, 4]
+
     def test_make_list(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
@@ -2923,6 +3082,13 @@ def _add_one(x: int) -> int:
 @pxt.udf
 def _add_two(x: int, y: int) -> int:
     return x + y
+
+
+@pxt.udf
+def _fail_on_three(x: int) -> int:
+    if x == 3:
+        raise ValueError('three')
+    return x
 
 
 @pxt.udf

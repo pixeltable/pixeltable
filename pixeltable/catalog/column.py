@@ -429,12 +429,6 @@ class Column:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {self.name!r}: `stored={self.stored}` only applies to computed columns',
             )
-        if self.stored is False and self.has_window_fn_call():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Column {self.name!r}: `stored={self.stored}` is not valid for image columns computed with a'
-                f' streaming function',
-            )
         if self._explicit_destination is not None and not (self.stored and self.is_computed):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -523,6 +517,16 @@ class Column:
                 excs.ErrorCode.INVALID_EXPRESSION,
                 f'Column {self.name!r}: aggregate functions are not supported in computed columns:\n'
                 f'{self.value_expr!s}',
+            )
+        if self._value_expr.contains_(
+            filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_partition_window_fn_call
+        ):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {self.name!r}: window functions without order_by are not supported in computed columns:\n'
+                f'{self.value_expr!s}\n'
+                'Add order_by for a running value in a stored computed column, '
+                'or compute the value over the entire group in a query.',
             )
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(
