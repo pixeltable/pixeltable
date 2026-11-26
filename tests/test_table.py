@@ -3708,7 +3708,7 @@ class TestTable:
         assert status.num_excs == 0
 
         # unstored cols that compute window functions aren't currently supported
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not supported for columns computed with window'):
             t.add_computed_column(c10=pxtf.sum(t.c1, group_by=t.c1, order_by=t.c2), stored=False)
 
         # # Column.dependent_cols are computed correctly
