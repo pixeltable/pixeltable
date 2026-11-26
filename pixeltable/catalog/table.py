@@ -512,7 +512,8 @@ class Table(SchemaObject):
                 produced by the previous expression, and are stale until the column is recomputed with
                 [`recompute_columns()`][pixeltable.Table.recompute_columns].
             cascade: If `True`, computed columns and views that transitively depend on this column are recomputed
-                as well; if `False`, they retain their current values. Only applies if `recompute` is `True`.
+                as well; if `False`, they retain their current values, but rows still enter and leave views whose
+                filter depends on this column. Only applies if `recompute` is `True`.
 
         Returns:
             An [`UpdateStatus`][pixeltable.UpdateStatus] describing the recompute; rows that raise during
