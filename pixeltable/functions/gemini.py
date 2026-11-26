@@ -233,12 +233,13 @@ async def generate_content(
                     img = PIL.Image.open(io.BytesIO(blob['data']))
                     img.load()
                     blob['data'] = img
+        usage = result.get('usage_metadata')
+        if usage is not None and usage.get('thoughts_token_count') is not None:
+            # Gemini counts thinking tokens apart from the candidate tokens, but they are output tokens too
+            n_out = (usage.get('candidates_token_count') or 0) + usage['thoughts_token_count']
+            usage = {**usage, 'candidates_token_count': n_out}
         telemetry_schemas.record_token_usage(
-            f'{__name__}.generate_content',
-            model,
-            result.get('usage_metadata'),
-            'prompt_token_count',
-            'candidates_token_count',
+            f'{__name__}.generate_content', model, usage, 'prompt_token_count', 'candidates_token_count'
         )
         return result
 

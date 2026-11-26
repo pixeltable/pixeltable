@@ -13,10 +13,12 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable import telemetry_schemas
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
     DatabaseRoot,
+    RecordingSubscriber,
     ensure_s3_pytest_resources_access,
     get_audio_files,
     get_image_files,
@@ -82,6 +84,35 @@ class TestGeminiLocal:
         assert gemini._gemini_response_to_pxt_tool_calls.exec([result], {}) is None
         if outcome == 'blocked':
             assert result['prompt_feedback']['block_reason'] == types.BlockedReason.SAFETY
+
+    @pytest.mark.parametrize('thoughts', [None, 11])
+    def test_token_usage_counts_thoughts(
+        self,
+        thoughts: int | None,
+        init_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+        telemetry_recorder: RecordingSubscriber,
+    ) -> None:
+        """Gemini reports thinking tokens apart from candidate tokens; both are output tokens."""
+        skip_test_if_not_installed('google.genai')
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        usage = types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=5, candidates_token_count=3, thoughts_token_count=thoughts
+        )
+        response = types.GenerateContentResponse(usage_metadata=usage)
+        client = SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response)))
+        )
+        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
+        result = gemini.generate_content.exec(['Say something.'], {'model': 'gemini-test'})
+        # the returned usage metadata stays as the API sent it
+        assert result['usage_metadata'] == usage.model_dump()
+        counts = {c: v for c, v, _ in telemetry_recorder.counter_adds}
+        assert counts[telemetry_schemas.udf_input_tokens] == 5
+        assert counts[telemetry_schemas.udf_output_tokens] == 3 + (thoughts or 0)
 
     def test_speech_blocked(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('google.genai')
