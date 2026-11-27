@@ -228,6 +228,7 @@ dev = [
     "hypercorn>=0.17",
     "imagehash>=4.3",
     "scipy>=1.17",
+    "cohere>=7.3.2",
 ]
 test = [
     # pytest 9.2 derives nodeid from Node._id, so pytest-xdist 3.8's item._nodeid suffix is lost and
