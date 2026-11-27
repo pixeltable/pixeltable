@@ -42,9 +42,21 @@ def mcp_udfs(url: str) -> list['pxt.func.Function']:
 
 async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
     async with mcp_session(url) as session:
-        list_tools_result = await session.list_tools()
+        tools = await _list_all_tools(session)
 
-    return [mcp_tool_to_udf(url, tool) for tool in list_tools_result.tools]
+    return [mcp_tool_to_udf(url, tool) for tool in tools]
+
+
+async def _list_all_tools(session: 'mcp.ClientSession') -> list['mcp.types.Tool']:
+    """All of the server's tools: `tools/list` is paginated, so follow `next_cursor` until the last page."""
+    import mcp
+
+    result = await session.list_tools()
+    tools = list(result.tools)
+    while result.next_cursor is not None:
+        result = await session.list_tools(params=mcp.types.PaginatedRequestParams(cursor=result.next_cursor))
+        tools.extend(result.tools)
+    return tools
 
 
 def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function':
@@ -125,7 +137,7 @@ class McpFunction(Function):
         async with mcp_session(self.url) as session:
             if not self._is_verified:
                 current_tool = next(
-                    (tool for tool in (await session.list_tools()).tools if tool.name == self.tool_name), None
+                    (tool for tool in await _list_all_tools(session) if tool.name == self.tool_name), None
                 )
                 if current_tool is None:
                     error_msg = (
