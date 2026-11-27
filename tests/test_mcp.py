@@ -86,6 +86,20 @@ class TestMcp:
             assert t.insert([{'a': 7, 'b': 8}], on_error='ignore').num_excs > 0
             assert 'no longer available' in t.where(t.a == 7).select(m=t.pixelmultiple.errormsg).collect()[0]['m']
 
+    def test_mcp_paginated_tool_list(self, db_root: DatabaseRoot, worker_id: str) -> None:
+        # a server may split tools/list into pages: tools past the first page are registered and can be evaluated
+        skip_test_if_not_installed('mcp')
+
+        port = _worker_base_port(worker_id) + 2
+        with _mcp_server_variant('paged', port):
+            udfs = pxt.mcp_udfs(f'http://localhost:{port}/mcp')
+            assert [udf.name for udf in udfs] == ['pixeldict', 'pixelmultiple']
+
+            t = pxt.create_table(db_root.make_catalog_path('test_mcp'), {'a': pxt.Int | None, 'b': pxt.Int | None})
+            t.add_computed_column(pixelmultiple=udfs[1](a=t.a, b=t.b))
+            t.insert([{'a': 3, 'b': 4}])
+            assert t.collect()[0]['pixelmultiple'] == str((3 + 22) * 4)
+
     def test_mcp_as_tools(self, db_root: DatabaseRoot, init_mcp_server: str) -> None:
         skip_test_if_not_installed('mcp', 'openai')
         skip_test_if_no_client('openai')
