@@ -1,4 +1,7 @@
-"""The resources of hosted databases and services, shared by the project config, the requests and the stored records."""
+"""The resources of hosted databases and services, and of the Modal containers that run UDF calls.
+
+The resources of databases and services are shared by the project config, the requests and the stored records.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +27,27 @@ class PodResources(pydantic.BaseModel):
 
 class ServiceResources(PodResources):
     file_cache_gb: float | None = pydantic.Field(default=None, gt=0, description='file cache size per pod, in GB')
+
+
+# Modal's proxy loses the response of a call that runs past a limit between 310 and 400 seconds
+MAX_UDF_CALL_SECONDS = 300
+
+
+class UdfResources(pydantic.BaseModel):
+    """Resources of the Modal containers that run one UDF's calls."""
+
+    model_config = pydantic.ConfigDict(extra='forbid', frozen=True)
+
+    cpu: float | None = pydantic.Field(default=None, gt=0, description='vCPUs per container')
+    memory_mb: int | None = pydantic.Field(default=None, gt=0, description='memory per container, in MB')
+    gpu: str | None = pydantic.Field(default=None, min_length=1, description="Modal GPU spec, eg 'T4' or 'H100:2'")
+    max_containers: int = pydantic.Field(default=2, gt=0, description='maximum number of containers')
+    timeout_seconds: int = pydantic.Field(
+        default=MAX_UDF_CALL_SECONDS,
+        gt=0,
+        le=MAX_UDF_CALL_SECONDS,
+        description='how long a call waits for its response, including time queued behind busy containers',
+    )
 
 
 class DatabaseCapacity(PodResources):

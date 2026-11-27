@@ -6,7 +6,7 @@ import os
 import pathlib
 import re
 import textwrap
-from typing import Any
+from typing import Any, Iterator, TypedDict
 
 import numpy as np
 import pytest
@@ -64,6 +64,16 @@ def as_dict(diff: TableDiff) -> dict[str, Any]:
     }
 
 
+class LegRow(TypedDict):
+    leg: int
+
+
+@pxt.iterator
+def legs(num_legs: int) -> Iterator[LegRow]:
+    for leg in range(num_legs):
+        yield {'leg': leg}
+
+
 @pxt.udf
 def tag(s: str, label: str) -> str:
     return f'{label}: {s}'
@@ -85,7 +95,7 @@ def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
 
 
 class TestTableModel:
-    def test_referenced_functions(self) -> None:
+    def test_referenced_functions(self, init_env: None) -> None:
         """Every function a declaration persists is reported, whichever declaration holds it."""
         TableModel = pxt.model_base()
 
@@ -571,6 +581,29 @@ class TestTableModel:
         assert (op.name, op.op, op.severity) == ('payload', 'alter', 'additive')
         assert op.model == {'value': "{'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}"}
         assert op.existing == {'value': "{'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}"}
+
+    def test_signature_shaped_literal_diff(self, db_root: DatabaseRoot) -> None:
+        """A constant dict with the keys of a UDF signature is compared as a constant."""
+        p = db_root.make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            content: pxt.String
+            payload = {'text': content, 'sig': {'return_type': {'kind': 'none'}, 'parameters': [], 'is_batched': False}}
+
+        TableModel.create_all(root)
+        assert TableModel.get_model_diff(root)['docs'].resolution == 'up_to_date'
+
+        TableModelV2 = pxt.model_base()
+
+        class DocsV2(TableModelV2, name='docs'):
+            content: pxt.String
+            payload = {'text': content, 'sig': {'return_type': {'kind': 'some'}, 'parameters': [], 'is_batched': False}}
+
+        diff = TableModelV2.get_model_diff(root)['docs']
+        assert diff.resolution == 'update_additive'
+        assert [(op.name, op.op) for op in diff.ops] == [('payload', 'alter')]
 
     def test_json_type_key_order_diff(self, db_root: DatabaseRoot) -> None:
         """PXT-1549: reordering keys in a Json type schema is not a column type change."""
@@ -1199,6 +1232,48 @@ class TestTableModel:
         assert res['lower_code'] == ['a', 'b', 'c']
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
 
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r"'count' is reserved and cannot be the name of an iterator output.",
+        ):
+
+            class TripCounts(
+                TableModel, name='trip_counts', base=Trips, iterator=pxtf.json.list_iterator(count=Trips.codes)
+            ):
+                pass
+
+    def test_view_model_on_iterator_view(self, db_root: DatabaseRoot) -> None:
+        """A view model stacks on an iterator view model whose iterator argument is a compound expression."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Trips(TableModel, name='trips'):
+            id: pxt.Int
+            num_stops: pxt.Int
+            meta: pxt.Json[{'codes': [str], 'fares': [int]}]
+
+        class Legs(TableModel, name='legs', base=Trips, iterator=legs(Trips.num_stops + 1)):
+            pass
+
+        class LaterLegs(TableModel, name='later_legs', base=Legs.where(Legs.pos > 0)):
+            next_leg = Legs.leg + 1
+
+        class TripCodes(
+            TableModel, name='trip_codes', base=Trips, iterator=pxtf.json.list_iterator(code=Trips.meta.codes)
+        ):
+            raised_fares = Trips.meta.fares.map(lambda fare: fare + 1)
+
+        class LowerTripCodes(TableModel, name='lower_trip_codes', base=TripCodes):
+            lower_code = TripCodes.code.lower()
+
+        TableModel.update_all(p(''))
+        Trips.insert([{'id': 1, 'num_stops': 2, 'meta': {'codes': ['A', 'B'], 'fares': [10, 20]}}])
+        assert LaterLegs.table.order_by(LaterLegs.pos).collect()['next_leg'] == [2, 3]
+        res = LowerTripCodes.table.order_by(LowerTripCodes.pos).collect()
+        assert res['lower_code'] == ['a', 'b']
+        assert res['raised_fares'] == [[11, 21], [11, 21]]
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
+
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
@@ -1441,7 +1516,6 @@ class TestTableModel:
             TableModel3.update_all(p(''))
         assert pxt.get_table(p('notes'), if_not_exists='ignore') is None
 
-    @pytest.mark.skip(reason='PXT-1709: join() of two bound models raises AttributeError')
     def test_bound_model_join(self, db_root: DatabaseRoot) -> None:
         """join() on a bound model accepts another bound model."""
         p = db_root.make_catalog_path
@@ -1460,6 +1534,14 @@ class TestTableModel:
         Tags.insert(doc_id=1, tag='greek')
         res = Docs.join(Tags, on=Docs.id == Tags.doc_id).select(Docs.body, Tags.tag).collect()  # type: ignore[arg-type]
         assert list(res) == [{'body': 'alpha', 'tag': 'greek'}]
+
+        TableModel2 = pxt.model_base()
+
+        class Notes(TableModel2, name='notes'):
+            doc_id: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.NOT_BOUND, match=r'`Notes` is not yet bound'):
+            Docs.join(Notes, on=Docs.id == Notes.doc_id)  # type: ignore[arg-type]
 
     @pytest.mark.skip(reason='PXT-1710: ModelQuery called in a joined Query is never bound')
     def test_joined_query_calls_model_query(self, db_root: DatabaseRoot) -> None:
@@ -2564,11 +2646,32 @@ class TestTableModel:
             class SecondDup(TableModel, name='dup_name'):
                 id: pxt.Int | None
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must define `type` or `value`, but not both'):
+        neither = r"Column specification for 'bad' defines neither `type` nor `value`; pass `type=` to Column\(\)"
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
 
             class BadColSpec(TableModel, name='bad_col_spec'):
                 id: pxt.Int | None
                 bad = Column()
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
+
+            class BadPkColSpec(TableModel, name='bad_pk_col_spec'):
+                bad = Column(primary_key=True)
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=neither):
+
+            class AnnotatedPkColSpec(TableModel, name='annotated_pk_col_spec'):
+                bad: pxt.UUID = Column(primary_key=True)  # type: ignore[assignment]
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column specification for 'both' cannot define both `type` and `value`: a computed column "
+            r'takes its type from `value`; to change it, cast the value with `.astype\(\)`$',
+        ):
+
+            class BothColSpec(TableModel, name='both_col_spec'):
+                id: pxt.Int | None
+                both = Column(type=pxt.Int, value=1)
 
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).
@@ -2846,7 +2949,7 @@ class TestTableModel:
             class MultiBase(TableModel, name='multi_base', base=ValidTableModel.order_by(ValidTableModel.id).limit(10)):
                 pass
 
-    def test_aggregation_rejected(self) -> None:
+    def test_aggregation_rejected(self, init_env: None) -> None:
         """A view is maintained one base row at a time, so nothing in a model may aggregate."""
         TableModel = pxt.model_base()
 
@@ -2902,6 +3005,13 @@ class TestTableModel:
         probe.insert([{'cutoff': 0}, {'cutoff': 1}])
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
         assert rows == [['alpha', 'beta'], ['beta']]
+
+        t = pxt.create_table(f'{target}/t', {'cutoff': pxt.Int})
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match='A query over model `Docs` can only be used in a TableModel'
+        ):
+            t.add_computed_column(matches=titles_after(t.cutoff))
+        assert 'matches' not in t.columns()
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
@@ -3672,6 +3782,110 @@ class TestTableModel:
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': True}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
 
+    def test_update_all_widened_column(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` makes a data column nullable in place."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Notes(TableModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String
+            label: pxt.String
+            extra: pxt.String
+            meta: pxt.Json
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+
+        TableModel.create_all(root)
+        t = pxt.get_table(p('notes'))
+        t.insert([{'id': 1, 'note': 'a', 'label': 'x', 'extra': 'e', 'meta': {'kind': 'k1'}}])
+
+        WidenedModel = pxt.model_base()
+
+        class WidenedNotes(WidenedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String
+            extra: pxt.String
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        diff = WidenedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'update_additive'
+        assert {(op.op, op.name, op.severity) for op in diff.ops} == {
+            ('alter', 'note', 'additive'),
+            ('alter', 'meta', 'additive'),
+            ('add', 'loud', 'additive'),
+        }
+        assert "'note': String -> String | None" in '\n'.join(format_diff('notes', diff))
+        WidenedModel.update_all(root)
+        assert all(d.resolution == 'up_to_date' for d in WidenedModel.get_model_diff(root).values())
+        t = pxt.get_table(p('notes'))
+        assert_type_eq(t.note.col_type, pxt.String | None)
+        assert_type_eq(t.loud.col_type, pxt.String | None)
+        t.insert(
+            [
+                {'id': 2, 'note': None, 'label': 'y', 'extra': 'f', 'meta': {'kind': 'k2'}},
+                {'id': 3, 'note': 'c', 'label': 'z', 'extra': 'g', 'meta': None},
+            ]
+        )
+        res = t.order_by(t.id).select(t.loud, t.kind).collect()
+        assert res['loud'] == ['A', None, 'C']
+        # kind existed before meta became nullable, and is still computed for new rows
+        assert res['kind'] == ['k1', 'k2', None]
+
+        # a non-nullable column of the table depends on label: unsupported, and the diff lists that column
+        BlockedModel = pxt.model_base()
+
+        class BlockedNotes(BlockedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String | None
+            extra: pxt.String
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        diff = BlockedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'unsupported'
+        (label_op,) = [op for op in diff.ops if op.name == 'label']
+        assert (
+            label_op.description
+            == "column 'label' cannot become nullable: non-nullable columns depend on it: notes.shout"
+        )
+
+        # a non-nullable column of a view outside the models depends on extra: unsupported, and the update changes
+        # nothing
+        v = pxt.create_view(p('notes_view'), t)
+        v.add_computed_column(extra_len=pxtf.string.len(v.extra))
+
+        ViewBlockedModel = pxt.model_base()
+
+        class ViewBlockedNotes(ViewBlockedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String
+            extra: pxt.String | None
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        diff = ViewBlockedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'unsupported'
+        (extra_op,) = [op for op in diff.ops if op.name == 'extra']
+        assert extra_op.description == (
+            "column 'extra' cannot become nullable: non-nullable columns depend on it: notes_view.extra_len"
+        )
+        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='cannot be updated'):
+            ViewBlockedModel.update_all(root)
+        assert_type_eq(pxt.get_table(p('notes')).extra.col_type, pxt.String)
+
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_aggregate_query_column(self, db_root: DatabaseRoot) -> None:
@@ -3703,6 +3917,27 @@ class TestTableModel:
         customers.insert([{'customer': 'a'}, {'customer': 'b'}])
         assert_type_eq(customers.total.col_type, pxt.Float | None)
         assert customers.order_by(customers.customer).select(customers.total).collect()['total'] == [3.5, None]
+
+    def test_eval_udf_model_query(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Notes(TableModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            label: pxt.String
+
+        @pxt.query
+        def labels_after(id: int) -> pxt.Query:
+            return Notes.where(Notes.id > id).order_by(Notes.id).select(Notes.label)  # type: ignore[arg-type, operator]
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'call `bind_all\(\)`'):
+            pxt.eval_udf(labels_after, 0)
+
+        TableModel.create_all(root)
+        pxt.get_table(p('notes')).insert([{'id': 1, 'label': 'a'}, {'id': 2, 'label': 'b'}, {'id': 3, 'label': 'c'}])
+        assert pxt.eval_udf(labels_after, 1) == ['b', 'c']
 
     def test_update_all_altered_columns_reversed_dependency(
         self, db_root: DatabaseRoot, is_data_versioned: bool

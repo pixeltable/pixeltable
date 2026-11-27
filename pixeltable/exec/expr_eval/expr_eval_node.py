@@ -14,7 +14,7 @@ from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
-from .evaluators import FnCallEvaluator, NestedRowList
+from .evaluators import FnCallEvaluator, JsonMapperDispatcher, NestedRowList
 from .interfaces import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
@@ -43,7 +43,7 @@ class ExprEvalNode(ExecNode):
     """
 
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
-    outputs: np.ndarray  # bool per slot; True if this slot is part of our output
+    outputs: np.ndarray  # bool per slot; True if this slot is part of our output, except for image decode slots
     schedulers: dict[str, Scheduler]  # key: resource pool name
     col_names: dict[int, str]  # Dispatcher protocol; slot idx -> name of the table column it materializes
     eval_ctx: ExprEvalCtx  # for input/output rows
@@ -89,6 +89,8 @@ class ExprEvalNode(ExecNode):
         output_slot_idxs = [e.slot_idx for e in output_exprs]
         self.outputs[output_slot_idxs] = True
         self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
+        # leave out the image decode slots, so that the progress bar and cells_computed do not count a decode as a cell
+        self.outputs[self.eval_ctx.image_decode_slot_idxs] = False
         self._init_exec_state()
 
     def init_bindings(self) -> None:
@@ -225,13 +227,7 @@ class ExprEvalNode(ExecNode):
         )
 
     def _init_schedulers(self) -> None:
-        resource_pools = {
-            eval.fn_call.resource_pool
-            for eval in self.eval_ctx.slot_evaluators.values()
-            if isinstance(eval, FnCallEvaluator)
-        }
-        resource_pools = {pool for pool in resource_pools if pool is not None}
-        for pool_name in resource_pools:
+        for pool_name in self._resource_pools(self.eval_ctx):
             for scheduler in SCHEDULERS:
                 if scheduler.matches(pool_name):
                     self.schedulers[pool_name] = scheduler(pool_name, self)
@@ -240,6 +236,16 @@ class ExprEvalNode(ExecNode):
                 raise excs.InternalError(
                     excs.ErrorCode.INTERNAL_ERROR, f'No scheduler found for resource pool {pool_name}'
                 )
+
+    def _resource_pools(self, eval_ctx: ExprEvalCtx) -> set[str]:
+        """Return the resource pools of the function calls in eval_ctx."""
+        pools: set[str] = set()
+        for evaluator in eval_ctx.slot_evaluators.values():
+            if isinstance(evaluator, FnCallEvaluator) and evaluator.resource_pool is not None:
+                pools.add(evaluator.resource_pool)
+            elif isinstance(evaluator, JsonMapperDispatcher):
+                pools |= self._resource_pools(evaluator.nested_eval_ctx)
+        return pools
 
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         """
@@ -388,9 +394,12 @@ class ExprEvalNode(ExecNode):
         if not self.ctx.ignore_errors:
             dependency_idxs = [e.slot_idx for e in exec_ctx.row_builder.unique_exprs[slot_with_exc].dependencies()]
             first_row = rows[0]
-            input_vals = [first_row[idx] for idx in dependency_idxs]
+            # read vals directly: DataRow.__getitem__() decodes a stored image, and a failed decode would raise here
+            input_vals = [first_row.vals[idx] for idx in dependency_idxs]
             e = exec_ctx.row_builder.unique_exprs[slot_with_exc]
-            self.error = excs.ExprEvalError(e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
+            self.error = excs.ExprEvalError(
+                e, f'expression {e!s}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0
+            )
             self.exc_event.set()
             return
 

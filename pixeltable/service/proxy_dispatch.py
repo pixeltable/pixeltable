@@ -416,6 +416,7 @@ def _insert(request: ProxyRequest, tbl: LocalTable) -> Any:
     return tbl.insert(
         kwargs['rows'],
         on_error=kwargs['on_error'],
+        if_exists=kwargs['if_exists'],
         print_stats=kwargs['print_stats'],
         return_rows=kwargs['return_rows'],
     )
@@ -437,6 +438,7 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
             source_format=kwargs['source_format'],
             schema_overrides=kwargs['schema_overrides'],
             on_error=kwargs['on_error'],
+            if_exists=kwargs['if_exists'],
             print_stats=kwargs['print_stats'],
             return_rows=kwargs['return_rows'],
             **(kwargs['extra_fields'] or {}),
@@ -460,6 +462,7 @@ def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
             dataset,
             schema_overrides=kwargs['schema_overrides'],
             on_error=kwargs['on_error'],
+            if_exists=kwargs['if_exists'],
             print_stats=kwargs['print_stats'],
             return_rows=kwargs['return_rows'],
             **(kwargs['extra_fields'] or {}),
@@ -502,7 +505,11 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
         return Query.from_dict(kwargs['query'])
 
     return tbl.insert(
-        build(), on_error=kwargs['on_error'], print_stats=kwargs['print_stats'], return_rows=kwargs['return_rows']
+        build(),
+        on_error=kwargs['on_error'],
+        if_exists=kwargs['if_exists'],
+        print_stats=kwargs['print_stats'],
+        return_rows=kwargs['return_rows'],
     )
 
 
@@ -616,6 +623,11 @@ def _recompute_columns(request: ProxyRequest, tbl: LocalTable) -> Any:
     return tbl.recompute_columns(
         *kwargs['columns'], where=kwargs['where'], errors_only=kwargs['errors_only'], cascade=kwargs['cascade']
     )
+
+
+def _check_recompute(request: ProxyRequest, tbl: LocalTable) -> Any:
+    kwargs = _deserialize_args(request)
+    return tbl._check_recompute(*kwargs['columns'], errors_only=kwargs['errors_only'])
 
 
 def _get_path(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -756,6 +768,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'drop_embedding_index'): _drop_embedding_index,
     ('Table', 'drop_index'): _drop_index,
     ('Table', 'recompute_columns'): _recompute_columns,
+    ('Table', '_check_recompute'): _check_recompute,
 }
 
 # (class, method) -> output converter, for the methods whose result can carry media. handle() applies the

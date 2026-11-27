@@ -19,7 +19,6 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.spacy import get_spacy_model
 
 
@@ -716,7 +715,8 @@ def _(
     if start is None:
         if stop is None:
             return self
-        return sql.func.substr(self, 1, stop)
+        # stop is now 1-based, but substr() takes a length, which is the 0-based stop
+        return sql.func.substr(self, 1, sql.func.greatest(stop - 1, 0))
     if stop is None:
         return sql.func.substr(self, start)
     return sql.func.substr(self, start, sql.func.greatest(stop - start, 0))
@@ -909,7 +909,65 @@ def _(bound_args: dict[str, Any]) -> None:
         )
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'capitalize',
+    'casefold',
+    'center',
+    'contains',
+    'contains_re',
+    'count',
+    'endswith',
+    'fill',
+    'find',
+    'findall',
+    'format',
+    'fullmatch',
+    'index',
+    'isalnum',
+    'isalpha',
+    'isascii',
+    'isdecimal',
+    'isdigit',
+    'isidentifier',
+    'islower',
+    'isnumeric',
+    'isspace',
+    'istitle',
+    'isupper',
+    'join',
+    'len',
+    'ljust',
+    'lower',
+    'lstrip',
+    'match',
+    'normalize',
+    'pad',
+    'partition',
+    'removeprefix',
+    'removesuffix',
+    'repeat',
+    'replace',
+    'replace_re',
+    'reverse',
+    'rfind',
+    'rindex',
+    'rjust',
+    'rpartition',
+    'rsplit',
+    'rstrip',
+    'slice',
+    'slice_replace',
+    'split',
+    'splitlines',
+    'startswith',
+    'string_splitter',
+    'strip',
+    'swapcase',
+    'title',
+    'upper',
+    'wrap',
+    'zfill',
+]
 
 
 def __dir__() -> list[str]:

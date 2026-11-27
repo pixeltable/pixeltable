@@ -99,6 +99,12 @@ pxt pwd                            # print it
 # projects
 pxt init                             # mark the current directory as a project root
 pxt skills install                   # give coding agents the Pixeltable skill
+pxt guide tables                     # print the agent guide to tables; 'pxt guide' lists the guides
+pxt lint                             # review the project's code against the rules in 'pxt guide review'
+
+# functions
+pxt functions --on Json              # what you can call on a Json expression
+pxt functions --search detect        # functions whose path or docstring contains "detect"
 
 # declarative schemas
 pxt schema check  app.py          # validate the file on its own, with no target
@@ -443,6 +449,20 @@ pxt schema check app.py           # exit 0 valid, 1 invalid
 pxt service check app.py --json
 ```
 
+## Functions
+
+`pxt functions` lists the functions, aggregates and iterators of Pixeltable or of a module, one per line, with how to call each one and the first paragraph of its docstring. It needs no daemon or catalog.
+
+```bash
+pxt functions --on Json              # the methods and properties of Json expressions
+pxt functions --search detect        # the functions whose path or docstring contains "detect"
+pxt functions video --kind iterator  # the iterators in pixeltable.functions.video, with their output columns
+pxt functions app --kind udf         # the UDFs of app.py in the current directory
+pxt functions --on Image --json      # the same records, machine-readable
+```
+
+`pxt.list_functions()` takes the same filters in Python.
+
 ## Coding agents
 
 `pxt skills install` gives a coding agent the [Pixeltable skill](https://github.com/pixeltable/pixeltable-skill), which tells it how to build with Pixeltable. Run it at the root of the repository you start the agent in:
@@ -463,6 +483,19 @@ The command downloads the skill from the repository's `main` branch and prints t
 - Claude Code started at the repository root loads a copy written in a subdirectory only once it reads a file there, so install at the root.
 - If Claude Code also has the Pixeltable plugin, both copies load, because plugin skills are namespaced: keep one.
 - Commit both directories to give every collaborator's agent the same copy, and delete them to remove the skill.
+
+The skill teaches judgment that does not change between Pixeltable releases. How the installed release behaves is in the
+agent guides that ship with it, one per area: tables, expressions, queries, views, indexes, UDFs, Json, providers,
+serving, the CLI and Cloud. `pxt guide` lists them, `pxt guide AREA` prints one, and `pxt guide --path` prints the
+directory of the guide files, for reading or searching them.
+
+`pxt lint` reviews a project's Python code against the rules that `pxt guide review` prints: Python code that redoes
+Pixeltable's work, such as a loop that scores similarity or rebuilds a summary, or that uses Pixeltable wrongly. A
+separate model reads the files and the command prints its findings; it exits 2 when there are any. The reviewer is the
+command in the environment variable `PXT_LINT_REVIEWER`. Without it, a run under Claude Code, Codex, Cursor, Gemini CLI,
+Augment or OpenCode reviews with that agent's CLI, so reviews run on the agent's account. The value `none` turns the
+review off; the command then prints the rules and the files for the coding agent that ran it to review. A review takes
+several minutes: give the command a timeout of 10 minutes.
 
 ### Reporting a gap
 
@@ -1151,6 +1184,7 @@ file_cache_gb = 4.0   # each pod's local cache of media files
 ```
 
 An entry with no `name` configures the local database. A hosted database is configured by the entry whose `name` is its URI.
+The compute settings (`cpu`, `memory_mb`, `disk_gb`, `workers`) and `services` apply to a hosted database only.
 
 ### `pxt db`
 
@@ -1158,7 +1192,7 @@ Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable inst
 
 Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
 
-The URI argument is optional: when it is omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and the other `db` commands with no argument.
+The URI argument is optional for `diff`, `update`, `status`, `retry` and `delete`: when it is omitted, these commands act on the local database, whose UDF servers run in Pixeltable Cloud.
 
 A usage error, such as an unknown verb or a URI that is not `pxt://org:db`, exits `1`: in `pxt db`, `2` means changes pending (`diff`) or a change still under way when a wait ends. A failed update names `pxt db retry` on a `next:` line, and a wait that stops names `pxt db status`.
 
@@ -1345,12 +1379,14 @@ pxt usage --json                 # the control plane's answer, as it is
 ```
 
 Shows this month's usage of the organization your credential belongs to: the plan and the days left
-in the month (UTC), the cost so far against what the plan includes, each meter, and what the
-organization holds against its plan's limits. Any member can run it.
+in the month (UTC), the cost so far against what the plan includes, the CPU and memory its databases
+and services hold right now, each meter, and what the organization holds against its plan's limits.
+Any member can run it.
 
 ```
 Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left
 $18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC), around November 22 at this rate
+Running now: 2.5 vCPU, 5,120 MB
 
 METER                           QUANTITY          COST
 Compute, vCPU-hours             120.5 vCPU-hour  $4.22
@@ -1368,7 +1404,8 @@ Egress this month           2.1 GB / 5 GB
 ```
 
 Costs are at Pro's rates and bytes are decimal GB. Compute lags up to an hour, storage and egress
-up to a day. On Pro, the cost line ends with an estimate of what bills past the included credit.
+up to a day. On Pro, the cost line ends with an estimate of what bills past the included credit, and
+the `Running now` line with what the running resources cost a month.
 
 ### Plan limits
 

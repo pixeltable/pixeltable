@@ -18,15 +18,30 @@ def log_stmt(logger: logging.Logger, stmt: sql.sql.ClauseElement) -> None:
     logger.debug(f'executing {stmt.compile(dialect=postgresql.dialect())}')
 
 
-def log_explain(logger: logging.Logger, stmt: sql.sql.ClauseElement, conn: sql.engine.Connection) -> None:
+def log_explain(
+    logger: logging.Logger,
+    stmt: sql.sql.ClauseElement,
+    conn: sql.engine.Connection,
+    bound_args: dict[str, Any] | None = None,
+) -> None:
+    assert conn.in_transaction()
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    if bound_args is not None and len(bound_args) > 0:
+        # literal_binds would render the bindparams as NULL
+        logger.debug('no EXPLAIN for a stmt with bind parameters')
+        return
+
     try:
-        # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y, which results in a syntax error
-        stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
-        explain_result = conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
-        explain_str = '\n'.join(str(row) for row in explain_result)
+        stmt_str = str(stmt.compile(dialect=conn.dialect, compile_kwargs={'literal_binds': True}))
+        # a failed EXPLAIN would abort the enclosing transaction
+        with conn.begin_nested():
+            # sql.text() would turn the compiled %% into %%%%
+            explain_result = conn.exec_driver_sql(f'EXPLAIN {stmt_str}')
+            explain_str = '\n'.join(str(row) for row in explain_result)
         logger.debug(f'SqlScanNode explain:\n{explain_str}')
-    except Exception:
-        logger.warning('EXPLAIN failed')
+    except Exception as e:
+        logger.warning(f'EXPLAIN failed with error: {e}')
 
 
 def redact_db_url(url: str | URL) -> str:
@@ -82,7 +97,7 @@ def _snowflake_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
 
     if col_type.is_json_type():
         Env.get().require_package('snowflake.sqlalchemy')
-        from snowflake.sqlalchemy import VARIANT  # type: ignore[import-untyped]
+        from snowflake.sqlalchemy import VARIANT
 
         return VARIANT()
     return col_type.to_sa_type()

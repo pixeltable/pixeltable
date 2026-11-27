@@ -11,7 +11,6 @@ import pixeltable as pxt
 from pixeltable import env
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import fireworks
@@ -57,13 +56,13 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `accounts/fireworks/models/gpt-oss-120b`
+        Add a computed column that applies the model `accounts/fireworks/models/deepseek-v4p1-flash`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
         ...     response=chat_completions(
-        ...         messages, model='accounts/fireworks/models/gpt-oss-120b'
+        ...         messages, model='accounts/fireworks/models/deepseek-v4p1-flash'
         ...     )
         ... )
     """
@@ -78,7 +77,7 @@ async def chat_completions(
     return result.model_dump(mode='json')
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions']
 
 
 def __dir__() -> list[str]:

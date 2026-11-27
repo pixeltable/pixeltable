@@ -184,7 +184,7 @@ class TestPrepareProject:
 
 
 class TestUnpack:
-    def test_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_round_trip(self, init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unpacking an archive yields the project it was packaged from, whatever shapes its files take.
 
         unpack_project_archive() checks the unpacked project against the served digest, so serving this

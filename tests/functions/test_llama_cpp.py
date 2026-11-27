@@ -18,9 +18,10 @@ def cleanup_llama_cpp() -> Iterator[None]:
     llama_cpp.cleanup()
 
 
-@pytest.mark.very_expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestLlamaCpp:
+    @pytest.mark.resource_intensive
     @pytest.mark.xdist_group('large_model')
     def test_create_chat_completions(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
@@ -61,8 +62,8 @@ class TestLlamaCpp:
     @pytest.mark.parametrize(
         'model',
         [
-            pytest.param('mistral', marks=pytest.mark.xdist_group('large_model')),
-            pytest.param('gemma', marks=pytest.mark.xdist_group('large_model')),
+            pytest.param('mistral', marks=[pytest.mark.resource_intensive, pytest.mark.xdist_group('large_model')]),
+            pytest.param('gemma', marks=[pytest.mark.resource_intensive, pytest.mark.xdist_group('large_model')]),
             'qwen',
         ],
     )

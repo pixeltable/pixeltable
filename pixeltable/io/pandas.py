@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import typing
 import uuid
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 import numpy as np
 import pandas as pd
@@ -131,6 +131,14 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> ts.ColumnType 
     if isinstance(pd_dtype, pd.StringDtype):
         return ts.StringType(nullable=nullable)
     if is_extension_array_dtype(pd_dtype):
+        # Nullable and pyarrow-backed numeric/boolean extension dtypes (Int64, Float64, boolean, ...)
+        kind = getattr(pd_dtype, 'kind', None)
+        if kind == 'b':
+            return ts.BoolType(nullable=nullable)
+        if kind in ('i', 'u'):
+            return ts.IntType(nullable=nullable)
+        if kind == 'f':
+            return ts.FloatType(nullable=nullable)
         return None
     # Most other pandas dtypes are directly NumPy compatible
     assert isinstance(pd_dtype, np.dtype)
@@ -167,53 +175,88 @@ def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: 
     )
 
 
-def _df_row_to_pxt_row(
-    row: tuple[Any, ...], schema: dict[str, ts.ColumnType], col_mapping: dict[str, str] | None
-) -> dict[str, Any]:
-    """Convert a row to insertable format"""
-    pxt_row: dict[str, Any] = {}
-    for val, (col_name, pxt_type) in zip(row[1:], schema.items()):
-        pxt_name = col_mapping.get(col_name, col_name)
-        nval: Any
-        if pxt_type.is_float_type():
-            nval = float(val)
-        elif isinstance(val, float) and np.isnan(val):
-            # pandas uses NaN for empty cells, even for types other than float;
-            # for any type but a float, convert these to None
-            nval = None
-        elif pxt_type.is_int_type():
-            nval = int(val)
-        elif pxt_type.is_bool_type():
-            nval = bool(val)
-        elif pxt_type.is_string_type():
-            nval = str(val)
-        elif pxt_type.is_date_type():
-            if pd.isnull(val):
-                # pandas has the bespoke 'NaT' valud for a missing timestamp
-                # This is not supported by postgres, and must be converted to None
-                nval = None
-            else:
-                nval = pd.Timestamp(val).date()
-        elif pxt_type.is_timestamp_type():
-            if pd.isnull(val):
-                # pandas has the bespoke 'NaT' value for a missing timestamp
-                # This is not supported by postgres, and must be converted to None
-                nval = None
-            else:
-                tval = pd.Timestamp(val)
-                # pandas supports tz-aware and naive timestamps.
-                if tval.tz is None:
-                    nval = pd.Timestamp(tval).tz_localize(tz=Env.get().default_time_zone)
-                else:
-                    nval = tval.astimezone(Env.get().default_time_zone)
-        elif pxt_type.is_uuid_type():
-            if pd.isnull(val):
-                nval = None
-            elif isinstance(val, uuid.UUID):
-                nval = val
-            else:
-                nval = uuid.UUID(val)
-        else:
-            nval = val
-        pxt_row[pxt_name] = nval
-    return pxt_row
+def _df_prepare_columns(
+    df: pd.DataFrame, schema: dict[str, ts.ColumnType], col_mapping: dict[str, str]
+) -> dict[str, Iterable[Any]]:
+    """Prepare columns without materializing row dictionaries or modifying the source DataFrame."""
+    return {col_mapping.get(name, name): _df_prepare_column(df[name], col_type) for name, col_type in schema.items()}
+
+
+def _df_rows(prepared_columns: dict[str, Iterable[Any]], num_rows: int) -> Iterator[dict[str, Any]]:
+    """Yield row dictionaries from prepared columns."""
+    # Keep normalized timestamps in pandas storage; replace NaT only when constructing a row.
+    columns = [
+        (None if value is pd.NaT else value for value in column)
+        if isinstance(column, pd.Series) and is_datetime64_any_dtype(column.dtype)
+        else column
+        for column in prepared_columns.values()
+    ]
+    # Include the row count so a DataFrame with no columns still supplies its empty rows.
+    for row in zip(range(num_rows), *columns):
+        yield dict(zip(prepared_columns, row[1:]))
+
+
+def _df_prepare_column(data: pd.Series, col_type: ts.ColumnType) -> Iterable[Any]:
+    dtype = data.dtype
+    if isinstance(dtype, np.dtype):
+        if col_type.is_int_type() and dtype.kind in ('i', 'u'):
+            return data
+        if col_type.is_float_type():
+            if dtype.kind == 'f' and dtype.itemsize <= 8:
+                return data
+            if dtype.kind in ('b', 'i', 'u'):
+                return data.astype(np.float64)
+        if col_type.is_bool_type():
+            if dtype.kind == 'b':
+                return data
+            if dtype.kind in ('i', 'u'):
+                return data.astype(bool)
+
+    if is_datetime64_any_dtype(dtype):
+        try:
+            if col_type.is_timestamp_type():
+                tz = Env.get().default_time_zone
+                return data.dt.tz_localize(tz) if data.dt.tz is None else data.dt.tz_convert(tz)
+            if col_type.is_date_type():
+                return data.dt.date.where(data.notna(), None)
+        except Exception:
+            # Preserve scalar conversion for datetime cases a pandas column operation cannot handle.
+            pass
+
+    return [_df_convert_value(val, col_type, str(data.name)) for val in data]
+
+
+def _df_convert_value(val: Any, col_type: ts.ColumnType, col_name: str) -> Any:
+    if val is None or val is pd.NA or val is pd.NaT:
+        # Missing values in object and nullable extension columns; float('nan') is handled below.
+        return None
+    if col_type.is_float_type():
+        return float(val)
+    if isinstance(val, float) and np.isnan(val):
+        # Float NaN remains a float value; in other column types it represents a missing cell.
+        return None
+    if col_type.is_int_type():
+        if isinstance(val, (float, np.floating)) and not float(val).is_integer():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE,
+                f'Value {val!r} in column `{col_name}` cannot be converted to int without loss of precision',
+            )
+        return int(val)
+    if col_type.is_bool_type():
+        return bool(val)
+    if col_type.is_string_type():
+        return str(val)
+    if col_type.is_date_type():
+        return None if pd.isnull(val) else pd.Timestamp(val).date()
+    if col_type.is_timestamp_type():
+        if pd.isnull(val):
+            return None
+        tval = pd.Timestamp(val)
+        if tval.tz is None:
+            return tval.tz_localize(tz=Env.get().default_time_zone)
+        return tval.astimezone(Env.get().default_time_zone)
+    if col_type.is_uuid_type():
+        if pd.isnull(val):
+            return None
+        return val if isinstance(val, uuid.UUID) else uuid.UUID(val)
+    return val

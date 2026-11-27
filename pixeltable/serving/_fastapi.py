@@ -435,7 +435,7 @@ def _flush_image(val: Any) -> Any:
         return val
     fmt = image_utils.default_format(val)
     dest = TempStore.create_path(extension=f'.{fmt}')
-    val.save(dest, format=fmt)
+    image_utils.save(val, dest, fmt)
     return dest.as_uri()
 
 
@@ -614,9 +614,9 @@ class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
 
-    `FastAPIRouter` is for apps that already have a FastAPI server. If you do
-    not have one, use `pxt service` from the CLI; Pixeltable creates and runs the
-    FastAPI app for you. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
+    A `FastAPIRouter` declares routes over Pixeltable tables or models. Use `pxt service` from the CLI
+    to run it as a standalone server, or call `bind()` and then `include_router()` to mount it inside
+    an existing FastAPI app. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
 
     An app can include several routers with background routes if at most one of them is unnamed.
     """
@@ -999,7 +999,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # [{"prompt": "a sunset over the ocean", "result": "..."}]
             ```
 
-            Compute the rows of a view `frames` (defined over `t` with a `FrameIterator`) for a
+            Compute the rows of a view `frames` (defined over `t` using `frame_iterator()`) for a
             given base table row:
 
             >>> router.add_compute_route(frames, path='/frames', outputs=['pos', 'frame'])
@@ -1364,8 +1364,8 @@ class FastAPIRouter(fastapi.APIRouter):
 
             Nothing is inserted into `t`; the computed row is passed only to `format_response`.
 
-            Batch form, aggregating the rows of a view `frames` (defined over `t` with a
-            `FrameIterator`) for a given base table row:
+            Batch form, aggregating the rows of a view `frames` (defined over `t` using
+            `frame_iterator()`) for a given base table row:
 
             >>> class FrameRow(pydantic.BaseModel):
             ...     pos: int

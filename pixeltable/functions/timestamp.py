@@ -15,7 +15,6 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.functions.date import IsoCalendar
-from pixeltable.utils.code import local_public_names
 
 _SQL_ZERO = sql.literal(0)
 
@@ -263,6 +262,59 @@ def _(
     )
 
 
+@pxt.udf(is_deterministic=False)
+def now() -> datetime.datetime:
+    """
+    Return the current time in the default time zone.
+
+    A query, or a computed column with `stored=False`, evaluates it when the query runs. A stored computed column
+    records the time of the insert, and a recompute replaces it with the time of the recompute.
+
+    Equivalent to [`datetime.now()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.now), with
+    the default time zone as `tz`.
+
+    Examples:
+        The tickets that are past due:
+
+        >>> t.where(t.due_at < pxtf.timestamp.now()).collect()
+
+        A column that stays current, in a table model:
+
+        >>> overdue = pxt.Column(value=due_at < pxtf.timestamp.now(), stored=False)
+    """
+    return datetime.datetime.now().astimezone(Env.get().default_time_zone)
+
+
+@now.to_sql
+def _() -> sql.ColumnElement:
+    return sql.func.now()
+
+
+@pxt.udf
+def strptime(date_string: str, format: str) -> datetime.datetime:
+    """
+    Parse a timestamp from date_string according to format. A timestamp without a time zone is in the default time
+    zone.
+
+    Equivalent to [`datetime.strptime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.strptime).
+    For an ISO 8601 string, `astype(pxt.Timestamp)` is enough.
+
+    Args:
+        date_string: The string to parse.
+        format: The format of date_string. For a complete list of formatting directives, see
+            [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
+
+    Examples:
+        >>> t.add_computed_column(
+        ...     received_at=pxtf.timestamp.strptime(t.received, '%d/%m/%Y %H:%M')
+        ... )
+    """
+    result = datetime.datetime.strptime(date_string, format)
+    if result.tzinfo is None:
+        return result.replace(tzinfo=Env.get().default_time_zone)
+    return result
+
+
 # @pxt.udf
 # def date(self: datetime.datetime) -> datetime.datetime:
 #     """
@@ -336,7 +388,111 @@ def posix_timestamp(self: datetime.datetime) -> float:
     return self.timestamp()
 
 
-__all__ = local_public_names(__name__)
+@posix_timestamp.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('epoch', self).cast(sql.Float)
+
+
+def _to_utc(dt: datetime.datetime) -> datetime.datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=Env.get().default_time_zone)
+    return dt.astimezone(datetime.timezone.utc)
+
+
+@pxt.udf(is_method=True)
+def add_seconds(self: datetime.datetime, seconds: float) -> datetime.datetime:
+    """
+    Add `seconds` to the timestamp.
+
+    The offset is elapsed time: 86400 seconds across a daylight saving time change move the wall-clock time by 23 or
+    25 hours. A timestamp without a time zone is in the default time zone. `t.ts + timedelta(...)` and
+    `t.ts - timedelta(...)` are shorthand for `add_seconds()`.
+    [`seconds_since()`][pixeltable.functions.timestamp.seconds_since] returns the offset between two timestamps.
+
+    Args:
+        seconds: The number of seconds to add. A negative number subtracts.
+
+    Examples:
+        The time one hour after `created_at`:
+
+        >>> t.select(t.created_at.add_seconds(3600)).collect()
+
+        The tickets created during the last 7 days:
+
+        >>> t.where(
+        ...     t.created_at > pxtf.timestamp.now() - datetime.timedelta(days=7)
+        ... ).collect()
+    """
+    # Postgres adds an interval's seconds to a timestamptz as elapsed time;
+    # in Python, adding in UTC gives the same result across a DST change
+    result = _to_utc(self) + datetime.timedelta(seconds=seconds)
+    if self.tzinfo is None:
+        return result.astimezone(Env.get().default_time_zone).replace(tzinfo=None)
+    return result.astimezone(self.tzinfo)
+
+
+@add_seconds.to_sql
+def _(self: sql.ColumnElement, seconds: sql.ColumnElement) -> sql.ColumnElement:
+    # same rounding as timedelta(seconds=): whole seconds stay exact, the rest is rounded to microseconds
+    secs = seconds.cast(sql.Float)
+    whole_secs = sql.func.trunc(secs)
+    microsecs = sql.func.round((secs - whole_secs) * 1e6)
+    # make_interval(years, months, weeks, days, hours, mins, secs) adds secs as elapsed time
+    return self + sql.func.make_interval(0, 0, 0, 0, 0, 0, whole_secs + microsecs / 1e6)
+
+
+@pxt.udf(is_method=True)
+def seconds_since(self: datetime.datetime, start: datetime.datetime) -> float:
+    """
+    Return the number of seconds from `start` to the timestamp.
+
+    The result is elapsed time, and it is negative if the timestamp is earlier than `start`. A timestamp without a
+    time zone is in the default time zone.
+    [`add_seconds()`][pixeltable.functions.timestamp.add_seconds] adds such an offset to a timestamp.
+
+    Args:
+        start: The start of the measured interval.
+
+    Examples:
+        The time each ticket took to resolve, in hours:
+
+        >>> t.select(hours=t.resolved_at.seconds_since(t.created_at) / 3600).collect()
+    """
+    # Postgres returns the difference of two epochs, which is elapsed time;
+    # in Python, subtracting in UTC gives the same result across a DST change
+    return (_to_utc(self) - _to_utc(start)).total_seconds()
+
+
+@seconds_since.to_sql
+def _(self: sql.ColumnElement, start: sql.ColumnElement) -> sql.ColumnElement:
+    return (sql.extract('epoch', self) - sql.extract('epoch', start)).cast(sql.Float)
+
+
+__all__ = [
+    'add_seconds',
+    'astimezone',
+    'date',
+    'day',
+    'hour',
+    'isocalendar',
+    'isoformat',
+    'isoweekday',
+    'make_timestamp',
+    'microsecond',
+    'minute',
+    'month',
+    'now',
+    'posix_timestamp',
+    'replace',
+    'second',
+    'seconds_since',
+    'strftime',
+    'strip_timezone',
+    'strptime',
+    'toordinal',
+    'weekday',
+    'year',
+]
 
 
 def __dir__() -> list[str]:

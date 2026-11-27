@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
+import functools
 import itertools
 import logging
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Iterator, NamedTuple
+from uuid import UUID
 
+import PIL.Image
+
+import pixeltable.utils.image as image_utils
 from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
+from pixeltable.env import Env
+from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -32,14 +40,12 @@ class ObjectStoreSaveNode(ExecNode):
             src_path -> [dest1, dest2, ...]
                 dest1: [row_location1, row_location2, ...]
     Paths with multiple destinations are removed from the TempStore only after all destination copies are complete.
-
-    TODO:
-    - Process a row at a time and limit the number of in-flight rows to control memory usage
     """
 
     QUEUE_DEPTH_HIGH_WATER = 50  # target number of in-flight requests
     QUEUE_DEPTH_LOW_WATER = 20  # target number of in-flight requests
     BATCH_SIZE = 16
+    MAX_BUFFERED_ROWS = 2048
     MAX_WORKERS = 15
 
     class WorkDesignator(NamedTuple):
@@ -64,6 +70,7 @@ class ObjectStoreSaveNode(ExecNode):
     file_col_info: list[exprs.ColumnSlotIdx]
 
     # execution state
+    num_input_rows: int
     num_returned_rows: int
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
@@ -88,7 +95,7 @@ class ObjectStoreSaveNode(ExecNode):
     class RowState:
         row: exprs.DataRow
         idx: int | None  # position in input stream; None if we don't retain input order
-        num_missing: int  # number of references to media files in this row
+        num_missing: int  # pending saves this row waits on, its own and those that earlier rows started
         delete_destinations: list[Path]  # paths to delete after all copies are complete
 
     def __init__(self, file_col_info: list[exprs.ColumnSlotIdx], input: ExecNode, retain_input_order: bool = True):
@@ -103,7 +110,13 @@ class ObjectStoreSaveNode(ExecNode):
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
 
+    @property
+    def num_buffered_rows(self) -> int:
+        # we can't rely on ready_rows because it includes placeholders for in-flight rows
+        return self.num_input_rows - self.num_returned_rows
+
     def _init_exec_state(self) -> None:
+        self.num_input_rows = 0
         self.num_returned_rows = 0
         self.ready_rows = deque()
         self.in_flight_rows = {}
@@ -123,6 +136,8 @@ class ObjectStoreSaveNode(ExecNode):
             input_batch = await anext(input_iter)
             if input_batch is None:
                 self.input_finished = True
+            else:
+                self.num_input_rows += len(input_batch)
             return input_batch
         except StopAsyncIteration:
             self.input_finished = True
@@ -132,22 +147,29 @@ class ObjectStoreSaveNode(ExecNode):
         async with contextlib.aclosing(aiter(self.input)) as input_iter:
             with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
                 while True:
-                    # Create work to fill the queue to the high water mark,
-                    # without overrunning the in-flight row limit.
-                    while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
+                    # Fetch whole batches; buffered rows can overshoot the limit by less than one input batch.
+                    while (
+                        not self.input_finished
+                        and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER
+                        and self.num_buffered_rows < self.MAX_BUFFERED_ROWS
+                    ):
                         input_batch = await self.get_input_batch(input_iter)
                         if input_batch is not None:
-                            self.__process_input_batch(input_batch, executor)
+                            await self.__process_input_batch(input_batch, executor)
 
-                    # Wait for enough completions to enable more queueing or if we're done
+                    # Wait for queue capacity, end-of-input work, or a blocked output at the row limit.
                     while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (
-                        self.input_finished and self.queued_work > 0
+                        self.queued_work > 0
+                        and (
+                            self.input_finished
+                            or (self.num_buffered_rows >= self.MAX_BUFFERED_ROWS and not self.__has_ready_batch())
+                        )
                     ):
                         done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
                         self.__process_completions(done)
 
                     # Emit results to meet batch size requirements or empty the in-flight row queue
-                    if self.__has_ready_batch() or (
+                    while self.__has_ready_batch() or (
                         len(self.ready_rows) > 0 and self.input_finished and self.queued_work == 0
                     ):
                         # create DataRowBatch from the first BATCH_SIZE ready rows
@@ -193,8 +215,6 @@ class ObjectStoreSaveNode(ExecNode):
         self.row_builder.set_exc(row, info.slot_idx, err)
 
     def __process_completions(self, done: set[futures.Future]) -> None:
-        from pixeltable.utils.local_store import TempStore
-
         num_objects = 0
         num_bytes = 0
         bytes_per_tbl: dict[tuple[str, str], int] = {}  # (table name, table id) -> bytes saved
@@ -234,8 +254,6 @@ class ObjectStoreSaveNode(ExecNode):
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
-        from pixeltable.utils.local_store import LocalStore, TempStore
-
         # Create a list of work to do for media storage in this row
         row_idx = next(self.row_idx)
         row_to_do: list[ObjectStoreSaveNode.WorkItem] = []
@@ -244,15 +262,6 @@ class ObjectStoreSaveNode(ExecNode):
 
         for info in self.file_col_info:
             col, index = info
-            # we may need to store this imagehave yet to store this image
-            if row.prepare_col_val_for_save(index, col):
-                try:
-                    with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
-                        row.file_urls[index] = row.save_media_to_temp(index, col)
-                except Exception as e:
-                    self.__handle_save_error(row, info, e)
-                    continue
-
             url = row.file_urls[index]
             if url is None:
                 # nothing to do
@@ -273,8 +282,12 @@ class ObjectStoreSaveNode(ExecNode):
                 # The url does not point to a local file, do not attempt to copy/move it
                 continue
 
-            if destination is None and not TempStore.contains_path(src_path):
-                # Do not copy local file URLs to the LocalStore
+            if (
+                destination is None
+                and not TempStore.contains_path(src_path)
+                and not TempStore.in_system_temp_dir(src_path)
+            ):
+                # Do not copy local file URLs to the LocalStore, unless the OS may clean up the file
                 continue
 
             file_size = src_path.stat().st_size
@@ -311,7 +324,8 @@ class ObjectStoreSaveNode(ExecNode):
         delete_destinations = [k for k, v in unique_destinations.items() if v > 1 and TempStore.contains_path(k)]
         row_to_do = new_to_do
 
-        if len(row_to_do) > 0:
+        # num_missing, not row_to_do: a row whose files are all in flight for earlier rows still waits for them
+        if num_missing > 0:
             self.in_flight_rows[id(row)] = self.RowState(
                 row, row_idx, num_missing, delete_destinations=delete_destinations
             )
@@ -319,8 +333,73 @@ class ObjectStoreSaveNode(ExecNode):
             self.__add_ready_row(row, row_idx)
         return row_to_do
 
-    def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
+    async def __save_media_to_temp(self, input_batch: DataRowBatch) -> None:
+        """Save the in-memory media values of the batch to TempStore files. The jobs run on Env.cpu_pool."""
+        loop = asyncio.get_running_loop()
+        pending: list[tuple[exprs.DataRow, exprs.ColumnSlotIdx, asyncio.Future[tuple[Path, str]]]] = []
+        # carry the ambient instrumentation span onto the worker threads, so that the encode spans nest under it
+        hooks_ctx = telemetry.capture_context()
+        for row in input_batch:
+            scheduled: set[int] = set()  # columns can share a slot (eg, btree index value cols): encode once
+            for info in self.file_col_info:
+                col, index = info
+                if index in scheduled or not row.prepare_col_val_for_save(index, col):
+                    continue
+                # the ids are read on this thread, because a worker thread must not access catalog state
+                encode_fn = functools.partial(
+                    self.__encode_media_value, row.vals[index], col.tbl_handle.id, col.id, col.get_tbl().version
+                )
+                thread_fn = functools.partial(telemetry.run_in_context, hooks_ctx, encode_fn)
+                pending.append((row, info, loop.run_in_executor(Env.get().cpu_pool, thread_fn)))
+                scheduled.add(index)
+
+        encode_results = await asyncio.gather(*(fut for _, _, fut in pending), return_exceptions=True)
+        has_failed_encode = any(isinstance(result, BaseException) for result in encode_results)
+        if has_failed_encode and not self.ctx.ignore_errors:
+            # the first failed encode stops the operation, so the files of the other encodes are never stored
+            for result in encode_results:
+                if not isinstance(result, BaseException):
+                    TempStore.delete_media_file(result[0])
+
+        # record all errors first: RowBuilder.set_exc() also sets the error on the dependent slots, which the next
+        # loop skips
+        for (row, info, _), result in zip(pending, encode_results, strict=True):
+            if isinstance(result, Exception):
+                self.__handle_save_error(row, info, result)
+            elif isinstance(result, BaseException):
+                raise result
+
+        for (row, info, _), result in zip(pending, encode_results, strict=True):
+            if isinstance(result, BaseException):
+                continue
+            index = info.slot_idx
+            filepath, url = result
+            if row.has_exc(index):
+                # the column is computed from one that failed to save, so its own file is not stored
+                TempStore.delete_media_file(filepath)
+                continue
+            row.file_paths[index] = str(filepath)
+            row.file_urls[index] = url
+            row.vals[index] = None
+
+    @classmethod
+    def __encode_media_value(
+        cls, val: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int
+    ) -> tuple[Path, str]:
+        """Encode val into the TempStore and return the path and url of its file. Runs on a worker thread."""
+        with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
+            format: str | None = None
+            if isinstance(val, PIL.Image.Image):
+                format = image_utils.default_format(val)
+                try:
+                    val = image_utils.to_bytes(val, format)
+                except Exception as e:
+                    raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, str(e)) from e
+            return TempStore.save_media_object(val, tbl_id, col_id, tbl_version, format)
+
+    async def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
         """Process a batch of input rows, submitting temporary files for upload"""
+        await self.__save_media_to_temp(input_batch)
         work_to_do: list[ObjectStoreSaveNode.WorkItem] = []
 
         for row in input_batch:

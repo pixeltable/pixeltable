@@ -7,11 +7,14 @@ import gc
 import json
 import logging
 import math
+import operator
 import os
 import re
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -20,6 +23,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+import pixeltable.utils.image as image_utils
 from pixeltable import catalog, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
@@ -202,21 +206,30 @@ class TestExprs:
         rows = t.select(t.c2, a=t.c4 & True, b=True & t.c4, c=t.c4 | False, d=False | t.c4).order_by(t.c2).collect()
         assert all(r['a'] == r['b'] == r['c'] == r['d'] == (r['c2'] % 2 == 1) for r in rows)
 
-        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='c4: & requires Bool operands, but the other operand has type `Int`'
+        ):
             _ = t.c4 & 5
-        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r'c4: \| requires Bool operands, but the other operand has type `String`'
+        ):
             _ = t.c4 | 'x'
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='c4: & requires Bool operands, but the other operand has type `Int`'
+        ):
+            _ = t.c4 & t.c2
 
         # a non-bool column must fail at construction too, in both operand orders (t.c2 is Int)
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        not_bool = 'requires Bool operands, but this expression has type `Int`'
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = t.c2 & True
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = True & t.c2
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=rf'c2: \| {not_bool}'):
             _ = t.c2 | False
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=rf'c2: \| {not_bool}'):
             _ = False | t.c2
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = t.c2 & t.c4
 
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
@@ -539,6 +552,150 @@ class TestExprs:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
 
+    def test_unsupported_operand(self, test_tbl: pxt.Table) -> None:
+        """An operand that is neither an expression nor a literal raises TYPE_MISMATCH."""
+        t = test_tbl
+        td = datetime.timedelta(hours=1)
+        cases: list[tuple[Callable[[], Expr], str]] = [
+            (lambda: t.c2 + object(), r'c2: the other operand of \+ needs to be .* `object`'),
+            (lambda: object() - t.c2, r'c2: the other operand of - needs to be .* `object`'),
+            (lambda: t.c3 < object(), r'c3: the other operand of < needs to be .* `object`'),
+            (lambda: t.c1 + object(), r'c1: the other operand of \+ needs to be .* `object`'),
+            (lambda: object() + t.c1, r'c1: the other operand of \+ needs to be .* `object`'),
+            (
+                lambda: t.c5 * td,
+                r'c5: \* is not defined for a timedelta; a timedelta can only be added to or subtracted',
+            ),
+            (
+                lambda: t.c5 > td,
+                r'c5: > is not defined for a timedelta; a timedelta can only be added to or subtracted',
+            ),
+            (lambda: t.c3 < td, r'c3: < is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+            (lambda: td / t.c3, r'c3: / is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+            (lambda: t.c4 & object(), r'c4: the other operand of & needs to be .* `object`'),
+            (lambda: object() & t.c4, r'c4: the other operand of & needs to be .* `object`'),
+            (lambda: t.c4 | object(), r'c4: the other operand of \| needs to be .* `object`'),
+        ]
+        for make_expr, match in cases:
+            with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+                _ = make_expr()
+
+    @pytest.mark.parametrize('backfill', [True, False], ids=['backfill', 'insert'])
+    def test_int_mod(self, db_root: DatabaseRoot, backfill: bool) -> None:
+        """Int % matches Python for signed 64-bit boundaries, signs, and nulls in SQL and on insert."""
+        t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int | None, 'b': pxt.Int | None})
+        # PostgreSQL's BIGINT limits (signed 64-bit integers).
+        int_min, int_max = -(2**63), 2**63 - 1
+        # (dividend, divisor)
+        # Zero divisors are excluded because SQL and Python error handling differs (PXT-1833).
+        operands = [
+            (int_min, int_min),
+            (int_min, -3),
+            (int_min, -1),
+            (int_min, 1),
+            (int_min, 3),
+            (int_min, int_max),
+            (int_min, None),
+            (int_min + 1, int_min),
+            (int_min + 1, -3),
+            (int_min + 1, -1),
+            (int_min + 1, 1),
+            (int_min + 1, 3),
+            (int_min + 1, int_max),
+            (int_min + 1, None),
+            (-7, int_min),
+            (-7, -3),
+            (-7, -1),
+            (-7, 1),
+            (-7, 3),
+            (-7, int_max),
+            (-7, None),
+            (-6, int_min),
+            (-6, -3),
+            (-6, -1),
+            (-6, 1),
+            (-6, 3),
+            (-6, int_max),
+            (-6, None),
+            (-1, int_min),
+            (-1, -3),
+            (-1, -1),
+            (-1, 1),
+            (-1, 3),
+            (-1, int_max),
+            (-1, None),
+            (0, int_min),
+            (0, -3),
+            (0, -1),
+            (0, 1),
+            (0, 3),
+            (0, int_max),
+            (0, None),
+            (1, int_min),
+            (1, -3),
+            (1, -1),
+            (1, 1),
+            (1, 3),
+            (1, int_max),
+            (1, None),
+            (6, int_min),
+            (6, -3),
+            (6, -1),
+            (6, 1),
+            (6, 3),
+            (6, int_max),
+            (6, None),
+            (7, int_min),
+            (7, -3),
+            (7, -1),
+            (7, 1),
+            (7, 3),
+            (7, int_max),
+            (7, None),
+            (int_max, int_min),
+            (int_max, -3),
+            (int_max, -1),
+            (int_max, 1),
+            (int_max, 3),
+            (int_max, int_max),
+            (int_max, None),
+            (None, int_min),
+            (None, -3),
+            (None, -1),
+            (None, 1),
+            (None, 3),
+            (None, int_max),
+            (None, None),
+        ]
+        rows = [{'a': a, 'b': b} for a, b in operands]
+        # Defining the column before insert exercises Python; adding it afterward exercises SQL backfill.
+        if not backfill:
+            validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=0)
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        if backfill:
+            validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=len(rows))
+
+        res = t.select(t.a, t.b, t.stored_mod, sql_mod=t.a % t.b).collect()
+        assert len(res) == len(rows)
+        for row in res:
+            a, b = row['a'], row['b']
+            expected = None if a is None or b is None else a % b
+            assert row['stored_mod'] == expected, row
+            assert row['sql_mod'] == expected, row
+        non_null_results = sum(row['a'] is not None and row['b'] is not None for row in rows)
+        assert t.where(t.a % t.b == t.stored_mod).count() == non_null_results
+        assert t.where(t.a % t.b == None).count() == len(rows) - non_null_results
+
+        res = (
+            t.where(t.a.isin([-7, -6, 0, 6, 7]) & t.b.isin([-3, 3]))
+            .select(t.a, t.b, sql_floordiv=t.a // t.b, sql_mod=t.a % t.b)
+            .collect()
+        )
+        assert len(res) == 10
+        for row in res:
+            assert row['sql_floordiv'] == row['a'] // row['b'], row
+            assert row['a'] == row['sql_floordiv'] * row['b'] + row['sql_mod'], row
+
     def test_pow(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = (
@@ -608,11 +765,74 @@ class TestExprs:
                 assert results['gt'] == [a > b for a, b in zip(a_results, b_results)], f'{a_expr} > {b_expr}'
                 assert results['ge'] == [a >= b for a, b in zip(a_results, b_results)], f'{a_expr} >= {b_expr}'
 
+    def test_computed_col_comparison(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """Comparisons on computed columns give the same results as Python comparisons on the column values."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('cmp_tbl'),
+            {'k': pxt.Int, 'n': pxt.Int, 's': pxt.String},
+            primary_key='k',
+            _is_data_versioned=is_data_versioned,
+        )
+        t.add_computed_column(n2=t.n * 2, stored=False)
+        t.add_computed_column(up=t.s.upper(), stored=False)
+        t.add_computed_column(big=t.n > 2, stored=False)
+        t.add_computed_column(low=t.n < 3)
+        validate_update_status(t.insert({'k': i, 'n': i, 's': 'abcde'[i]} for i in range(5)), expected_rows=5)
+
+        # where() on an unstored column, with the constant on either side
+        ops = (operator.eq, operator.ne, operator.lt, operator.le, operator.gt, operator.ge)
+        for col, const in ((t.n2, 4), (t.up, 'C'), (t.big, True)):
+            vals = t.select(t.k, v=col).order_by(t.k).collect()
+            for op in ops:
+                res = t.where(op(col, const)).select(t.k).order_by(t.k).collect()
+                assert res['k'] == [k for k, v in zip(vals['k'], vals['v']) if op(v, const)], (
+                    f'{col} {op.__name__} {const}'
+                )
+                res = t.where(op(const, col)).select(t.k).order_by(t.k).collect()
+                assert res['k'] == [k for k, v in zip(vals['k'], vals['v']) if op(const, v)], (
+                    f'{const} {op.__name__} {col}'
+                )
+
+        # where() with a query parameter
+        @pxt.query
+        def n2_above(x: int) -> pxt.Query:
+            return t.where(t.n2 > x).select(t.k).order_by(t.k)
+
+        assert pxt.eval_udf(n2_above, 4) == [3, 4]
+
+        # where() of a join
+        # TODO: remove t.n2 from select() [PXT-1733]
+        other = pxt.create_table(p('cmp_other'), {'k': pxt.Int}, _is_data_versioned=is_data_versioned)
+        validate_update_status(other.insert({'k': i} for i in range(3)), expected_rows=3)
+        res = t.join(other, on=t.k == other.k).where(t.n2 > 2).select(t.k, t.n2).order_by(t.k).collect()
+        assert res['k'] == [2]
+        assert res['n2'] == [4]
+
+        # update() of the input of a stored comparison column
+        validate_update_status(t.where(t.k == 0).update({'n': 7}), expected_rows=1)
+        validate_update_status(t.update({'n': t.n - 1}), expected_rows=5)
+        res = t.select(t.n, t.low).order_by(t.k).collect()
+        assert res['n'] == [6, 0, 1, 2, 3]
+        assert res['low'] == [n < 3 for n in res['n']]
+
+        if is_data_versioned:
+            # insert() into the base of a view with a comparison on a view column
+            # TODO: run for operational tables [PXT-1101]
+            v = pxt.create_view(p('cmp_view'), t, additional_columns={'n3': t.n * 3})
+            v.add_computed_column(big3=v.n3 > 6)
+            validate_update_status(t.insert([{'k': 5, 'n': 5, 's': 'f'}]), expected_rows=2)
+            res = v.select(v.n3, v.big3).order_by(v.k).collect()
+            assert res['n3'] == [18, 0, 3, 6, 9, 15]
+            assert res['big3'] == [n3 > 6 for n3 in res['n3']]
+
     def test_inline_dict(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         query = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
         result = query.show()
         print(result)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Dictionary requires string keys; c1 has type'):
+            t.select({t.c1: 1})
 
     def test_constant_literals(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
@@ -771,6 +991,8 @@ class TestExprs:
 
     def test_json_path(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid json list index: c2'):
+            _ = t.c6.f5[t.c2]
         t.add_computed_column(attr=t.c6.f5)
         t.add_computed_column(item=t['c6']['f5'])
         t.add_computed_column(index=t['c6'].f5[2])
@@ -1515,6 +1737,73 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
+        # Float to Int requires to_int()
+        match = r'Use to_int\(\) to truncate toward zero'
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.astype(pxt.Int)
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.astype(pxt.Int | None)
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+            t.c3.floor().astype(pxt.Int)
+        res = t.select(out=t.c3.floor().to_int()).order_by(t.c2).collect()['out']
+        assert res == list(range(t.count()))
+        assert all(type(val) is int for val in res)
+
+        # Convert a Json field to Int
+        res = t.select(out=t.c6.f2.astype(pxt.Int)).order_by(t.c2).collect()['out']
+        assert res == list(range(t.count()))
+
+    def test_astype_bool(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        assert t.c4.astype(pxt.Int).col_type == ts.IntType(nullable=False)
+
+        res = (
+            t.select(
+                col=t.c4.astype(pxt.Int),
+                pred=(t.c2 % 2 == 1).astype(pxt.Int),
+                udf=_is_odd(t.c2).astype(pxt.Int),
+                as_float=t.c4.astype(pxt.Float),
+            )
+            .order_by(t.c2)
+            .collect()
+        )
+        expected = [i % 2 for i in range(t.count())]
+        assert res['col'] == res['pred'] == res['udf'] == expected
+        assert all(type(val) is int for val in res['col'] + res['pred'] + res['udf'])
+        assert res['as_float'] == [float(val) for val in expected]
+
+        assert t.select(n=pxtf.sum(t.c4.astype(pxt.Int))).collect()['n'] == [50]
+        assert t.where(t.c4.astype(pxt.Int) == 1).count() == 50
+
+        validate_update_status(t.add_column(c4n=pxt.Bool | None))
+        t.where(t.c2 < 10).update({'c4n': t.c4})
+        validate_update_status(t.add_computed_column(c4n_as_int=t.c4n.astype(pxt.Int | None)))
+        assert t.c4n_as_int.col_type == ts.IntType(nullable=True)
+        res = t.select(t.c4n_as_int).order_by(t.c2).limit(12).collect()
+        assert res['c4n_as_int'] == [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, None, None]
+
+        # Cast nullable to required
+        status = t.add_computed_column(c4n_as_req_int=t.c4n.astype(pxt.Int), on_error='ignore')
+        assert status.num_excs == t.count() - 10
+        errormsgs = [msg for msg in t.select(out=t.c4n_as_req_int.errormsg).collect()['out'] if msg is not None]
+        assert len(errormsgs) == t.count() - 10
+        assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
+
+    def test_format_expr(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        match = r'An f-string or str\.format\(\) on a Pixeltable expression produces one constant string'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            _ = f'Hello {t.c1}'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            _ = 'Hello {}'.format(t.c1)
+        assert str(t.c2 + 1) == 'c2 + 1'
+
+        # the forms the error message suggests
+        res = (
+            t.select(plus='Hello ' + t.c1, fmt=pxtf.string.format('Hello {0}', t.c1)).order_by(t.c2).limit(2).collect()
+        )
+        assert res['plus'] == res['fmt'] == ['Hello test string 0', 'Hello test string 1']
+
     @pytest.mark.db_roots('local', reason='resolves images from client-local filesystem paths the daemon cannot see')
     def test_astype_str_to_img(self, uses_db: None) -> None:
         img_files = get_image_files()
@@ -1672,6 +1961,15 @@ class TestExprs:
 
         t.c2.apply(f8)
 
+    def test_varargs_none(self, db_root: DatabaseRoot) -> None:
+        """A None argument in *args reaches the UDF."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'a': pxt.String, 'b': pxt.String | None})
+        t.insert([{'a': 'x', 'b': None}, {'a': 'y', 'b': 'z'}])
+        # _join_parts(sep, *parts): *parts receives (t.b, t.a, t.b), which is (None, 'x', None) in the first row
+        res = t.order_by(t.a).select(joined=_join_parts('-', t.b, t.a, t.b)).collect()
+        assert res['joined'] == ['x', 'z-y-z']
+
     def test_nonmodule_function_errors(self, db_root: DatabaseRoot) -> None:
         # a function without a fully-qualified path (from apply() or defined in a notebook) can only be stored as a
         # pickled body; every persistence site must reject it with a clear message
@@ -1785,7 +2083,7 @@ class TestExprs:
         # would use that index. So these exressions should be equivalent.
         sim1 = t1.img.similarity(string='red truck')
         sim2 = t1.img.similarity(string='red truck', idx='img_idx0')
-        assert sim1.id == sim2.id
+        assert sim1._expr_id == sim2._expr_id
         assert sim1.serialize() == sim2.serialize()
 
         # Test repr
@@ -1798,7 +2096,7 @@ class TestExprs:
         ):
             sim1 = t1.img.similarity('red truck')
             sim2 = t1.img.similarity('red truck', idx='img_idx0')
-            assert sim1.id == sim2.id
+            assert sim1._expr_id == sim2._expr_id
             assert sim1.serialize() == sim2.serialize()
 
         t2 = multi_idx_img_tbl
@@ -1807,7 +2105,7 @@ class TestExprs:
         # So similarity expressions using different indexes should differ.
         sim1 = t2.img.similarity(string='red truck', idx='img_idx1')
         sim2 = t2.img.similarity(string='red truck', idx='img_idx2')
-        assert sim1.id != sim2.id
+        assert sim1._expr_id != sim2._expr_id
         assert sim1.serialize() != sim2.serialize()
 
         # Test repr
@@ -1821,8 +2119,8 @@ class TestExprs:
         skip_test_if_not_installed('transformers')
         d: dict[int, exprs.Expr] = {}
         for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
-            assert e.id is not None
-            d[e.id] = e
+            assert e._expr_id is not None
+            d[e._expr_id] = e
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
     @pytest.mark.db_roots('local', reason='TODO: convert')
@@ -1910,6 +2208,9 @@ class TestExprs:
             _ = t.select(
                 pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)
             ).show(100)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Incompatible ordering requirements'):
+            _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).order_by(t.c2).collect()
 
         # backfill works
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
@@ -2056,6 +2357,24 @@ class TestExprs:
         pd_result = df.groupby('c_int', dropna=True).agg(out=('c_int', 'sum')).reset_index().sort_values('c_int')
         assert pxt_sql_result['out'] == series_to_list(pd_result['out'])
 
+    def test_agg_multiple_batches(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        num_rows, num_groups = 2600, 1300
+        t = pxt.create_table(p('src'), {'id': pxt.Int, 'grp': pxt.Int})
+        t.insert({'id': i, 'grp': i % num_groups} for i in range(num_rows))
+
+        status = t.insert(t.order_by(t.id).select(t.id, t.grp))
+        assert status.num_rows == num_rows
+        expected = sorted([(i, i % num_groups) for i in range(num_rows)] * 2)
+        assert sorted(tuple(row.values()) for row in t.select(t.id, t.grp).collect()) == expected
+
+        agg = pxt.create_table(p('agg'), {'grp': pxt.Int, 'n': pxt.Int})
+        status = agg.insert(t.group_by(t.grp).select(t.grp, n=pxtf.count(t.id)))
+        assert status.num_rows == num_groups
+        assert sorted(tuple(row.values()) for row in agg.select(agg.grp, agg.n).collect()) == [
+            (grp, 4) for grp in range(num_groups)
+        ]
+
     def test_agg_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         from pixeltable.functions import count, sum
@@ -2076,6 +2395,71 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
             # uncalled method in group_by clause
             _ = t.group_by(t.c1.upper).select(count(t.c2)).collect()
+
+    def test_agg_row_independent_exprs(self, db_root: DatabaseRoot) -> None:
+        """An expression that references no column is valid inside, beside and combined with an aggregate."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_tbl'), {'grp': pxt.String, 'n': pxt.Int, 'due': pxt.Timestamp, 'j': pxt.Json})
+        dues = [datetime.datetime(2026, month, 1, tzinfo=datetime.timezone.utc) for month in (1, 2, 3)]
+        rows = [
+            {'grp': 'a', 'n': 1, 'due': dues[0], 'j': [1, 2]},
+            {'grp': 'a', 'n': 2, 'due': dues[1], 'j': [3]},
+            {'grp': 'b', 'n': 3, 'due': dues[2], 'j': [4, 5, 6]},
+        ]
+        validate_update_status(t.insert(rows), expected_rows=3)
+
+        # function call without arguments
+        for agg_fn in (pxtf.sum, _py_sum):
+            res = t.group_by(t.grp).select(t.grp, out=agg_fn(t.n + _seven())).order_by(t.grp).collect()
+            assert res['out'] == [17, 10], agg_fn
+            assert t.select(out=agg_fn(t.n + _seven())).collect()['out'] == [27], agg_fn
+            assert t.select(out=agg_fn(_seven())).collect()['out'] == [21], agg_fn
+            res = (
+                t.group_by(t.grp)
+                .select(t.grp, seven=_seven(), total=agg_fn(t.n) + _seven(), n=agg_fn(t.n))
+                .order_by(t.grp)
+                .collect()
+            )
+            assert res['seven'] == [7, 7], agg_fn
+            assert res['total'] == [10, 10], agg_fn
+            assert res['n'] == [3, 3], agg_fn
+
+        # now()
+        now_ts = pxtf.timestamp.posix_timestamp(pxtf.timestamp.now())
+        due_ts = pxtf.timestamp.posix_timestamp(t.due)
+        res = (
+            t.group_by(t.grp)
+            .select(t.grp, now=now_ts, total_age=pxtf.sum(now_ts - due_ts), min_age=now_ts - pxtf.max(due_ts))
+            .order_by(t.grp)
+            .collect()
+        )
+        due_sums = [dues[0].timestamp() + dues[1].timestamp(), dues[2].timestamp()]
+        max_dues = [dues[1].timestamp(), dues[2].timestamp()]
+        for row, due_sum, max_due, num_rows in zip(res, due_sums, max_dues, (2, 1)):
+            assert row['total_age'] == pytest.approx(num_rows * row['now'] - due_sum, abs=1.0)
+            assert row['min_age'] == pytest.approx(row['now'] - max_due, abs=1.0)
+        res = t.group_by(t.grp).select(t.grp, now=pxtf.timestamp.now(), n=pxtf.count(t.n)).order_by(t.grp).collect()
+        assert res['now'][0] == res['now'][1]
+        assert res['n'] == [2, 1]
+
+        # json mapper
+        incremented = pxtf.map(t.j, lambda x: x + 1)
+        res = t.group_by(t.grp).select(t.grp, out=pxtf.json.make_list(incremented)).order_by(t.grp).collect()
+        assert [sorted(out) for out in res['out']] == [[[2, 3], [4]], [[5, 6, 7]]]
+        res = t.group_by(t.j).select(out=incremented, n=pxtf.count(t.n)).collect()
+        assert sorted(res['out']) == [[2, 3], [4], [5, 6, 7]]
+        assert res['n'] == [1, 1, 1]
+        match = re.escape('Invalid non-aggregate expression in aggregate query: j.map(lambda R: R + 1)')
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+            _ = t.group_by(t.grp).select(out=incremented, n=pxtf.count(t.n)).collect()
+        # an aggregate in the lambda
+        res = t.group_by(t.j).select(out=pxtf.map(t.j, lambda x: x + pxtf.sum(t.n))).collect()
+        assert sorted(res['out']) == [[2, 3], [5], [7, 8, 9]]
+        for mapper_fn in (pxtf.map, pxtf.filter, pxtf.sort):
+            name = mapper_fn.__name__
+            match = re.escape(f'{name}(): aggregate function applied to the lambda parameter: globals.count(R)')
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+                _ = mapper_fn(t.j, lambda x: pxtf.count(x) > 0)
 
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -2371,18 +2755,149 @@ class TestExprs:
         """JSON path components are data, not identifiers, so column name folding does not apply."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('t'), {'JsonCol': pxt.Json | None})
-        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2}}])
+        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2, 'id': 'msg_0', 'usage': {'id': 7}}}])
 
         res = t.select(exact=t.JSONCOL.someField, lowered=t.JSONCOL.somefield, uppered=t.JSONCOL.SOMEFIELD).collect()
         assert res['exact'] == [1]
         assert res['lowered'] == [2]
         assert res['uppered'] == [None]
 
+        # a key named like an expression attribute is still a field
+        res = t.select(top=t.JsonCol.id, nested=t.JsonCol.usage.id).collect()
+        assert res['top'] == ['msg_0']
+        assert res['nested'] == [7]
+
         t.insert([{'jsoncol': {'café': 1}}])
         res = t.select(t.JsonCol['café']).collect()
         (name,) = res.schema.keys()
         assert catalog.is_valid_identifier(name)
         assert res[name] == [None, 1]
+
+    def test_image_load(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        # an image that the user opened with PIL.Image.open() is not decoded yet. Two UDF calls on pool threads read
+        # it at the same time, and both get the decoded image.
+        t = pxt.create_table(p('lazy'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(small=t.img.resize((32, 32)))
+        rows = [{'img': PIL.Image.open(f)} for f in get_image_files()[:8]]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+    def test_image_save(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        files = get_image_files()[:2]
+        t = pxt.create_table(p('imgs'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(rot_copy=t.img.rotate(90))
+        validate_update_status(t.insert({'img': f} for f in files), expected_rows=len(files))
+
+        # two columns with the same expr share one slot: the image is saved once and both columns store its url
+        res = t.select(rot_url=t.rot.fileurl, copy_url=t.rot_copy.fileurl).collect()
+        assert all(url is not None for url in res['rot_url'])
+        assert res['rot_url'] == res['copy_url']
+
+        # Eight threads save one image as jpeg and as tiff at the same time, and each save gives the bytes of a lone
+        # save. This calls to_bytes() and not a query, because a query rarely runs two saves of one image close enough
+        # together for one save to use the encoder settings of the other.
+        shared_img = PIL.Image.effect_noise((16, 16), 32).convert('RGB')
+        formats = ['jpeg', 'tiff'] * 5000
+        lone_save = {image_format: image_utils.to_bytes(shared_img, image_format) for image_format in ('jpeg', 'tiff')}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            saved = list(pool.map(lambda image_format: image_utils.to_bytes(shared_img, image_format), formats))
+        assert saved == [lone_save[image_format] for image_format in formats]
+
+    @pytest.mark.db_roots('local', reason='patches PIL in the test process and reads stored files by local path')
+    def test_image_decode(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = db_root.make_catalog_path
+        files = get_image_files()[:8]
+        open_thread_names: list[str] = []
+        pil_open = PIL.Image.open
+
+        def tracking_open(*args: Any, **kwargs: Any) -> PIL.Image.Image:
+            open_thread_names.append(threading.current_thread().name)
+            return pil_open(*args, **kwargs)
+
+        monkeypatch.setattr(PIL.Image, 'open', tracking_open)
+        t = pxt.create_table(p('imgs'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(same_file=image_path_as_image(t.img.localpath))
+
+        # An insert decodes each image file once on the cpu pool. The thread of a decode is not visible through the
+        # API, so this test tracks PIL.Image.open().
+        validate_update_status(t.insert({'img': f} for f in files), expected_rows=len(files))
+        assert sum(name.startswith('pxt-cpu') for name in open_thread_names) == len(files)
+
+        # a query decodes each image once on the cpu pool, although two UDF calls read it
+        open_thread_names.clear()
+        res = t.select(out1=t.img.rotate(90), out2=t.img.rotate(180)).collect()
+        assert len(res) == len(files)
+        assert len(open_thread_names) == len(files)
+        assert all(name.startswith('pxt-cpu') for name in open_thread_names)
+
+        # a query on a column with on_read validation also decodes each image once on the cpu pool
+        t_on_read = pxt.create_table(p('on_read'), {'img': pxt.Image}, media_validation='on_read')
+        validate_update_status(t_on_read.insert({'img': f} for f in files), expected_rows=len(files))
+        open_thread_names.clear()
+        res = t_on_read.select(out=t_on_read.img.rotate(90)).collect()
+        assert len(res) == len(files)
+        assert sum(name.startswith('pxt-cpu') for name in open_thread_names) == len(files)
+
+        # a UDF that returns the path of an image file stores that file unchanged
+        res = t.select(src=t.img.localpath, stored=t.same_file.localpath).collect()
+        for src_path, stored_path in zip(res['src'], res['stored'], strict=True):
+            assert Path(src_path).read_bytes() == Path(stored_path).read_bytes()
+
+        # The unstored tile column of a view reads the base image outside the dispatch order. A query that reads the
+        # tiles and also passes the base image to a UDF gets both.
+        v = pxt.create_view(p('tiles'), t, iterator=pxtf.image.tile_iterator(t.img, tile_size=(256, 256)))
+        res = v.select(tile_width=v.tile.width, rot=v.img.rotate(90)).collect()
+        assert len(res) == v.count()
+        assert all(width == 256 for width in res['tile_width'])
+        assert all(img is not None for img in res['rot'])
+
+        # a stored image file that fails to decode gives an error for the cell of the UDF call that reads it, for a
+        # run_in_thread UDF (rotate) and for an unmarked UDF (convert)
+        t = pxt.create_table(p('corrupt'), {'img': pxt.Image})
+        validate_update_status(t.insert([{'img': PIL.Image.new('RGB', (8, 8))}]), expected_rows=1)
+        stored_path = t.select(path=t.img.localpath).collect()['path'][0]
+        Path(stored_path).write_bytes(b'not an image')
+        assert t.add_computed_column(rot=t.img.rotate(90), on_error='ignore').num_excs == 1
+        assert t.add_computed_column(gray=t.img.convert('L'), on_error='ignore').num_excs == 1
+        res = t.select(rot_err=t.rot.errortype, gray_err=t.gray.errortype).collect()
+        assert res['rot_err'] == res['gray_err'] == ['UnidentifiedImageError']
+        # without on_error='ignore', the failed decode fails the query with the error of the UDF call
+        for expr in (t.img.rotate(90), t.img.convert('L')):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='encountered exception UnidentifiedImageError'):
+                t.select(expr).collect()
+
+        # A decode holds up only the readers of its image. Each decode below waits until a UDF on another column of
+        # the same query has run. The query finishes only if that UDF does not wait for the decodes.
+        t = pxt.create_table(p('gate'), {'id': pxt.Int, 'img': pxt.Image})
+        validate_update_status(t.insert({'id': i, 'img': f} for i, f in enumerate(files)), expected_rows=len(files))
+        decode_gate.clear()
+        image_load = image_utils.load
+
+        def gated_load(path: str) -> PIL.Image.Image:
+            assert decode_gate.wait(timeout=30)
+            return image_load(path)
+
+        monkeypatch.setattr(image_utils, 'load', gated_load)
+        res = t.select(id=open_decode_gate(t.id), rot=t.img.rotate(90)).collect()
+        assert sorted(res['id']) == list(range(len(files)))
+
+
+@pxt.udf
+def image_path_as_image(path: str) -> PIL.Image.Image:
+    return path  # type: ignore[return-value]
+
+
+decode_gate = threading.Event()
+
+
+@pxt.udf
+def open_decode_gate(x: int) -> int:
+    decode_gate.set()
+    return x
 
 
 @pxt.udf
@@ -2396,6 +2911,11 @@ def _kwarg_order_udf(x: int, *, alpha: int, b: int, gamma_delta: int) -> int:
 
 
 @pxt.udf
+def _join_parts(sep: str, *parts: str | None) -> str:
+    return sep.join(part for part in parts if part is not None)
+
+
+@pxt.udf
 def _add_one(x: int) -> int:
     return x + 1
 
@@ -2403,6 +2923,28 @@ def _add_one(x: int) -> int:
 @pxt.udf
 def _add_two(x: int, y: int) -> int:
     return x + y
+
+
+@pxt.udf
+def _is_odd(x: int) -> bool:
+    return x % 2 == 1
+
+
+@pxt.udf
+def _seven() -> int:
+    return 7
+
+
+@pxt.uda
+class _py_sum(pxt.Aggregator):
+    def __init__(self) -> None:
+        self.sum = 0
+
+    def update(self, val: int) -> None:
+        self.sum += val
+
+    def value(self) -> int:
+        return self.sum
 
 
 @pytest.mark.db_roots('local', reason='exercises expr-eval slot GC internals')

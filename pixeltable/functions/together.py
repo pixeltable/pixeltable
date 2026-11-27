@@ -19,7 +19,6 @@ import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import together
@@ -239,7 +238,7 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
     )
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'completions', 'embeddings', 'image_generations']
 
 
 def __dir__() -> list[str]:

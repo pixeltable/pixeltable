@@ -13,7 +13,6 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
@@ -313,7 +312,7 @@ async def video_to_video(
     return _serialize_result(result.to_dict())
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['image_to_video', 'text_to_image', 'text_to_video', 'video_to_video']
 
 
 def __dir__() -> list[str]:

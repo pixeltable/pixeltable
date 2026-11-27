@@ -3,14 +3,19 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime
+import functools
 import itertools
 import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
+import PIL.Image
+
+import pixeltable.utils.image as image_utils
+from pixeltable import env, exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
 from .interfaces import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
+from .schedulers import ModalScheduler
 
 _logger = logging.getLogger(__name__)
 
@@ -52,11 +57,60 @@ class DefaultExprEvaluator(Evaluator):
         self.dispatcher.dispatch([rows[i] for i in range(len(rows)) if i not in rows_with_excs], self.eval_ctx)
 
 
+class ImageLoadEvaluator(Evaluator):
+    """
+    Decodes the stored image file of a ColumnRef slot on Env.cpu_pool.
+    """
+
+    default_evaluator: DefaultExprEvaluator
+
+    def __init__(self, e: exprs.Expr, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
+        super().__init__(dispatcher, exec_ctx)
+        self.default_evaluator = DefaultExprEvaluator(e, dispatcher, exec_ctx)
+
+    def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
+        # A row can reach this slot with no value from the input. Example: a document_splitter view writes its image
+        # output only to the validating ColumnRef, and ColumnRef.eval() gives the unvalidated slot None.
+        rows_without_file = [row for row in rows if row.file_paths[slot_idx] is None]
+        if len(rows_without_file) > 0:
+            self.default_evaluator.schedule(rows_without_file, slot_idx)
+        rows_with_file = [row for row in rows if row.file_paths[slot_idx] is not None]
+        for row in rows_with_file:
+            task = asyncio.create_task(self.eval(row, slot_idx))
+            self.dispatcher.register_task(task)
+
+    async def eval(self, row: exprs.DataRow, slot_idx: int) -> None:
+        assert not row.has_val[slot_idx] and row.file_paths[slot_idx] is not None
+        if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+            return
+
+        loop = asyncio.get_running_loop()
+        load_fn = functools.partial(self._load, row.file_paths[slot_idx])
+        # carry the ambient instrumentation span onto the worker thread, so that the load span nests under it
+        thread_fn = functools.partial(telemetry.run_in_context, telemetry.capture_context(), load_fn)
+        try:
+            row.vals[slot_idx] = await loop.run_in_executor(env.Env.get().cpu_pool, thread_fn)
+        except Exception:
+            # The slot keeps its file and stays without a decoded value, because set_exc() would clear the file of the
+            # image column itself. The expr that reads the slot repeats the decode and reports the error for its own
+            # cell.
+            pass
+        row.has_val[slot_idx] = True
+        self.dispatcher.dispatch([row], self.eval_ctx)
+
+    @classmethod
+    def _load(cls, path: str) -> PIL.Image.Image:
+        with telemetry.span('pixeltable.media.load', level=telemetry.DEBUG):
+            return image_utils.load(path)
+
+
 class FnCallEvaluator(Evaluator):
     """
     Evaluates function calls:
+    - with a resource pool: each batch/row goes to the pool's scheduler
     - batched functions (sync and async): one task per batch
     - async functions: one task per row
+    - run_in_thread functions: one task per row; each call runs as one job on Env.cpu_pool
     - the rest: one task per set of rows handed to schedule()
 
     TODO:
@@ -66,6 +120,7 @@ class FnCallEvaluator(Evaluator):
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
     scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
+    resource_pool: str | None
 
     # only set if fn.is_batched
     call_args_queue: asyncio.Queue[FnCallArgs] | None  # FnCallArgs waiting for execution
@@ -75,6 +130,11 @@ class FnCallEvaluator(Evaluator):
         super().__init__(dispatcher, exec_ctx)
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
+        self_path = self.fn.self_path
+        if self_path is not None and self_path in env.Env.get().udf_configs():
+            self.resource_pool = ModalScheduler.get_resource_pool(self_path)
+        else:
+            self.resource_pool = fn_call.resource_pool
         if fn_call.resource_pool is not None and not self.fn.is_async:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -127,7 +187,14 @@ class FnCallEvaluator(Evaluator):
         skip_rows: list[exprs.DataRow] = []  # skip rows with Nones in non-nullable parameters
         rows_call_args: list[FnCallArgs] = []
         for row in rows:
-            args_kwargs = self.fn_call.make_args(row)
+            try:
+                args_kwargs = self.fn_call.make_args(row)
+            except Exception as exc:
+                # an argument that fails to load (eg, an image file that fails to decode) is an error of this cell
+                _, _, exc_tb = sys.exc_info()
+                row.set_exc(self.fn_call.slot_idx, exc)
+                self.dispatcher.dispatch_exc([row], self.fn_call.slot_idx, exc_tb, self.eval_ctx)
+                continue
             if args_kwargs is None:
                 # nothing to do here
                 row[self.fn_call.slot_idx] = None
@@ -162,29 +229,34 @@ class FnCallEvaluator(Evaluator):
                 # turn call_args_batch into a single batched FnCallArgs
                 _logger.debug(f'Creating batch of size {len(call_args_batch)} for slot {slot_idx}')
                 batched_call_args = self._create_batch_call_args(call_args_batch)
-                if self.fn_call.resource_pool is not None:
-                    # hand the call off to the resource pool's scheduler
-                    scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
-                    scheduler.submit(batched_call_args, self.eval_ctx)
-                else:
-                    task = asyncio.create_task(self.eval_batch(batched_call_args))
-                    self.dispatcher.register_task(task)
+                self._submit_batch(batched_call_args)
+
+        elif self.resource_pool is not None:
+            scheduler = self.dispatcher.schedulers[self.resource_pool]
+            for item in rows_call_args:
+                scheduler.submit(item, self.eval_ctx)
 
         elif self.fn.is_async:
-            if self.fn_call.resource_pool is not None:
-                # hand the call off to the resource pool's scheduler
-                scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
-                for item in rows_call_args:
-                    scheduler.submit(item, self.eval_ctx)
-            else:
-                # create one task per call
-                for item in rows_call_args:
-                    task = asyncio.create_task(self.eval_async(item))
-                    self.dispatcher.register_task(task)
+            # create one task per call
+            for item in rows_call_args:
+                task = asyncio.create_task(self.eval_async(item))
+                self.dispatcher.register_task(task)
+
+        elif self.fn.run_in_thread:
+            for item in rows_call_args:
+                task = asyncio.create_task(self.eval_in_thread(item))
+                self.dispatcher.register_task(task)
 
         else:
             # create a single task for all rows
             task = asyncio.create_task(self.eval(rows_call_args))
+            self.dispatcher.register_task(task)
+
+    def _submit_batch(self, batched_call_args: FnCallArgs) -> None:
+        if self.resource_pool is not None:
+            self.dispatcher.schedulers[self.resource_pool].submit(batched_call_args, self.eval_ctx)
+        else:
+            task = asyncio.create_task(self.eval_batch(batched_call_args))
             self.dispatcher.register_task(task)
 
     def _queued_call_args_iter(self) -> Iterator[FnCallArgs]:
@@ -261,6 +333,35 @@ class FnCallEvaluator(Evaluator):
             call_args.row.set_exc(self.fn_call.slot_idx, exc)
             self.dispatcher.dispatch_exc(call_args.rows, self.fn_call.slot_idx, exc_tb, self.eval_ctx)
 
+    async def eval_in_thread(self, call_args: FnCallArgs) -> None:
+        assert len(call_args.rows) == 1
+        assert not call_args.row.has_val[self.fn_call.slot_idx]
+        assert not call_args.row.has_exc(self.fn_call.slot_idx)
+        if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+            with self._cell_span(call_args.row):
+                # the worker thread receives the argument values and never reads the DataRow
+                call_fn = functools.partial(self._call_in_thread, call_args.args, call_args.kwargs)
+                # run_in_executor() does not copy the context to the worker thread. The snapshot carries it there,
+                # so that spans reported inside the UDF nest under the cell span.
+                hooks_ctx = telemetry.capture_context()
+                thread_fn = functools.partial(telemetry.run_in_context, hooks_ctx, call_fn)
+                call_args.row[self.fn_call.slot_idx] = await loop.run_in_executor(env.Env.get().cpu_pool, thread_fn)
+            self.dispatcher.dispatch([call_args.row], self.eval_ctx)
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            call_args.row.set_exc(self.fn_call.slot_idx, exc)
+            self.dispatcher.dispatch_exc(call_args.rows, self.fn_call.slot_idx, exc_tb, self.eval_ctx)
+
+    def _call_in_thread(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        # udf_call() wraps only the call, so that udf_latency excludes the time the job waits in the queue of
+        # Env.cpu_pool
+        with telemetry_schemas.udf_call(self.fn):
+            return self.scalar_py_fn(*args, **kwargs)
+
     async def eval(self, call_args_batch: list[FnCallArgs]) -> None:
         rows_with_excs: set[int] = set()  # records idxs into 'rows'
         for idx, item in enumerate(call_args_batch):
@@ -283,13 +384,11 @@ class FnCallEvaluator(Evaluator):
         )
 
     def _close(self) -> None:
-        """Create a task for the incomplete batch of queued FnCallArgs, if any"""
+        """Submit the incomplete batch of queued FnCallArgs, if any"""
         _logger.debug(f'FnCallEvaluator.close(): slot_idx={self.fn_call.slot_idx}')
         if self.call_args_queue is None or self.call_args_queue.empty():
             return
-        batched_call_args = self._create_batch_call_args(list(self._queued_call_args_iter()))
-        task = asyncio.create_task(self.eval_batch(batched_call_args))
-        self.dispatcher.register_task(task)
+        self._submit_batch(self._create_batch_call_args(list(self._queued_call_args_iter())))
 
 
 class NestedRowList:

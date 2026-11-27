@@ -37,6 +37,7 @@ import more_itertools
 import numpy as np
 import pandas as pd
 import PIL.Image
+import pydantic
 import pytest
 import sqlalchemy as sql
 from typing_extensions import TypeForm
@@ -45,14 +46,14 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs, telemetry
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Path as PxtPath, retry_md_read_loop
+from pixeltable.catalog import Path as PxtPath, RowCountStats, retry_md_read_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.service import management_client, proxy_daemon
 from pixeltable.telemetry import SubscriberRegistry
 from pixeltable.types import ColumnSpec
-from pixeltable.utils import sha256sum
+from pixeltable.utils import av as av_utils, sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
@@ -147,6 +148,17 @@ def free_port() -> int:
                 continue
         return port
     raise RuntimeError(f'No free port in {first}-{first + slice_len - 1}')
+
+
+@contextmanager
+def bystander_process() -> Iterator[subprocess.Popen[bytes]]:
+    """A process unrelated to Pixeltable, alive until the block exits."""
+    proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], stdin=subprocess.DEVNULL)
+    try:
+        yield proc
+    finally:
+        proc.kill()
+        proc.wait()
 
 
 LocalDbKind = Literal['embedded', 'external']
@@ -592,7 +604,7 @@ def generate_test_video(
     pix_fmt: str = 'yuv420p',
 ) -> str:
     """Create test video with specific properties using ffmpeg and return its path"""
-    cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
+    cmd = ['-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
     if has_audio:
         cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
     if Env.get().default_video_encoder is not None:
@@ -602,7 +614,7 @@ def generate_test_video(
         cmd.extend(['-c:a', 'aac'])
     output_path = tmp_path / f'{uuid4()}.mp4'
     cmd.extend(['-y', str(output_path)])
-    subprocess.run(cmd, capture_output=True, check=True)
+    av_utils.run_ffmpeg(cmd)
     return str(output_path)
 
 
@@ -615,7 +627,7 @@ def generate_color_video(
     Each segment is a (color, fps) pair; segments with different fps produce a variable frame rate video. The first
     frame is at start_time.
     """
-    cmd = ['ffmpeg']
+    cmd: list[str] = []
     for color, fps in segments:
         cmd.extend(['-f', 'lavfi', '-i', f'color=c={color}:s=64x64:r={fps}:d=1'])
     inputs = ''.join(f'[{i}]' for i in range(len(segments)))
@@ -623,7 +635,7 @@ def generate_color_video(
     cmd.extend(['-output_ts_offset', str(start_time), '-c:v', 'libx264', '-pix_fmt', 'yuv420p'])
     output_path = tmp_path / f'{uuid4()}.{extension}'
     cmd.extend(['-y', str(output_path)])
-    subprocess.run(cmd, capture_output=True, check=True)
+    av_utils.run_ffmpeg(cmd)
     return str(output_path)
 
 
@@ -631,9 +643,9 @@ def generate_tone_audio(tmp_path: Path, extension: str, start_time: float = 0.0)
     """Create a 2-second 440 Hz tone whose first sample is at start_time and return its path."""
     codec = 'libopus' if extension == 'webm' else 'flac'
     output_path = tmp_path / f'{uuid4()}.{extension}'
-    cmd = ['ffmpeg', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2']
+    cmd = ['-f', 'lavfi', '-i', 'sine=frequency=440:duration=2']
     cmd.extend(['-output_ts_offset', str(start_time), '-c:a', codec, '-y', str(output_path)])
-    subprocess.run(cmd, capture_output=True, check=True)
+    av_utils.run_ffmpeg(cmd)
     return str(output_path)
 
 
@@ -752,6 +764,49 @@ def get_sentences(n: int = 100) -> list[str]:
 
 def assert_type_eq(col_type: ts.ColumnType, pxt_type: TypeForm) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
+
+
+def typed_dict_fields(t: type) -> tuple[dict[str, ts.ColumnType], frozenset[str]]:
+    """Resolve a TypedDict to (field_types, optional_keys). Optional keys are meaningful at the top level."""
+    jt = ts.JsonType.from_python_type(t)
+    assert isinstance(jt, ts.JsonType), t
+    assert jt.type_schema is not None and isinstance(jt.type_schema.type_spec, dict), t
+    return jt.type_schema.type_spec, jt.type_schema.optional_keys
+
+
+def pydantic_model_fields(model: type) -> dict[str, ts.ColumnType]:
+    """Per-field JsonType conversion of a Pydantic model, keyed by JSON key. Fields whose annotation can't be
+    converted to a Pixeltable type are omitted (callers must declare them in overrides)."""
+    assert issubclass(model, pydantic.BaseModel)
+    out: dict[str, ts.ColumnType] = {}
+    for name, info in model.model_fields.items():
+        try:
+            ct = ts.ColumnType.normalize_type(info.annotation)
+        except Exception:
+            continue
+        out[info.alias or name] = ct
+    return out
+
+
+def assert_sdk_mirrors(
+    pairs: list[tuple[type, list[type[pydantic.BaseModel]]]], synth: frozenset[str] = frozenset()
+) -> None:
+    """Each TypedDict has the keys of its SDK models combined, plus synth, and each of its typed keys accepts
+    the key's type in every SDK model that has the key."""
+    for ours, sdk_models in pairs:
+        ours_fields, _ = typed_dict_fields(ours)
+        sdk_keys = {info.alias or name for model in sdk_models for name, info in model.model_fields.items()}
+        assert set(ours_fields) - synth == sdk_keys, (
+            f'{ours.__name__} keys drifted: missing {sdk_keys - set(ours_fields)}, '
+            f'extra {set(ours_fields) - synth - sdk_keys}'
+        )
+        for model in sdk_models:
+            for key, sdk_type in pydantic_model_fields(model).items():
+                ours_type = ours_fields[key]
+                # model_dump() emits exactly the declared fields, so the SDK's dict schemas are closed
+                assert ours_type.is_supertype_of(sdk_type.with_closed_dicts()), (
+                    f'{ours.__name__}.{key} drifted from {model.__name__}: ours={ours_type} sdk={sdk_type}'
+                )
 
 
 def assert_resultset_eq(
@@ -977,10 +1032,20 @@ def ensure_s3_pytest_resources_access() -> None:
         pytest.skip(f'S3 bucket not reachable or not configured: {exc}')
 
 
-def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None = None) -> None:
+def validate_update_status(
+    status: pxt.UpdateStatus,
+    expected_rows: int | None = None,
+    *,
+    expected_row_counts: RowCountStats | None = None,
+    expected_cascade_row_counts: RowCountStats | None = None,
+) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
+    if expected_row_counts is not None:
+        assert status.row_count_stats == expected_row_counts, status
+    if expected_cascade_row_counts is not None:
+        assert status.cascade_row_count_stats == expected_cascade_row_counts, status
 
 
 def run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
@@ -1487,8 +1552,8 @@ def _(n: int) -> ts.ArrayType:
 # character n-gram hashing and images via grayscale downsampling, both into the same fixed-dimensional space -- so it
 # is a drop-in for clip (used as both image_embed and string_embed) as well as for string-only embeddings. Identical
 # inputs produce identical vectors, so retrieving an item by querying with itself is exact. It does NOT model
-# cross-modal or lexically-independent semantics; tests that assert those use the real models on the very_expensive
-# (scheduled) tier.
+# cross-modal or lexically-independent semantics; tests that assert those use the real models, marked
+# skip_merge_queue.
 
 LOCAL_EMBED_DIM = 512  # matches openai/clip-vit-base-patch32; bind via local_embedding.using(dim=...)
 

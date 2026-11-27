@@ -11,7 +11,6 @@ from unittest import mock
 
 import plan_claude_ci_fix as plan
 
-
 RUN_9 = 'https://github.com/o/r/actions/runs/9'
 
 
@@ -65,7 +64,7 @@ class IsCiFixPrTest(unittest.TestCase):
         self.assertTrue(plan.is_ci_fix_pr(pr(1), 'tests'))
 
     def test_other_workflow_prefix_is_not_a_match(self) -> None:
-        self.assertFalse(plan.is_ci_fix_pr(pr(1, head='claude/ci-fix-nightly-8'), 'tests'))
+        self.assertFalse(plan.is_ci_fix_pr(pr(1, head='claude/ci-fix-pip-install-tests-8'), 'tests'))
 
     def test_fork_head_is_not_a_match(self) -> None:
         self.assertFalse(plan.is_ci_fix_pr(pr(1, cross=True), 'tests'))
@@ -117,7 +116,7 @@ class MainTest(unittest.TestCase):
         self.assertEqual(self.run_main(event(run_id=9), [closed]), '')
 
     def test_open_human_pr_naming_this_run_stops_a_new_fix(self) -> None:
-        human = pr(1927, head='claude/genai-v1beta-notebook', body=f'nightly {RUN_9}')
+        human = pr(1927, head='claude/genai-v1beta-notebook', body=f'pip-install-tests {RUN_9}')
         self.assertEqual(self.run_main(event(run_id=9), [human]), '')
 
     def test_fork_pr_naming_this_run_does_not_stop_a_fix(self) -> None:
@@ -136,7 +135,7 @@ class MainTest(unittest.TestCase):
         self.assertEqual(self.run_main(event(run_id=9), [pr(42)]), '')
 
     def test_open_ci_fix_pr_for_another_workflow_does_not_stop_a_fix(self) -> None:
-        other = pr(42, head='claude/ci-fix-nightly-8')
+        other = pr(42, head='claude/ci-fix-pip-install-tests-8')
         self.assertIn('workflow=tests\n', self.run_main(event(run_id=9), [other]))
 
     def test_fork_pr_on_a_ci_fix_branch_does_not_stop_a_fix(self) -> None:
@@ -155,9 +154,9 @@ class MainTest(unittest.TestCase):
         self.assertEqual(context['branch'], 'claude/ci-fix-tests-9')
         self.assertEqual([p['number'] for p in context['closed_prs']], [40])
 
-    def test_nightly_uses_the_release_ref(self) -> None:
-        out = self.run_main(event(run_id=9, name='nightly', path='.github/workflows/nightly.yml'))
-        self.assertIn('branch=claude/ci-fix-nightly-9\n', out)
+    def test_pip_install_tests_uses_the_release_ref(self) -> None:
+        out = self.run_main(event(run_id=9, name='pip-install-tests', path='.github/workflows/pip-install-tests.yml'))
+        self.assertIn('branch=claude/ci-fix-pip-install-tests-9\n', out)
         self.assertEqual(json.loads(out.split('context=', 1)[1])['tested_ref'], 'release')
 
     def test_timed_out_run_is_investigated(self) -> None:

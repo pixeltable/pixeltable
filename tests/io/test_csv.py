@@ -69,7 +69,7 @@ class TestCsv:
         query = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4)
         pxt.io.export_csv(query, csv_path)
 
-        t2 = pxt.io.import_csv(p('test_csv_rt_reimported'), str(csv_path))
+        t2 = pxt.io.import_csv(p('test_csv_rt_reimported'), csv_path)
 
         assert query.order_by(t.c2).collect() == t2.order_by(t2.c2).collect()
 

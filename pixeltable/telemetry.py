@@ -478,3 +478,12 @@ def exit_context(token: _CtxToken | None) -> None:
         _current_span.reset(cv_token)
     except Exception as e:
         _logger.debug(f'failed to reset ambient span: {e!r}')
+
+
+def run_in_context(snapshot: CtxSnapshot | None, fn: Callable[[], Any]) -> Any:
+    """Return fn(), with a capture_context() snapshot restored during the call; call on the worker thread."""
+    token = restore_context(snapshot)
+    try:
+        return fn()
+    finally:
+        exit_context(token)

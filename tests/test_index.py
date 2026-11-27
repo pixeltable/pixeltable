@@ -372,6 +372,9 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(image=sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected exactly one of'):
+            _ = t.order_by(t.split.similarity()).limit(1).collect()
+
     def test_add_index_after_drop(
         self, small_img_tbl: pxt.Table, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
@@ -1004,6 +1007,11 @@ class TestIndex:
         ):
             test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0), precision='fp16')
 
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0))
+        assert 'local_embedding' in str(exc_info.value), str(exc_info.value)
+        assert 'None' not in str(exc_info.value), str(exc_info.value)
+
     def run_btree_test(
         self, p: Callable[[str], str], data: list, data_type: type, is_data_versioned: bool
     ) -> pxt.Table:
@@ -1329,12 +1337,17 @@ class TestIndex:
         assert len(res) == 3
         assert all(isinstance(row['col_0'], np.ndarray) and row['col_0'].dtype == np.float32 for row in res)
 
+        # l2 similarity is a distance, so the nearest row comes first in ascending order
+        # TODO(PXT-1843): make similarity() order consistent across metrics
+        nearest_first = metric == 'l2'
         sim = t.text.similarity(string='zero')
-        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=nearest_first).collect()
         assert res[0]['rowid'] == 0
+        reversed_res = t.select(t.rowid, sim=sim).order_by(sim, asc=not nearest_first).collect()
+        assert reversed_res['rowid'] == res['rowid'][::-1]
 
         sim = t.text.similarity(string='one')
-        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=nearest_first).collect()
         assert res[0]['rowid'] == 1
 
     def test_array_column_embedding_index(
@@ -1578,7 +1591,7 @@ class TestIndex:
         embed, is_dummy_model = mpnet_or_local
 
         def check(cond: bool) -> None:
-            # text-ordering results depend on real-model semantics; only assert them on the very_expensive tier
+            # text-ordering results depend on real-model semantics; only assert them with the real model
             if not is_dummy_model:
                 assert cond
 

@@ -1,9 +1,5 @@
 """Pixeltable UDFs for VideoType."""
 
-# ruff: noqa: F401
-
-from pixeltable.utils.code import local_public_names
-
 from .editing import (
     clip,
     concat_videos,
@@ -55,7 +51,50 @@ from .scene_detect import (
     scene_detect_threshold,
 )
 
-__all__ = local_public_names(__name__, exclude=['editing', 'filters', 'scene_detect', 'iterators'])
+__all__ = [
+    'Frame',
+    'FrameAttrs',
+    'LegacyFrame',
+    'SceneInfo',
+    'VideoSegment',
+    'adjust_brightness',
+    'clip',
+    'concat_videos',
+    'concat_videos_agg',
+    'crop',
+    'extract_audio',
+    'extract_frame',
+    'fade_in',
+    'fade_out',
+    'ffmpeg_filter',
+    'frame_iterator',
+    'get_duration',
+    'get_metadata',
+    'grayscale',
+    'legacy_frame_iterator',
+    'make_video',
+    'mirror_x',
+    'mirror_y',
+    'mix_audio',
+    'overlay_image',
+    'overlay_text',
+    'pan',
+    'resize',
+    'reverse',
+    'rotate',
+    'scene_detect_adaptive',
+    'scene_detect_content',
+    'scene_detect_hash',
+    'scene_detect_histogram',
+    'scene_detect_threshold',
+    'scroll',
+    'segment_video',
+    'speed',
+    'transition',
+    'video_splitter',
+    'with_audio',
+    'zoom',
+]
 
 
 def __dir__() -> list[str]:

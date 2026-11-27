@@ -5,15 +5,18 @@
 
 from __future__ import annotations
 
+import pathlib
 import re
+from textwrap import dedent
 from typing import Any, Callable
 
 import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog.model import EmbeddingIndex
+from pixeltable.catalog.model import EmbeddingIndex, schema as schema_verbs
 from pixeltable.utils.fault_injection import FaultLocation
+from pixeltable_cli.utils import PxtPath
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault
@@ -24,11 +27,11 @@ ROOT = ''
 
 def schema_changed(tbl_name: str) -> str:
     """The drift error update_all() raises when tbl_name changed since the diff."""
-    return rf"Table '{tbl_name}' saw schema changes since update_all\(\) computed its changes"
+    return rf"Table '{tbl_name}' saw schema changes while this update was in progress"
 
 
 # a dropped table and one dropped and recreated at the same path are indistinguishable by id: both are gone
-TABLE_GONE = r"Table 'test_table' was dropped or replaced since update_all\(\) computed its changes"
+TABLE_GONE = r"Table 'test_table' was dropped or replaced while this update was in progress"
 
 
 def _run_with_concurrent_apply(
@@ -462,6 +465,84 @@ class TestConcurrentModelUpdate:
             ),
         ):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), concurrent)
+
+    @pytest.mark.parametrize('family', ['update_all', 'single_op'])
+    def test_nullable_column_with_new_dependent(self, uses_db: None, fault_injection: None, family: str) -> None:
+        """B4b: thread 0 makes x nullable; a concurrent change adds a non-nullable view column computed from x."""
+        TM = pxt.model_base()
+
+        class Base(TM, name='test_table'):
+            id: pxt.Int
+            x: pxt.Float
+
+        class View(TM, name='test_view', base=Base):
+            vc1 = Base.id + 1
+
+        TM.create_all(ROOT)
+        Base.insert([{'id': 1, 'x': 1.0}, {'id': 2, 'x': 2.0}])
+
+        TM2 = pxt.model_base()
+
+        class BaseV2(TM2, name='test_table'):
+            id: pxt.Int
+            x: pxt.Float | None
+
+        class ViewV2(TM2, name='test_view', base=BaseV2):
+            vc1 = BaseV2.id + 1
+
+        if family == 'update_all':
+            TMc = pxt.model_base()
+
+            class BaseCM(TMc, name='test_table'):
+                id: pxt.Int
+                x: pxt.Float
+
+            class ViewCM(TMc, name='test_view', base=BaseCM):
+                vc1 = BaseCM.id + 1
+                dep = BaseCM.x + 1
+
+            concurrent = lambda: TMc.update_all(ROOT)
+        else:
+            v = View.table
+            concurrent = lambda: v.add_computed_column(dep=Base.table.x + 1)
+
+        with pxt_raises(
+            excs.ErrorCode.CONCURRENT_MODIFICATION,
+            match=(
+                r"Column 'x' of table 'test_table' gained non-nullable dependents while this update was in progress: "
+                r'test_view\.dep'
+            ),
+        ):
+            _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
+        assert pxt.get_table('test_table').get_metadata()['columns']['x']['type_'] == 'Float'
+
+    def test_schema_update_rerun_hint(self, uses_db: None, fault_injection: None, project_env: pathlib.Path) -> None:
+        """pxt schema update reports a concurrent change with its own command line, not with update_all()."""
+        schema_file = project_env / 'rerun_schema.py'
+        schema_src = dedent(
+            """
+            import pixeltable as pxt
+
+            TableModel = pxt.model_base()
+
+
+            class Base(TableModel, name='test_table'):
+                id: pxt.Int
+                value: pxt.Float | None
+            """
+        )
+        schema_file.write_text(schema_src)
+        schema_verbs.schema_update(str(schema_file), PxtPath(''))
+        t = pxt.get_table('test_table')
+
+        schema_file.write_text(schema_src + '    x: pxt.Float | None\n')
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')) as info:
+            _run_with_concurrent_apply(
+                lambda: schema_verbs.schema_update(str(schema_file), PxtPath('')),
+                lambda: t.add_column(y=pxt.Int | None),
+            )
+        assert info.value.message.endswith("Re-run 'pxt schema update'.")
+        assert 'update_all()' not in info.value.message
 
     def test_drop_index_with_new_dependent(self, uses_db: None, fault_injection: None) -> None:
         """B5 (single_op only): thread 0 drops index ix; a concurrent change adds a view column that references it."""

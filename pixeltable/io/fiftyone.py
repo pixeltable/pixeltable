@@ -10,6 +10,7 @@ import puremagic
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.utils.image as image_utils
 from pixeltable import exprs
 from pixeltable.utils.local_store import TempStore
 
@@ -107,7 +108,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         else:
             # Write the dynamically created image to a temp file
             file = TempStore.create_path(extension=f'.{self.__image_format}')
-            img.save(file, format=self.__image_format)
+            image_utils.save(img, file, self.__image_format)
 
         metadata = fo.ImageMetadata(
             size_bytes=os.path.getsize(file),

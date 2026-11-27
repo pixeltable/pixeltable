@@ -10,10 +10,23 @@ applyTo: "tests/**"
 - Prefer `db_root: DatabaseRoot` and `db_root.make_catalog_path()` for portable catalog tests.
   `uses_db` and plain paths are valid for in-process tests; they require
   `@pytest.mark.db_roots('local', reason='...')`. The reason explains the restriction or is `TODO: convert`.
+- A test that reaches `Env.get()`, directly or through a helper such as `skip_test_if_not_installed()`,
+  requests `init_env`; `uses_db` and `db_root` include it. Without it, the test would use whatever an earlier
+  test on its xdist worker set up, or the developer's real Pixeltable home and database when it runs first, so
+  `tests/conftest.py` fails such a test.
 - Use `pxt_raises(..., match=...)` for Pixeltable errors, and `pytest.raises(..., match=...)` for other
   exceptions. Verify meaningful error text.
-- New tests making live third-party model/service calls need `remote_api` and `very_expensive`; mocked
-  calls need neither. Register new markers in `pyproject.toml`; put new markers on classes/methods.
+- Mark new tests that make live third-party model/service calls or download models `skip_merge_queue`,
+  unless the service is reliable enough for the merge queue (as OpenAI's is). Independently, mark tests
+  too costly for every CI configuration `expensive` (for example, image generation; runs only on
+  `standard+`/`standard++`), or `very_expensive` (for example, video generation; `standard++` only). Tests
+  that exceed a standard GitHub-hosted runner's memory or disk, or run for tens of minutes on its CPU, take
+  `resource_intensive`. Neither `very_expensive` nor `resource_intensive` runs on PRs or in the merge queue, so
+  neither needs `skip_merge_queue`. Tests in the `large_model` xdist group, which includes every test requesting
+  `clip_embed`, `e5_embed` or `all_mpnet_embed`, must be `resource_intensive`; `tests/conftest.py` fails those that
+  aren't. Register new markers in `pyproject.toml`; put new markers on classes/methods.
+  A notebook under `docs/release` takes the markers of the unit tests for the providers and UDFs it calls, or
+  `skip` if CI never runs it, with a reason, in `NOTEBOOK_MARKERS` in `tests/notebook_markers.py`.
 - Scope backend restrictions with `db_roots`; gate a single parametrization inside the test instead of
   applying `skipif`/`xfail` to every variant.
 - For catalog-parametrized media tests, use `sample_file_server.url(path, db_root)` so hosted modes get

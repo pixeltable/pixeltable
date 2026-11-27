@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import inspect
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Callable, Iterable, overload
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable.types import FunctionKind
 
 from .function import Function
 from .signature import Signature
 
 if TYPE_CHECKING:
-    from pixeltable._query import Query
+    from pixeltable._query import Query, ResultSet
     from pixeltable._query_base import QueryBase
 
 
 class QueryTemplateFunction(Function):
     """A parameterized query from which an executable Query is created with a function call."""
 
+    kind: ClassVar[FunctionKind] = 'query'
     template_query: 'QueryBase' | None
     self_name: str | None
     return_scalar: bool
@@ -115,8 +117,19 @@ class QueryTemplateFunction(Function):
     def is_async(self) -> bool:
         return True
 
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        # _collect() opens its own transaction; _acollect() requires one
+        query, bound_args = self._query_and_args(args, kwargs)
+        return self._return_value(query._collect(args=bound_args))
+
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
-        # assert not self.is_polymorphic
+        query, bound_args = self._query_and_args(args, kwargs)
+        return self._return_value(await query._acollect(args=bound_args))
+
+    def _query_and_args(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Query, dict[str, Any]]:
+        """Return the query over a table and the argument of each parameter, with defaults applied."""
+        from pixeltable._query import Query
+
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
@@ -126,16 +139,15 @@ class QueryTemplateFunction(Function):
                 if param.has_default() and param.name not in bound_args
             }
         )
-        from pixeltable._query import Query
-
-        # a route binds a template declared over a model to its table before serving it; nothing else does,
-        # so a template that is still declared over a model here has no table to read
+        # a template declared over a model has no table to read until bind_query_templates() replaces it
         if not isinstance(self.template_query, Query):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Query UDF {self.name!r} is declared over a model rather than a table, so it cannot be evaluated.',
             )
-        result = await self.template_query._acollect(args=bound_args)
+        return self.template_query, bound_args
+
+    def _return_value(self, result: ResultSet) -> Any:
         rows: list[Any] = list(result)
         if self.return_scalar:
             col_name = next(iter(self.template_query.schema))
@@ -196,8 +208,8 @@ def substitute_template_queries(e: exprs.Expr, substitution_fn: Callable[[QueryB
         )
         # we need to substitute the FunctionCall itself, not just the Function instance; substitute() won't descend
         # into that replacement, so its args get the replacements of their nested calls (subexprs() yields those first)
-        args = [arg.copy().substitute(subst) for arg in fn_call.args]
-        kwargs = {name: arg.copy().substitute(subst) for name, arg in fn_call.kwargs.items()}
+        args = [arg.substitute(subst) for arg in fn_call.args]
+        kwargs = {name: arg.substitute(subst) for name, arg in fn_call.kwargs.items()}
         subst[fn_call] = new_fn(*args, **kwargs)
     return e.substitute(subst)
 
@@ -295,7 +307,7 @@ def query(*args: Any, **kwargs: Any) -> Any:
 
 
 def retrieval_udf(
-    table: catalog.Table,
+    table: catalog.Table | catalog.model.TableModelMeta,
     name: str | None = None,
     description: str | None = None,
     parameters: Iterable[str | exprs.ColumnRef] | None = None,
@@ -308,7 +320,8 @@ def retrieval_udf(
     returns the rows of the table whose columns equal the specified arguments.
 
     Args:
-        table: The table to use as the dataset for the retrieval tool.
+        table: The table to use as the dataset for the retrieval tool, or a model. Over a model that is not yet
+            bound to a table, the UDF can be used wherever a `@pxt.query` over that model can, and is bound with it.
         name: The name of the tool. If not specified, then the name of the table will be used by default.
         description: The description of the tool. If not specified, then a default description will be generated.
         parameters: The columns of the table to use as parameters. If not specified, all data columns
@@ -325,25 +338,31 @@ def retrieval_udf(
             matches.
         - Otherwise: a list of such dicts, one per matching row up to `limit`, or an empty list if no row matches.
     """
+    from pixeltable.catalog.model import TableModelMeta
+
+    # an unbound model's attributes and select() yield a ModelQuery, which is bound along with the model
+    tbl_path = table.table_path() if isinstance(table, TableModelMeta) else table._tbl_path
+    col_mds = {col_md.name: col_md for col_md in tbl_path.column_md() if col_md.name is not None}
+
     # Argument validation
-    col_refs: list[exprs.ColumnRef]
-    col_names = table.columns()
+    col_refs: list[exprs.Expr]
     if parameters is None:
-        col_refs = [table[col_name] for col_name in col_names if not table[col_name].column_md.is_computed]
+        col_refs = [getattr(table, col_name) for col_name, col_md in col_mds.items() if not col_md.is_computed]
     else:
         for param in parameters:
-            if isinstance(param, str) and param not in col_names:
+            if isinstance(param, str) and param not in col_mds:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'The specified parameter {param!r} is not a column of the table {table._path()!r}',
+                    f'The specified parameter {param!r} is not a column of the table '
+                    f'{table.__table_spec__["name"] if isinstance(table, TableModelMeta) else table._path()!r}',
                 )
-        col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
+        col_refs = [getattr(table, param) if isinstance(param, str) else param for param in parameters]
 
     if len(col_refs) == 0:
         raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'Parameter list cannot be empty.')
 
     # Construct the Query
-    predicates = [col_ref == exprs.Variable(col_ref.column_md.name, col_ref.column_md.col_type) for col_ref in col_refs]
+    predicates = [col_ref == exprs.Variable(col_ref.default_column_name(), col_ref.col_type) for col_ref in col_refs]
     where_clause = reduce(lambda c1, c2: c1 & c2, predicates)
     df = table.select().where(where_clause)
     if limit is not None:
@@ -351,20 +370,20 @@ def retrieval_udf(
 
     # Construct the signature
     query_params = [
-        func.Parameter(col_ref.column_md.name, col_ref.column_md.col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        func.Parameter(col_ref.default_column_name(), col_ref.col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
         for col_ref in col_refs
     ]
 
     # Construct a name and/or description if not provided
     if name is None:
-        name = table._name()
+        name = table.__table_spec__['name'] if isinstance(table, TableModelMeta) else table._name()
     if description is None:
         description = (
             f'Retrieves an entry from the dataset {name!r} that matches the given parameters.\n\nParameters:\n'
         )
         description += '\n'.join(
             [
-                f'    {col_ref.column_md.name}: of type `{col_ref.column_md.col_type._to_base_str()}`'
+                f'    {col_ref.default_column_name()}: of type `{col_ref.col_type._to_base_str()}`'
                 for col_ref in col_refs
             ]
         )

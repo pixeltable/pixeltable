@@ -110,6 +110,10 @@ def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
     return adj_name.isidentifier() and name.isascii() and not name.startswith('-') and not name.startswith('_')
 
 
+# the first part of a local database's name in the control plane, which gives such a database UDF servers and no pods
+LOCAL_DB_CLOUD_NAME_PREFIX = 'local-'
+
+
 def hosted_db_uri_error(org: str, db: str) -> str | None:
     """Return why pxt://org:db cannot refer to a hosted database, or None if it can."""
     for name, kind in ((org.lower(), 'organization name'), (db.lower(), 'database name')):

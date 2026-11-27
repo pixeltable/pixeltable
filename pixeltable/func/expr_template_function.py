@@ -89,7 +89,6 @@ class ExprTemplateFunction(Function):
         bound_args.update(
             {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args}
         )
-        result = template.expr.copy()
         arg_exprs: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
         for param_name, arg in bound_args.items():
             param_expr = template.param_exprs[param_name]
@@ -104,8 +103,7 @@ class ExprTemplateFunction(Function):
             else:
                 arg_expr = arg
             arg_exprs[param_expr] = arg_expr
-        result = result.substitute(arg_exprs)
-        return result
+        return template.expr.substitute(arg_exprs)
 
     def call_return_type(self, bound_args: dict[str, exprs.Expr]) -> ts.ColumnType:
         """
@@ -122,7 +120,7 @@ class ExprTemplateFunction(Function):
                 if param_name not in bound_args
             }
         )
-        substituted_expr = self.template.expr.copy().substitute(
+        substituted_expr = self.template.expr.substitute(
             exprs.ExprDict[exprs.Expr]((self.template.param_exprs[name], expr) for name, expr in with_defaults.items())
         )
         return substituted_expr.col_type
@@ -134,11 +132,7 @@ class ExprTemplateFunction(Function):
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
-        expr = self.instantiate(args, kwargs)
-        row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
-        row = row_builder.make_row()
-        row_builder.eval(row, ctx=row_builder.default_eval_ctx)
-        return row[row_builder.get_output_exprs()[0].slot_idx]
+        return self.instantiate(args, kwargs).eval_without_row()
 
     @property
     def display_name(self) -> str:

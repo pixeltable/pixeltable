@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
+import dataclasses
 import datetime
 import http.server
 import importlib
@@ -11,7 +13,6 @@ import logging
 import math
 import os
 import shutil
-import subprocess
 import threading
 import types
 import typing
@@ -25,6 +26,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import psutil
+import pydantic
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener
@@ -32,6 +34,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.service.resources import UdfResources
 from pixeltable.utils import fault_injection
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import Dbms, PostgresqlDbms
@@ -55,6 +58,28 @@ _logger = logging.getLogger(__name__)
 LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
 T = TypeVar('T')
+
+_UDF_RESOURCES_ADAPTER = pydantic.TypeAdapter(dict[str, UdfResources])
+
+
+@dataclasses.dataclass(frozen=True)
+class UdfConfig:
+    """A UDF's entry in the pixeltable.udf setting."""
+
+    # the UDF's path in the setting; the control plane identifies the UDF's server by it
+    setting_path: str
+    resources: UdfResources
+
+
+@dataclasses.dataclass(frozen=True)
+class UdfEndpoints:
+    """The URLs of a database's UDF servers, and the headers that authorize calls to them."""
+
+    # keyed by the UDF's path in the pixeltable.udf setting
+    server_urls: dict[str, str]
+    # sent with every request
+    headers: dict[str, str] = dataclasses.field(repr=False)
+
 
 _DEFAULT_PROXY_DOMAIN = 'pxt.run'
 # The tunnel load balancer also listens on 9000, the default before 443; PIXELTABLE_CLOUD_HOST=pxt.run:9000 picks it
@@ -128,6 +153,7 @@ class Env:
     _tmp_dir: Path | None  # any tmp files, in one TempStore directory per process
     _services_dir: Path | None  # registry of local services
     _sa_engine: sql.engine.base.Engine | None
+    _catalog_id: str | None  # SystemInfoMd.catalog_id of the connected database
     _pgdata_dir: Path | None
     _db_name: str | None
     _db_server: pixeltable_pgserver.PostgresServer | None  # set only when running in local environment
@@ -159,6 +185,12 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
+    _cpu_pool: concurrent.futures.ThreadPoolExecutor | None
+    # the last result of udf_configs(), with the config setting that produced it
+    _udf_configs_cache: tuple[dict[str, Any], dict[str, UdfConfig]] | None
+    # the endpoints of the UDF servers; valid until this process changes the local database's deployment, re-imports
+    # project code or gets a failed call, each of which drops them
+    _udf_endpoints: UdfEndpoints | None
     _dbms: Dbms | None
     _db_lock: threading.Lock  # serializes ensure_connected()
     _db_connected: bool
@@ -204,6 +236,7 @@ class Env:
         self._tmp_dir = None  # any tmp files
         self._services_dir = None
         self._sa_engine = None
+        self._catalog_id = None
         self._pgdata_dir = None
         self._db_name = None
         self._db_server = None
@@ -222,6 +255,9 @@ class Env:
 
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
+        self._cpu_pool = None
+        self._udf_configs_cache = None
+        self._udf_endpoints = None
         self._dbms = None
         self._db_lock = threading.Lock()
         self._db_connected = False
@@ -287,12 +323,12 @@ class Env:
 
     @default_time_zone.setter
     def default_time_zone(self, tz: ZoneInfo | None) -> None:
-        """
-        This is not a publicly visible setter; it is only for testing purposes.
-        """
+        """Set the default time zone, or the configured one if tz is None."""
         self._default_time_zone = ZoneInfo(self._get_tz_name()) if tz is None else tz
-        self.engine.dispose()
-        self._create_engine()
+        if self._db_connected:
+            # the engine's connections use the default time zone
+            self.engine.dispose()
+            self._create_engine()
 
     def record_tbl_catalog_uri(self, tbl_id: UUID, catalog_uri: CatalogPath) -> None:
         """Record which catalog a table belongs to. The mapping is immutable per table id."""
@@ -319,6 +355,17 @@ class Env:
     def is_local(self) -> bool:
         assert self._db_connected
         return self._db_server is not None
+
+    def has_local_db(self) -> bool:
+        """Whether the install has a local database. A call doesn't start Postgres."""
+        config = Config.get()
+        if self._db_connected or config.get_string_value('DB_CONNECT_STR') is not None:
+            return True
+        # initdb writes PG_VERSION; a data directory without it has no cluster
+        return (self._configured_pgdata_dir(config) / 'PG_VERSION').is_file()
+
+    def _configured_pgdata_dir(self, config: Config) -> Path:
+        return Path(config.lookup_env('pixeltable', 'pgdata', str(config.home / 'pgdata')))
 
     def is_notebook(self) -> bool:
         """Return True if running in a Jupyter notebook."""
@@ -397,6 +444,18 @@ class Env:
         # query/insert so a file fetched at the start of an operation is still present when the operation needs it
         lease_s = config.get_float_value('file_cache_lease_s')
         self._file_cache_lease_s = 600.0 if lease_s is None else lease_s
+
+        cpu_pool_size = config.get_int_value('cpu_pool_size')
+        if cpu_pool_size is not None and cpu_pool_size <= 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'pixeltable/cpu_pool_size must be a positive integer, got {cpu_pool_size}',
+            )
+        if cpu_pool_size is None:
+            num_cpus = os.cpu_count()
+            cpu_pool_size = 4 if num_cpus is None else num_cpus
+        # the executor starts a thread only when a job needs one
+        self._cpu_pool = concurrent.futures.ThreadPoolExecutor(max_workers=cpu_pool_size, thread_name_prefix='pxt-cpu')
 
         self._cloud_org = config.get_string_value('org', section='pxtcloud')
         self._cloud_db = config.get_string_value('db', section='pxtcloud')
@@ -557,11 +616,16 @@ class Env:
         self.console_logger.info(f'Connected to Pixeltable database at: {redacted_db_url}')
         fault_injection.process_fault(FaultLocation.ENV_SET_UP_DB_BEFORE_UPGRADE)
         self._upgrade_metadata()
+        from pixeltable import metadata
+
+        # after the upgrade, which adds catalog_id to the metadata of an older version
+        self._catalog_id = metadata.catalog_id(self._sa_engine)
 
     def _disconnect(self) -> None:
         if self._sa_engine is not None:
             self._sa_engine.dispose()
         self._sa_engine = None
+        self._catalog_id = None
         self._dbms = None
         self._db_url = None
         self._db_name = None
@@ -605,7 +669,7 @@ class Env:
             if configured_name:
                 validate_db_name(configured_name)
             folded_name = fold_identifier(configured_name) if configured_name else 'pixeltable'
-            self._pgdata_dir = Path(config.lookup_env('pixeltable', 'pgdata', str(config.home / 'pgdata')))
+            self._pgdata_dir = self._configured_pgdata_dir(config)
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._set_local_db(folded_name)
             # Legacy database (with an unfolded name) fallback
@@ -865,6 +929,8 @@ class Env:
         - the user might prefer a hardware-accelerated encoder (eg, h264_nvenc or h264_videotoolbox)
         - allow user override via a config option 'video_encoder'
         """
+        from pixeltable.utils.av import run_ffmpeg
+
         # look for available encoders, in this order
         candidates = [
             'libx264',  # GPL, best quality
@@ -873,7 +939,7 @@ class Env:
 
         try:
             # Get list of available encoders
-            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+            result = run_ffmpeg(['-encoders'], timeout=10)
 
             if result.returncode == 0:
                 available_encoders = result.stdout
@@ -1057,10 +1123,84 @@ class Env:
             return info
 
     @property
+    def udf_endpoints(self) -> UdfEndpoints | None:
+        return self._udf_endpoints
+
+    @udf_endpoints.setter
+    def udf_endpoints(self, endpoints: UdfEndpoints | None) -> None:
+        self._udf_endpoints = endpoints
+
+    @classmethod
+    def drop_udf_endpoints(cls) -> None:
+        """Make the next udf_servers.udf_endpoints() look up the endpoints of the UDF servers again."""
+        # not Env.get(): it would create an Env, which has no endpoints to drop
+        if cls._instance is not None:
+            cls._instance._udf_endpoints = None
+
+    def udf_configs(self) -> dict[str, UdfConfig]:
+        """Return the entries of the pixeltable.udf setting, keyed by each UDF's self_path."""
+        # pixeltable.func imports this module
+        from pixeltable import func
+        from pixeltable.func.symbols import resolve_symbol
+
+        config = Config.get()
+        setting = config.get_value('udf', dict)
+        if setting is None:
+            return {}
+        cache = self._udf_configs_cache
+        if cache is not None and cache[0] == setting:
+            return cache[1]
+        source = config.describe_setting('pixeltable', 'udf')
+        try:
+            entries = _UDF_RESOURCES_ADAPTER.validate_python(setting)
+        except pydantic.ValidationError as e:
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid {source}:\n{e}') from e
+
+        result: dict[str, UdfConfig] = {}
+        for path, resources in entries.items():
+            try:
+                fn = resolve_symbol(path)
+            except AttributeError:
+                fn = None
+            if not isinstance(fn, func.CallableFunction):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{source}: {path!r} is not a UDF declared with @pxt.udf'
+                )
+            if not fn.is_builtin:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {path!r} is not a built-in UDF; only built-in UDFs run on Modal',
+                )
+            if any(inspect.iscoroutinefunction(py_fn) for py_fn in fn.py_fns):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {path!r} is async; only synchronous UDFs run on Modal',
+                )
+            assert fn.self_path is not None
+            # a module that re-exports a UDF gives it a second path, which resolves to the same UDF
+            if fn.self_path in result:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {result[fn.self_path].setting_path!r} and {path!r} are the same UDF',
+                )
+            result[fn.self_path] = UdfConfig(path, resources)
+        self._udf_configs_cache = (setting, result)
+        return result
+
+    @property
     def pgdata_dir(self) -> Path | None:
         """Data directory of the embedded Postgres server; None when Pixeltable uses an external database."""
         assert self._db_connected
         return self._pgdata_dir
+
+    @property
+    def cpu_pool(self) -> concurrent.futures.ThreadPoolExecutor:
+        """Thread pool, shared by the whole process, for CPU-bound work in libraries that release the GIL.
+
+        A job on this pool must not access the catalog, a DataRow or the database.
+        """
+        assert self._cpu_pool is not None
+        return self._cpu_pool
 
     @property
     def media_dir(self) -> Path:
@@ -1105,6 +1245,11 @@ class Env:
         assert self._db_connected
         return self._sa_engine
 
+    @property
+    def catalog_id(self) -> str:
+        assert self._db_connected
+        return self._catalog_id
+
     def _clean_up(self) -> None:
         """
         Internal cleanup method that properly closes all resources and resets state.
@@ -1117,6 +1262,10 @@ class Env:
                 self._httpd.server_close()
             except Exception as e:
                 _logger.warning(f'Error stopping HTTP server: {e}')
+
+        if self._cpu_pool is not None:
+            self._cpu_pool.shutdown(wait=False, cancel_futures=True)
+            self._cpu_pool = None
 
         # Dispose of SQLAlchemy engine
         if self._sa_engine is not None:
@@ -1282,7 +1431,10 @@ class RateLimitsInfo:
                 self.has_exc = False
                 for k, v in kwargs.items():
                     if v is not None:
-                        self.resource_limits[k].update(request_ts, *v)
+                        if k in self.resource_limits:
+                            self.resource_limits[k].update(request_ts, *v)
+                        else:
+                            self.resource_limits[k] = RateLimitInfo(k, request_ts, *v)
                         _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
 
     def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:

@@ -1,15 +1,16 @@
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 from pixeltable import exprs
 from pixeltable.env import Env
 
-from ..utils import validate_update_status
+from ..utils import pxt_raises, reload_catalog, validate_update_status
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
@@ -23,6 +24,9 @@ class TestTimestamp:
         '2020-02-29T00:00:00-08:00',
         '2019-01-01T00:00:01-08:00',
     )
+    LA = ZoneInfo('America/Los_Angeles')
+    # daylight saving time starts in America/Los_Angeles and America/Anchorage on 2026-03-08
+    BEFORE_DST = datetime(2026, 3, 7, 12, 0, tzinfo=LA)
 
     def make_test_table(self) -> tuple[list[datetime], pxt.Table]:
         # Create a test table with a date column
@@ -144,6 +148,170 @@ class TestTimestamp:
         )
         assert actual_py == expected, actual_py
 
+    def make_arithmetic_table(self) -> tuple[list[dict[str, Any]], pxt.Table]:
+        Env.get().default_time_zone = ZoneInfo('America/Anchorage')
+        t = pxt.create_table(
+            'test_tbl',
+            {
+                'id': pxt.Int,
+                'dt': pxt.Timestamp | None,
+                'end': pxt.Timestamp | None,
+                'i': pxt.Int | None,
+                'f': pxt.Float | None,
+                'j': pxt.Json | None,
+            },
+        )
+        la = self.LA
+        rows: list[dict[str, Any]] = [
+            {'dt': self.BEFORE_DST, 'end': datetime(2026, 3, 8, 12, 0, tzinfo=la), 'i': 86400, 'f': 86400.0},
+            {'dt': datetime(2024, 1, 1, 0, 0, 0, 123457, tzinfo=la), 'end': self.BEFORE_DST, 'i': -1, 'f': 1.5e-6},
+            {'dt': None, 'end': self.BEFORE_DST, 'i': 1, 'f': 1.0},
+            {'dt': self.BEFORE_DST, 'end': None, 'i': None, 'f': None},
+        ]
+        # the last four offsets end in half a microsecond
+        fs = [-0.25, 86400.0000005, -86400.0000005, 86400.0000015, 12345.6789015]
+        rows.extend(
+            {
+                'dt': datetime.fromisoformat(dt),
+                'end': datetime(2025, 5, 17, 3, 4, 5, 678901, tzinfo=la),
+                'i': 90,
+                'f': f,
+            }
+            for dt, f in zip(self.TEST_DATETIMES, fs)
+        )
+        for row in rows:
+            row['j'] = {'ts': '2025-11-02T01:30:00-07:00'}
+        validate_update_status(t.insert({'id': i, **row} for i, row in enumerate(rows)), expected_rows=len(rows))
+        return rows, t
+
+    def shifted(self, dt: datetime | None, seconds: float | None) -> datetime | None:
+        if dt is None or seconds is None:
+            return None
+        return dt.astimezone(timezone.utc) + timedelta(seconds=seconds)
+
+    def test_timestamp_arithmetic(self, uses_db: None) -> None:
+        rows, t = self.make_arithmetic_table()
+        sql_dt = t.dt
+        # a non-SQLizable identity function forces evaluation in Python
+        py_dt = t.dt.apply(lambda x: x, col_type=pxt.Timestamp)
+        timedeltas = [
+            timedelta(hours=1),
+            timedelta(days=1, microseconds=1),
+            timedelta(days=-400, seconds=5),
+            timedelta(0),
+        ]
+        for dt_expr in (sql_dt, py_dt):
+            for td in timedeltas:
+                res = t.select(plus=dt_expr + td, rplus=td + dt_expr, minus=dt_expr - td).order_by(t.id).collect()
+                expected_plus = [self.shifted(row['dt'], td.total_seconds()) for row in rows]
+                assert res['plus'] == expected_plus, td
+                assert res['rplus'] == expected_plus, td
+                assert res['minus'] == [self.shifted(row['dt'], -td.total_seconds()) for row in rows], td
+
+            # row 0: one day after noon on the day before the DST change is 13:00 wall-clock time
+            res = (
+                t.where(t.id == 0).select(out=dt_expr + timedelta(days=1), since=t.end.seconds_since(dt_expr)).collect()
+            )
+            assert res['out'] == [datetime(2026, 3, 8, 13, 0, tzinfo=self.LA)]
+            assert res['since'] == [82800.0]
+
+            res = (
+                t.select(
+                    i=dt_expr.add_seconds(t.i),
+                    f=dt_expr.add_seconds(t.f),
+                    since=t.end.seconds_since(dt_expr),
+                    rsince=dt_expr.seconds_since(t.end),
+                    posix=dt_expr.posix_timestamp(),
+                )
+                .order_by(t.id)
+                .collect()
+            )
+            assert res['i'] == [self.shifted(row['dt'], row['i']) for row in rows]
+            assert res['f'] == [self.shifted(row['dt'], row['f']) for row in rows]
+            expected_since = [
+                None
+                if row['dt'] is None or row['end'] is None
+                else (row['end'].astimezone(timezone.utc) - row['dt'].astimezone(timezone.utc)).total_seconds()
+                for row in rows
+            ]
+            assert res['since'] == expected_since
+            assert res['rsince'] == [None if s is None else -s for s in expected_since]
+            assert res['posix'] == [None if row['dt'] is None else row['dt'].timestamp() for row in rows]
+
+    def test_timestamp_arithmetic_exprs(self, uses_db: None) -> None:
+        rows, t = self.make_arithmetic_table()
+
+        # strip_timezone() returns the wall-clock time in the default time zone
+        naive_dt = t.dt.strip_timezone()
+        res = (
+            t.select(
+                plus=naive_dt + timedelta(days=1),
+                since=naive_dt.seconds_since(t.dt),
+                rsince=t.dt.seconds_since(naive_dt),
+            )
+            .order_by(t.id)
+            .collect()
+        )
+        default_tz = Env.get().default_time_zone
+        assert res['plus'] == [
+            None if row['dt'] is None else self.shifted(row['dt'], 86400).astimezone(default_tz).replace(tzinfo=None)
+            for row in rows
+        ]
+        assert res['since'] == [None if row['dt'] is None else 0.0 for row in rows]
+        assert res['rsince'] == res['since']
+
+        res = t.select(out=t.j.ts.astype(pxt.Timestamp) + timedelta(hours=1)).order_by(t.id).collect()
+        assert res['out'] == [self.shifted(datetime.fromisoformat(row['j']['ts']), 3600) for row in rows]
+
+        # TODO: PXT-1825: run these filters on a Timestamp expression evaluated in Python as well
+        week_ago = pxtf.timestamp.now() - timedelta(days=7)
+        assert t.where(t.dt < week_ago).count() == sum(row['dt'] is not None for row in rows)
+        assert t.where(t.dt > week_ago).count() == 0
+        cutoff = datetime(2021, 1, 1, tzinfo=timezone.utc).timestamp()
+        assert t.where(t.dt.posix_timestamp() < cutoff).count() == sum(
+            row['dt'] is not None and row['dt'].timestamp() < cutoff for row in rows
+        )
+
+        assert str(t.dt - timedelta(hours=1)) == 'add_seconds(dt, -3600.0)'
+
+        t.add_computed_column(later=t.dt + timedelta(hours=1))
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        validate_update_status(t.insert([{'id': len(rows), 'dt': self.BEFORE_DST}]), expected_rows=1)
+        res = t.select(t.later).order_by(t.id).collect()
+        assert res['later'] == [self.shifted(row['dt'], 3600) for row in rows] + [self.shifted(self.BEFORE_DST, 3600)]
+
+        dts = [row['dt'] for row in rows] + [self.BEFORE_DST]
+        validate_update_status(t.update({'end': t.dt - timedelta(days=1)}), expected_rows=len(dts))
+        assert t.select(t.end).order_by(t.id).collect()['end'] == [self.shifted(dt, -86400) for dt in dts]
+        year_end = datetime(2020, 12, 31, tzinfo=timezone.utc)
+        year_later = [self.shifted(dt, 365 * 86400) for dt in dts]
+        validate_update_status(
+            t.where(t.dt + timedelta(days=365) < year_end).delete(),
+            expected_rows=sum(later is not None and later < year_end for later in year_later),
+        )
+
+    def test_timestamp_arithmetic_errors(self, uses_db: None) -> None:
+        _, t = self.make_arithmetic_table()
+        seconds_since_hint = r'- is not defined for two Timestamps; `end.seconds_since\(start\)`'
+        td = timedelta(hours=1)
+        errors: list[tuple[Callable[[], exprs.Expr], str]] = [
+            (lambda: t.end - t.dt, seconds_since_hint),
+            (lambda: t.dt - self.BEFORE_DST, seconds_since_hint),
+            (lambda: self.BEFORE_DST - t.dt, seconds_since_hint),
+            (lambda: td - t.dt, 'timedelta - dt: a timedelta has to be the right operand of -'),
+            (lambda: t.i + td, r'i: a timedelta can only be added .* has type `Int \| None`'),
+            (lambda: td + t.f, r'f: a timedelta can only be added .* has type `Float \| None`'),
+            (lambda: t.j.ts - td, r'j.ts: a timedelta can only be .* `astype\(pxt.Timestamp\)`'),
+            (
+                lambda: t.end.seconds_since(t.dt) < td,
+                r'< is not defined for a timedelta; `timedelta.total_seconds\(\)`',
+            ),
+        ]
+        for make_expr, match in errors:
+            with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+                _ = make_expr()
+
     def test_timestamp_zones(self, uses_db: None) -> None:
         timestamps = [
             # Some random times in the summer months (to ensure varying DST treatment)
@@ -238,3 +406,55 @@ class TestTimestamp:
             .collect()
         )
         assert res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]
+
+    def test_now(self, uses_db: None) -> None:
+        default_tz = ZoneInfo('America/Anchorage')
+        Env.get().default_time_zone = default_tz
+        from pixeltable.functions.timestamp import now
+
+        t = pxt.create_table('test_tbl', {'n': pxt.Int})
+        t.add_computed_column(inserted_at=now())
+        t.add_computed_column(queried_at=now(), stored=False)
+        before_insert = datetime.now(timezone.utc)
+        validate_update_status(t.insert({'n': n} for n in range(3)), expected_rows=3)
+        after_insert = datetime.now(timezone.utc)
+        res = t.select(t.inserted_at, t.queried_at, selected_at=now()).collect()
+        after_query = datetime.now(timezone.utc)
+        assert all(before_insert <= ts <= after_insert for ts in res['inserted_at'])
+        assert all(after_insert <= ts <= after_query for ts in res['queried_at'] + res['selected_at'])
+
+        evaluated = pxt.eval_udf(now)
+        assert after_query <= evaluated <= datetime.now(timezone.utc)
+        assert evaluated.tzinfo == default_tz
+
+        before_recompute = datetime.now(timezone.utc)
+        t.recompute_columns('inserted_at')
+        assert all(before_recompute <= ts for ts in t.select(t.inserted_at).collect()['inserted_at'])
+
+    def test_parse(self, uses_db: None) -> None:
+        default_tz = ZoneInfo('America/Anchorage')
+        Env.get().default_time_zone = default_tz
+        from pixeltable.functions.timestamp import strptime
+
+        t = pxt.create_table('test_tbl', {'n': pxt.Int, 'local': pxt.String | None, 'iso': pxt.String | None})
+        rows = [
+            {'n': 0, 'local': '01/10/2026 10:30', 'iso': '2026-10-01T10:30:00'},
+            {'n': 1, 'local': 'not a date', 'iso': '2026-10-01T10:30:00+02:00'},
+            {'n': 2, 'local': None, 'iso': None},
+        ]
+        validate_update_status(t.insert(rows), expected_rows=3)
+        status = t.add_computed_column(parsed=strptime(t.local, '%d/%m/%Y %H:%M'), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.parsed, err=t.parsed.errormsg, cast=t.iso.astype(pxt.Timestamp | None)).order_by(t.n).collect()
+        assert res['parsed'] == [datetime(2026, 10, 1, 10, 30, tzinfo=default_tz), None, None]
+        assert "does not match format '%d/%m/%Y %H:%M'" in res['err'][1]
+        assert res['cast'] == [
+            datetime(2026, 10, 1, 10, 30, tzinfo=default_tz),
+            datetime(2026, 10, 1, 8, 30, tzinfo=timezone.utc),
+            None,
+        ]
+
+        # a format with a time zone
+        assert pxt.eval_udf(strptime, '2026-10-01 10:30 +0200', '%Y-%m-%d %H:%M %z') == datetime(
+            2026, 10, 1, 8, 30, tzinfo=timezone.utc
+        )

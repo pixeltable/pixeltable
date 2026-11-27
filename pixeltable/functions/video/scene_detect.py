@@ -6,7 +6,6 @@ import numpy as np
 import pixeltable as pxt
 import pixeltable.functions.video.iterators as video_iterators
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from scenedetect.detectors import SceneDetector  # type: ignore[import-untyped]
@@ -23,7 +22,7 @@ class SceneInfo(TypedDict):
     """Scene duration, in seconds."""
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_adaptive(
     video: pxt.Video,
     *,
@@ -133,7 +132,7 @@ def scene_detect_adaptive(
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_content(
     video: pxt.Video,
     *,
@@ -240,7 +239,7 @@ def scene_detect_content(
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_threshold(
     video: pxt.Video,
     *,
@@ -337,7 +336,7 @@ def scene_detect_threshold(
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_histogram(
     video: pxt.Video, *, fps: float | None = None, threshold: float = 0.05, bins: int = 256, min_scene_len: int = 15
 ) -> list[SceneInfo]:
@@ -415,7 +414,7 @@ def scene_detect_histogram(
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_hash(
     video: pxt.Video,
     *,
@@ -579,4 +578,11 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
         frame_iter.close()
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'SceneInfo',
+    'scene_detect_adaptive',
+    'scene_detect_content',
+    'scene_detect_hash',
+    'scene_detect_histogram',
+    'scene_detect_threshold',
+]

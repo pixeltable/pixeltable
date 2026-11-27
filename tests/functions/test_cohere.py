@@ -81,6 +81,7 @@ def cohere_api(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> _FakeSession:
     return _fake_session(monkeypatch, _cohere_api)
 
 
+@pytest.mark.usefixtures('init_env')
 class TestCohereClient:
     def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('COHERE_API_KEY', 'test-key')

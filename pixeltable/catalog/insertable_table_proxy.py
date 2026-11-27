@@ -51,6 +51,7 @@ class InsertableTableProxy(TableProxy):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -71,6 +72,9 @@ class InsertableTableProxy(TableProxy):
         if isinstance(source, Iterator):
             # materialize a generator/iterator of rows, matching the local insert path
             source = list(source)
+        # fsdecode, not fspath: a bytes __fspath__() must become a str
+        if isinstance(source, os.PathLike):
+            source = os.fsdecode(source)
 
         if isinstance(source, str):
             # A file/directory/URL source is sent to the daemon as-is. The exception is a source with media columns,
@@ -89,10 +93,18 @@ class InsertableTableProxy(TableProxy):
                 data_source.src_pk = []
                 data_source.infer_schema()
                 data_source.prepare_for_insert_into_table()
-                rows = self._convert_local_paths(row for batch in data_source.valid_row_batch() for row in batch)
+                # TODO: this materializes all rows of the source to send them in one request; streaming them to the
+                # daemon would bound the client's memory
+                rows = self._convert_local_paths(data_source.rows())
                 return self._dispatch(
                     'insert',
-                    {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
+                    {
+                        'rows': rows,
+                        'on_error': on_error,
+                        'if_exists': if_exists,
+                        'print_stats': print_stats,
+                        'return_rows': return_rows,
+                    },
                 )
             return self._insert_source(
                 source,
@@ -100,6 +112,7 @@ class InsertableTableProxy(TableProxy):
                 schema_overrides=schema_overrides,
                 extra_fields=kwargs,
                 on_error=on_error,
+                if_exists=if_exists,
                 print_stats=print_stats,
                 return_rows=return_rows,
             )
@@ -111,6 +124,7 @@ class InsertableTableProxy(TableProxy):
                 source,
                 schema_overrides=schema_overrides,
                 on_error=on_error,
+                if_exists=if_exists,
                 print_stats=print_stats,
                 return_rows=return_rows,
                 extra_fields=kwargs,
@@ -123,7 +137,11 @@ class InsertableTableProxy(TableProxy):
 
         if isinstance(data_source, QueryTableDataConduit):
             return self._insert_query(
-                data_source.pxt_query, on_error=on_error, print_stats=print_stats, return_rows=return_rows
+                data_source.pxt_query,
+                on_error=on_error,
+                if_exists=if_exists,
+                print_stats=print_stats,
+                return_rows=return_rows,
             )
 
         # in-memory data sources are sent as row dicts
@@ -135,9 +153,10 @@ class InsertableTableProxy(TableProxy):
         elif isinstance(data_source, PandasTableDataConduit):
             data_source.src_pk = []
             data_source.infer_schema()
-            data_source.prepare_for_insert_into_table()  # populates valid_rows (df -> pxt-native dicts)
-            assert data_source.valid_rows is not None
-            rows = data_source.valid_rows
+            data_source.prepare_for_insert_into_table()
+            # TODO: this materializes all rows of the source to send them in one request; streaming them to the
+            # daemon would bound the client's memory
+            rows = list(data_source.rows())
         else:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -145,11 +164,24 @@ class InsertableTableProxy(TableProxy):
             )
         rows = self._convert_local_paths(rows)
         return self._dispatch(
-            'insert', {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows}
+            'insert',
+            {
+                'rows': rows,
+                'on_error': on_error,
+                'if_exists': if_exists,
+                'print_stats': print_stats,
+                'return_rows': return_rows,
+            },
         )
 
     def _insert_query(
-        self, query: 'Query', *, on_error: Literal['abort', 'ignore'], print_stats: bool, return_rows: bool
+        self,
+        query: 'Query',
+        *,
+        on_error: Literal['abort', 'ignore'],
+        if_exists: Literal['error', 'ignore'],
+        print_stats: bool,
+        return_rows: bool,
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
         if query._from_clause.catalog_uri != self._catalog_uri:
@@ -201,6 +233,7 @@ class InsertableTableProxy(TableProxy):
                 schema_overrides=None,
                 extra_fields=None,
                 on_error=on_error,
+                if_exists='error',
                 print_stats=print_stats,
                 return_rows=return_rows,
             )
@@ -256,6 +289,7 @@ class InsertableTableProxy(TableProxy):
         schema_overrides: dict[str, ts.ColumnType] | None,
         extra_fields: dict[str, Any] | None,
         on_error: Literal['abort', 'ignore'],
+        if_exists: Literal['error', 'ignore'],
         print_stats: bool,
         return_rows: bool,
     ) -> UpdateStatus:
@@ -283,6 +317,7 @@ class InsertableTableProxy(TableProxy):
                 'schema_overrides': self._normalize_schema_overrides(schema_overrides),
                 'extra_fields': extra_fields,
                 'on_error': on_error,
+                'if_exists': if_exists,
                 'print_stats': print_stats,
                 'return_rows': return_rows,
             },
@@ -294,6 +329,7 @@ class InsertableTableProxy(TableProxy):
         *,
         schema_overrides: dict[str, ts.ColumnType] | None,
         on_error: Literal['abort', 'ignore'],
+        if_exists: Literal['error', 'ignore'],
         print_stats: bool,
         return_rows: bool,
         extra_fields: dict[str, Any] | None,
@@ -328,6 +364,7 @@ class InsertableTableProxy(TableProxy):
                     'schema_overrides': self._normalize_schema_overrides(schema_overrides),
                     'extra_fields': extra_fields or {},
                     'on_error': on_error,
+                    'if_exists': if_exists,
                     'print_stats': print_stats,
                     'return_rows': return_rows,
                 },

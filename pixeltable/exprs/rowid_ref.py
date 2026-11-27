@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 from typing import Any, cast
 from uuid import UUID
 
@@ -53,7 +52,7 @@ class RowidRef(Expr):
                 catalog.TableVersionKey(normalized_base_id, normalized_base_effective_version)
             )
         self.rowid_component_idx = idx
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def tbl_id(self) -> UUID:
@@ -82,14 +81,6 @@ class RowidRef(Expr):
             ('normalized_base_effective_version', self.normalized_base.effective_version),
             ('idx', self.rowid_component_idx),
         ]
-
-    # override
-    def copy(self) -> RowidRef:
-        # deepcopy(tvh) is needed to create a copy for the local thread/catalog
-        result = super().copy()
-        result.tbl = copy.deepcopy(self.tbl)
-        result.normalized_base = copy.deepcopy(self.normalized_base)
-        return result
 
     def __repr__(self) -> str:
         # check if this is the pos column of a component view

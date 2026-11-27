@@ -168,7 +168,7 @@ export OTEL_METRICS=false
 export OTEL_SPAN_LEVEL=debug
 ```
 
-`pxt service run` reads these variables in its own process. `pxt service update` starts the service from the Pixeltable daemon, which reads the environment once, so run `pxt daemon restart` after the exports.
+`pxt service run` reads these variables in its own process. `pxt service update` starts the service from the Pixeltable daemon, and restarts the daemon first when these variables differ from the daemon's.
 
 If the database entry in `pixeltable.toml` sets `db_exporter_otlp_endpoint`, it wins over `OTEL_EXPORTER_OTLP_ENDPOINT`, so set the Langfuse endpoint on that entry instead.
 
