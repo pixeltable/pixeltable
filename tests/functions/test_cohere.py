@@ -1,8 +1,8 @@
 import asyncio
 import json
-from types import TracebackType
-from typing import Any, Callable, Self
+from typing import Any, Callable
 
+import httpx
 import numpy as np
 import pytest
 
@@ -24,28 +24,12 @@ class _FakeResponse:
         self.headers = headers or {}
         self._body = body
 
-    async def text(self) -> str:
-        return self._body
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(
-        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
-    ) -> None:
-        pass
-
 
 class _FakeSession:
-    """Stands in for the client's aiohttp session: records the requests and answers them with `handler`."""
+    """Records requests sent by the real SDK through the mock HTTP transport."""
 
-    def __init__(self, handler: Callable[[str, dict[str, Any]], _FakeResponse]) -> None:
-        self.handler = handler
+    def __init__(self) -> None:
         self.requests: list[tuple[str, dict[str, Any], dict[str, str]]] = []
-
-    def post(self, endpoint: str, *, json: dict[str, Any], headers: dict[str, str]) -> _FakeResponse:
-        self.requests.append((endpoint, json, headers))
-        return self.handler(endpoint, json)
 
 
 def _one_hot(text: str, dim: int) -> list[float]:
@@ -75,8 +59,19 @@ def _cohere_api(endpoint: str, payload: dict[str, Any]) -> _FakeResponse:
 def _fake_session(
     monkeypatch: pytest.MonkeyPatch, handler: Callable[[str, dict[str, Any]], _FakeResponse]
 ) -> _FakeSession:
-    session = _FakeSession(handler)
-    monkeypatch.setattr(cohere._CohereClient, '_get_session', lambda self: session)
+    session = _FakeSession()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        headers = dict(request.headers)
+        headers['Authorization'] = request.headers['authorization']
+        session.requests.append((request.url.path, payload, headers))
+        response = handler(request.url.path, payload)
+        return httpx.Response(response.status, content=response._body, headers=response.headers)
+
+    monkeypatch.setattr(
+        cohere._CohereClient, '_get_http_client', lambda self: httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    )
     return session
 
 
@@ -91,13 +86,14 @@ class TestCohereClient:
         monkeypatch.setenv('COHERE_API_KEY', 'test-key')
         client = get_runtime().get_client('cohere')
 
-        # the session opens on the first request, on the runtime's loop; aiohttp wants it created in a coroutine
+        # Create the SDK transport on the runtime's loop, where reset will close it.
         async def open_session() -> Any:  # noqa: RUF029
-            return client._get_session()
+            client._get_sdk()
+            return client._http_client
 
         session = get_runtime().event_loop.run_until_complete(open_session())
         reset_runtime()
-        assert session.closed
+        assert session.is_closed
 
     @pytest.mark.parametrize(
         ('status', 'headers', 'code', 'retry_after'),
@@ -123,7 +119,17 @@ class TestCohereClient:
         _fake_session(monkeypatch, lambda endpoint, payload: _FakeResponse(status, body, headers))
         client = cohere._CohereClient(api_key='test-key')
         with pxt_raises(code, match=f'/v2/embed failed with status {status}: error {status}') as info:
-            asyncio.run(client._post('/v2/embed', payload={}))
+            asyncio.run(
+                client._post(
+                    '/v2/embed',
+                    payload={
+                        'model': 'embed-v4.0',
+                        'input_type': 'search_document',
+                        'texts': ['a'],
+                        'embedding_types': ['float'],
+                    },
+                )
+            )
         assert isinstance(info.value, pxt.ExternalServiceError)
         assert info.value.provider == 'cohere'
         assert info.value.provider_http_status_code == status
@@ -133,14 +139,24 @@ class TestCohereClient:
         _fake_session(monkeypatch, lambda endpoint, payload: _FakeResponse(502, 'Bad Gateway'))
         client = cohere._CohereClient(api_key='test-key')
         with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='failed with status 502: Bad Gateway'):
-            asyncio.run(client._post('/v2/rerank', payload={}))
+            asyncio.run(client._post('/v2/rerank', payload={'model': 'rerank-v3.5', 'query': 'q', 'documents': ['a']}))
 
     @pytest.mark.parametrize('body', ['not json', '[1, 2]'])
     def test_response_not_a_json_object(self, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
         _fake_session(monkeypatch, lambda endpoint, payload: _FakeResponse(200, body))
         client = cohere._CohereClient(api_key='test-key')
         with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='not a JSON object'):
-            asyncio.run(client._post('/v2/embed', payload={}))
+            asyncio.run(
+                client._post(
+                    '/v2/embed',
+                    payload={
+                        'model': 'embed-v4.0',
+                        'input_type': 'search_document',
+                        'texts': ['a'],
+                        'embedding_types': ['float'],
+                    },
+                )
+            )
 
 
 class TestCohere:

@@ -1,26 +1,25 @@
 """
 Pixeltable [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) that wrap [Cohere](https://cohere.com/)
-APIs for embeddings and reranking. In order to use them, the API key must be specified either with `COHERE_API_KEY`
+APIs for embeddings and reranking. Install the `cohere` SDK first. Specify the API key with `COHERE_API_KEY`
 environment variable, or as `api_key` in the `cohere` section of the Pixeltable config file.
 """
 
 import json
-import logging
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
-import aiohttp
+import httpx
 import numpy as np
 
 import pixeltable as pxt
 from pixeltable import type_system as ts
-from pixeltable.env import register_client
+from pixeltable.env import Env, register_client
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
-_logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from cohere import AsyncClientV2
 
-_COHERE_BASE_URL = 'https://api.cohere.com'
 _MAX_DETAIL_LEN = 500
 
 # Default embedding dimensions for Cohere models
@@ -80,50 +79,57 @@ def _status_error(endpoint: str, status: int, retry_after: str | None, body: str
 
 
 class _CohereClient:
-    """
-    Client for interacting with the Cohere API.
-    """
-
-    _request_headers: dict[str, str]
-    _session: aiohttp.ClientSession | None
+    """Owns the SDK transport and adapts provider failures to Pixeltable errors."""
 
     def __init__(self, api_key: str):
-        self._request_headers = {
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-        }
-        self._session = None  # defer session creation until we have a running event loop
+        self._api_key = api_key
+        self._sdk: AsyncClientV2 | None = None
+        self._http_client: httpx.AsyncClient | None = None
 
-    def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None:
-            self._session = aiohttp.ClientSession(base_url=_COHERE_BASE_URL)
-        return self._session
+    def _get_http_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient()
+
+    def _get_sdk(self) -> 'AsyncClientV2':
+        if self._sdk is None:
+            Env.get().require_package('cohere', [7, 3, 2])
+            from cohere import AsyncClientV2
+
+            self._http_client = self._get_http_client()
+            self._sdk = AsyncClientV2(api_key=self._api_key, httpx_client=self._http_client, max_retries=0)
+        return self._sdk
 
     async def close(self) -> None:
-        """Close the HTTP session, if one was ever opened."""
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+            self._sdk = None
 
     async def _post(self, endpoint: str, *, payload: dict[str, Any]) -> dict[str, Any]:
-        async with self._get_session().post(endpoint, json=payload, headers=self._request_headers) as resp:
-            status = resp.status
-            body = await resp.text()
-            if status != 200:
-                _logger.info(f'Cohere request to {endpoint} failed with status {status}')
-                raise _status_error(endpoint, status, resp.headers.get('Retry-After'), body)
+        sdk = self._get_sdk()
+        from cohere.core.api_error import ApiError
+
         try:
-            result = json.loads(body)
-        except ValueError:
-            result = None
-        if not isinstance(result, dict):
+            if endpoint == '/v2/embed':
+                result = (await sdk.embed(**payload)).model_dump(by_alias=True, exclude_none=True)
+            else:
+                result = (await sdk.rerank(**payload)).model_dump(by_alias=True, exclude_none=True)
+        except ApiError as exc:
+            if exc.status_code is not None and exc.status_code < 400:
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                    'Cohere returned a response that is not a JSON object',
+                    provider='cohere',
+                ) from exc
+            body = exc.body if isinstance(exc.body, str) else json.dumps(exc.body)
+            raise _status_error(
+                endpoint, exc.status_code or 500, httpx.Headers(exc.headers or {}).get('Retry-After'), body
+            ) from exc
+        except (TypeError, ValueError) as exc:
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                f'Cohere returned a response that is not a JSON object: {body[:_MAX_DETAIL_LEN]}',
+                'Cohere returned a response that is not a JSON object',
                 provider='cohere',
-                status_code=status,
-            )
+            ) from exc
         return result
 
 

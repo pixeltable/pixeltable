@@ -223,6 +223,7 @@ dev = [
     "imagehash>=4.3",
     "scipy>=1 ; python_version < '3.14'",
     "scipy>=1.17 ; python_version >= '3.14'",
+    "cohere>=7.3.2",
 ]
 test = [
     "pytest>=9.0.3,<9.2",  # PXT-1714: lift when pytest-benchmark supports pytest 9.2
